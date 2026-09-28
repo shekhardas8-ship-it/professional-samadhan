@@ -1,0 +1,40 @@
+TAX INVOICE (GST)
+Invoice No: INV/26-27/052
+Invoice Date: 22-08-2026
+Place of Supply: 27-Maharashtra
+Reverse Charge: No
+
+SUPPLIER:
+Apex Engineering Works
+Plot 12, Kothrud Industrial Area, Pune, Maharashtra - 411038
+GSTIN: 27AAACA1234A1Z5
+State: Maharashtra (Code 27)
+
+BUYER (BILL TO):
+Mahindra Heavy Automotive Ltd
+MIDC Chakan Phase 2, Pune, Maharashtra - 410501
+GSTIN: 27AABCM9988K1Z3
+State: Maharashtra (Code 27)
+
+LINE ITEMS:
+1. Description: Precision Forged Shaft Assemblies Grade EN-19
+   HSN Code: 8483
+   Quantity: 25 SETS
+   Unit Rate: Rs. 4,800.00
+   Taxable Value: Rs. 1,20,000.00
+   GST Rate: 18% (CGST 9% + SGST 9%)
+   CGST: Rs. 10,800.00
+   SGST: Rs. 10,800.00
+   Total: Rs. 1,41,600.00
+
+SUMMARY:
+Total Taxable Amount: Rs. 1,20,000.00
+CGST (9%): Rs. 10,800.00
+SGST (9%): Rs. 10,800.00
+IGST (0%): Rs. 0.00
+Round Off: Rs. 0.00
+Grand Invoice Total: Rs. 1,41,600.00
+
+Bank Details for Remittance:
+Bank Name: HDFC Bank Ltd, Kothrud Branch
+A/c No: 50200012345678 | IFSC: HDFC0000123

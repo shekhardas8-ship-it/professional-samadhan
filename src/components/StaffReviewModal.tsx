@@ -1,0 +1,836 @@
+// src/components/StaffReviewModal.tsx
+import React, { useState, useEffect } from 'react';
+import {
+  MonthlyRequest,
+  DocumentFile,
+  ExtractedDocument,
+  ExtractedLineItem,
+  BankTransaction,
+  ValidationException,
+  GeneratedWorkbook,
+  UserRole,
+} from '../types/index.ts';
+import {
+  X,
+  FileText,
+  AlertTriangle,
+  CheckCircle2,
+  Download,
+  Edit2,
+  Save,
+  Check,
+  FileSpreadsheet,
+  ShieldCheck,
+  ExternalLink,
+  Layers,
+  ArrowRight,
+  FileCode2,
+} from 'lucide-react';
+import { HtmlReportModal } from './HtmlReportModal.tsx';
+
+interface StaffReviewModalProps {
+  request: MonthlyRequest;
+  currentRole: UserRole;
+  onClose: () => void;
+  onGenerateWorkbook: (requestId: string) => Promise<void>;
+  onRefreshParent: () => void;
+}
+
+export const StaffReviewModal: React.FC<StaffReviewModalProps> = ({
+  request,
+  currentRole,
+  onClose,
+  onGenerateWorkbook,
+  onRefreshParent,
+}) => {
+  const [activeTab, setActiveTab] = useState<'invoices' | 'bank' | 'files' | 'exceptions' | 'workbooks'>('invoices');
+  const [loading, setLoading] = useState(true);
+  const [details, setDetails] = useState<{
+    files: DocumentFile[];
+    extractedDocuments: ExtractedDocument[];
+    lineItems: ExtractedLineItem[];
+    bankTransactions: BankTransaction[];
+    exceptions: ValidationException[];
+    workbooks: GeneratedWorkbook[];
+  } | null>(null);
+
+  const [editingDocId, setEditingDocId] = useState<string | null>(null);
+  const [editFormData, setEditFormData] = useState<Partial<ExtractedDocument>>({});
+  const [caApprovalNotes, setCaApprovalNotes] = useState('');
+  const [caOverrideReason, setCaOverrideReason] = useState('');
+  const [showCaApprovalDialog, setShowCaApprovalDialog] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+  const [activeHtmlReport, setActiveHtmlReport] = useState<{
+    isOpen: boolean;
+    reportUrl: string;
+    downloadUrl: string;
+    title: string;
+    subtitle: string;
+  } | null>(null);
+
+  const fetchDetails = async () => {
+    try {
+      setLoading(true);
+      const res = await fetch(`/api/monthly-requests/${request.id}`);
+      if (!res.ok) throw new Error('Failed to load request details');
+      const data = await res.json();
+      setDetails(data);
+    } catch (err: any) {
+      setMessage({ type: 'error', text: err.message });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchDetails();
+  }, [request.id]);
+
+  const handleEditDoc = (doc: ExtractedDocument) => {
+    setEditingDocId(doc.id);
+    setEditFormData({
+      docType: doc.docType,
+      docNumber: doc.docNumber,
+      docDate: doc.docDate,
+      supplierName: doc.supplierName,
+      supplierGstin: doc.supplierGstin,
+      buyerName: doc.buyerName,
+      buyerGstin: doc.buyerGstin,
+      placeOfSupply: doc.placeOfSupply,
+      taxableAmount: doc.taxableAmount,
+      cgstAmount: doc.cgstAmount,
+      sgstAmount: doc.sgstAmount,
+      igstAmount: doc.igstAmount,
+      totalAmount: doc.totalAmount,
+      reviewStatus: 'verified',
+    });
+  };
+
+  const handleSaveDoc = async (id: string) => {
+    try {
+      setIsSubmitting(true);
+      const res = await fetch(`/api/extracted-documents/${id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(editFormData),
+      });
+      if (!res.ok) throw new Error('Failed to update document');
+      setMessage({ type: 'success', text: 'Extracted document updated and marked verified.' });
+      setEditingDocId(null);
+      await fetchDetails();
+      onRefreshParent();
+    } catch (err: any) {
+      setMessage({ type: 'error', text: err.message });
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const handleResolveException = async (exceptionId: string, currentStatus: boolean) => {
+    try {
+      const res = await fetch(`/api/validation-exceptions/${exceptionId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          resolved: !currentStatus,
+          resolutionNotes: !currentStatus ? 'Manually verified and confirmed by staff.' : '',
+        }),
+      });
+      if (!res.ok) throw new Error('Failed to update exception');
+      await fetchDetails();
+      onRefreshParent();
+    } catch (err: any) {
+      setMessage({ type: 'error', text: err.message });
+    }
+  };
+
+  const handleCaApprove = async (workbookId: string) => {
+    try {
+      setIsSubmitting(true);
+      const res = await fetch(`/api/workbooks/${workbookId}/ca-approve`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-user-role': 'ca_admin',
+        },
+        body: JSON.stringify({
+          caApprovalNotes,
+          caOverrideReason,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Approval failed');
+      setMessage({ type: 'success', text: 'CA Statutory Final Approval granted successfully!' });
+      setShowCaApprovalDialog(false);
+      await fetchDetails();
+      onRefreshParent();
+    } catch (err: any) {
+      setMessage({ type: 'error', text: err.message });
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const criticalExceptions = details?.exceptions.filter(e => !e.resolved && e.severity === 'critical') || [];
+
+  return (
+    <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-3 sm:p-6 overflow-y-auto">
+      <div className="bg-white rounded-2xl shadow-2xl border border-slate-200 w-full max-w-6xl max-h-[92vh] flex flex-col overflow-hidden">
+        {/* Header */}
+        <div className="bg-slate-900 text-white p-5 flex items-center justify-between border-b border-slate-800">
+          <div>
+            <div className="flex items-center space-x-3">
+              <h2 className="text-xl font-bold">{request.clientName}</h2>
+              <span className="text-xs bg-blue-900/80 text-blue-300 font-mono px-2 py-0.5 rounded border border-blue-700/50">
+                {request.clientGstin}
+              </span>
+              <span className="text-xs font-semibold px-2 py-0.5 rounded bg-slate-800 text-slate-300">
+                Period: {request.reportingMonth}
+              </span>
+            </div>
+            <p className="text-xs text-slate-400 mt-1">
+              Staff Review & Working Paper Verification Workspace - Source of truth: PostgreSQL
+            </p>
+          </div>
+          <button
+            onClick={onClose}
+            className="p-2 text-slate-400 hover:text-white hover:bg-slate-800 rounded-lg transition"
+          >
+            <X className="w-5 h-5" />
+          </button>
+        </div>
+
+        {/* Message Banner */}
+        {message && (
+          <div
+            className={`p-3 text-xs font-medium flex items-center justify-between ${
+              message.type === 'success' ? 'bg-emerald-50 text-emerald-800 border-b border-emerald-200' : 'bg-rose-50 text-rose-800 border-b border-rose-200'
+            }`}
+          >
+            <span>{message.text}</span>
+            <button onClick={() => setMessage(null)} className="text-slate-500 hover:text-slate-700">
+              <X className="w-3.5 h-3.5" />
+            </button>
+          </div>
+        )}
+
+        {/* Sub-navigation Tabs */}
+        <div className="bg-slate-100 px-6 py-2 border-b border-slate-200 flex flex-wrap items-center justify-between gap-2">
+          <div className="flex space-x-2">
+            <button
+              onClick={() => setActiveTab('invoices')}
+              className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition flex items-center space-x-1.5 ${
+                activeTab === 'invoices' ? 'bg-blue-600 text-white shadow-sm' : 'text-slate-600 hover:bg-slate-200'
+              }`}
+            >
+              <FileText className="w-3.5 h-3.5" />
+              <span>Invoices & Notes ({details?.extractedDocuments.length || 0})</span>
+            </button>
+            <button
+              onClick={() => setActiveTab('bank')}
+              className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition flex items-center space-x-1.5 ${
+                activeTab === 'bank' ? 'bg-blue-600 text-white shadow-sm' : 'text-slate-600 hover:bg-slate-200'
+              }`}
+            >
+              <Layers className="w-3.5 h-3.5" />
+              <span>Bank Statement Txns ({details?.bankTransactions.length || 0})</span>
+            </button>
+            <button
+              onClick={() => setActiveTab('exceptions')}
+              className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition flex items-center space-x-1.5 ${
+                activeTab === 'exceptions' ? 'bg-blue-600 text-white shadow-sm' : 'text-slate-600 hover:bg-slate-200'
+              }`}
+            >
+              <AlertTriangle className="w-3.5 h-3.5" />
+              <span>Validation Exceptions ({details?.exceptions.length || 0})</span>
+            </button>
+            <button
+              onClick={() => setActiveTab('files')}
+              className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition flex items-center space-x-1.5 ${
+                activeTab === 'files' ? 'bg-blue-600 text-white shadow-sm' : 'text-slate-600 hover:bg-slate-200'
+              }`}
+            >
+              <Download className="w-3.5 h-3.5" />
+              <span>Original Files ({details?.files.length || 0})</span>
+            </button>
+            <button
+              onClick={() => setActiveTab('workbooks')}
+              className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition flex items-center space-x-1.5 ${
+                activeTab === 'workbooks' ? 'bg-blue-600 text-white shadow-sm' : 'text-slate-600 hover:bg-slate-200'
+              }`}
+            >
+              <FileSpreadsheet className="w-3.5 h-3.5" />
+              <span>Generated Workbooks ({details?.workbooks.length || 0})</span>
+            </button>
+          </div>
+
+          <div className="flex items-center space-x-2">
+            <button
+              onClick={() =>
+                setActiveHtmlReport({
+                  isOpen: true,
+                  reportUrl: `/api/monthly-requests/${request.id}/export-html`,
+                  downloadUrl: `/api/monthly-requests/${request.id}/export-html?download=true`,
+                  title: `GST Working Paper HTML Report — ${request.clientName}`,
+                  subtitle: `GSTIN: ${request.clientGstin} • Period: ${request.reportingMonth} • Version: v${request.activeWorkbookVersion || 1}`,
+                })
+              }
+              className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold rounded-lg shadow-sm transition flex items-center space-x-1.5"
+              title="Preview & Export GST Working Paper as Standalone HTML Report"
+            >
+              <FileCode2 className="w-3.5 h-3.5" />
+              <span>Export HTML</span>
+            </button>
+
+            <button
+              onClick={() => onGenerateWorkbook(request.id).then(() => fetchDetails())}
+              className="px-3 py-1.5 bg-blue-600 hover:bg-blue-500 text-white text-xs font-semibold rounded-lg shadow-sm transition flex items-center space-x-1.5"
+            >
+              <FileSpreadsheet className="w-3.5 h-3.5" />
+              <span>Compile & Generate Excel</span>
+            </button>
+          </div>
+        </div>
+
+        {/* Content Area */}
+        <div className="flex-1 overflow-y-auto p-6 space-y-6">
+          {loading ? (
+            <div className="py-20 text-center text-slate-400">Loading document extraction and database records...</div>
+          ) : (
+            <>
+              {/* TAB 1: INVOICES & NOTES */}
+              {activeTab === 'invoices' && (
+                <div className="space-y-4">
+                  {details?.extractedDocuments.length === 0 ? (
+                    <div className="text-center py-12 text-slate-400">No invoices or debit/credit notes extracted yet.</div>
+                  ) : (
+                    details?.extractedDocuments.map(doc => {
+                      const isEditing = editingDocId === doc.id;
+                      const lineItems = details.lineItems.filter(l => l.documentUnitId === doc.id);
+
+                      return (
+                        <div
+                          key={doc.id}
+                          className="bg-white rounded-xl border border-slate-200 shadow-sm p-4 space-y-3 hover:border-blue-300 transition"
+                        >
+                          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 border-b border-slate-100 pb-2">
+                            <div className="flex items-center space-x-2">
+                              <span
+                                className={`px-2 py-0.5 text-xs font-bold uppercase rounded ${
+                                  doc.docType === 'sales_invoice'
+                                    ? 'bg-blue-100 text-blue-800'
+                                    : doc.docType === 'purchase_invoice'
+                                    ? 'bg-emerald-100 text-emerald-800'
+                                    : 'bg-purple-100 text-purple-800'
+                                }`}
+                              >
+                                {doc.docType.replace('_', ' ')}
+                              </span>
+                              <span className="font-bold text-slate-800">{doc.docNumber || 'No Doc Number'}</span>
+                              <span className="text-xs text-slate-400">Date: {doc.docDate || 'N/A'}</span>
+                              <span className="text-[11px] text-slate-400 bg-slate-100 px-2 py-0.5 rounded">
+                                Conf: {doc.extractionConfidence}%
+                              </span>
+                            </div>
+
+                            <div className="flex items-center space-x-2">
+                              {isEditing ? (
+                                <button
+                                  onClick={() => handleSaveDoc(doc.id)}
+                                  disabled={isSubmitting}
+                                  className="px-3 py-1 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold rounded-lg shadow-sm flex items-center space-x-1"
+                                >
+                                  <Save className="w-3.5 h-3.5" />
+                                  <span>Save Changes</span>
+                                </button>
+                              ) : (
+                                <button
+                                  onClick={() => handleEditDoc(doc)}
+                                  className="px-2.5 py-1 text-slate-600 hover:bg-slate-100 text-xs font-medium rounded-lg border border-slate-200 flex items-center space-x-1"
+                                >
+                                  <Edit2 className="w-3.5 h-3.5" />
+                                  <span>Edit / Adjust</span>
+                                </button>
+                              )}
+                            </div>
+                          </div>
+
+                          {/* Invoice Fields */}
+                          {isEditing ? (
+                            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 bg-slate-50 p-3 rounded-lg text-xs">
+                              <div>
+                                <label className="font-semibold text-slate-600">Invoice Number</label>
+                                <input
+                                  type="text"
+                                  value={editFormData.docNumber || ''}
+                                  onChange={e => setEditFormData({ ...editFormData, docNumber: e.target.value })}
+                                  className="w-full mt-1 p-1.5 border rounded bg-white"
+                                />
+                              </div>
+                              <div>
+                                <label className="font-semibold text-slate-600">Invoice Date</label>
+                                <input
+                                  type="text"
+                                  value={editFormData.docDate || ''}
+                                  onChange={e => setEditFormData({ ...editFormData, docDate: e.target.value })}
+                                  className="w-full mt-1 p-1.5 border rounded bg-white"
+                                />
+                              </div>
+                              <div>
+                                <label className="font-semibold text-slate-600">Supplier Name</label>
+                                <input
+                                  type="text"
+                                  value={editFormData.supplierName || ''}
+                                  onChange={e => setEditFormData({ ...editFormData, supplierName: e.target.value })}
+                                  className="w-full mt-1 p-1.5 border rounded bg-white"
+                                />
+                              </div>
+                              <div>
+                                <label className="font-semibold text-slate-600">Supplier GSTIN</label>
+                                <input
+                                  type="text"
+                                  value={editFormData.supplierGstin || ''}
+                                  onChange={e => setEditFormData({ ...editFormData, supplierGstin: e.target.value })}
+                                  className="w-full mt-1 p-1.5 border rounded bg-white font-mono"
+                                />
+                              </div>
+                              <div>
+                                <label className="font-semibold text-slate-600">Buyer Name</label>
+                                <input
+                                  type="text"
+                                  value={editFormData.buyerName || ''}
+                                  onChange={e => setEditFormData({ ...editFormData, buyerName: e.target.value })}
+                                  className="w-full mt-1 p-1.5 border rounded bg-white"
+                                />
+                              </div>
+                              <div>
+                                <label className="font-semibold text-slate-600">Buyer GSTIN</label>
+                                <input
+                                  type="text"
+                                  value={editFormData.buyerGstin || ''}
+                                  onChange={e => setEditFormData({ ...editFormData, buyerGstin: e.target.value })}
+                                  className="w-full mt-1 p-1.5 border rounded bg-white font-mono"
+                                />
+                              </div>
+                              <div>
+                                <label className="font-semibold text-slate-600">Taxable Value (₹)</label>
+                                <input
+                                  type="number"
+                                  value={editFormData.taxableAmount || 0}
+                                  onChange={e => setEditFormData({ ...editFormData, taxableAmount: parseFloat(e.target.value) })}
+                                  className="w-full mt-1 p-1.5 border rounded bg-white"
+                                />
+                              </div>
+                              <div>
+                                <label className="font-semibold text-slate-600">Total Invoice (₹)</label>
+                                <input
+                                  type="number"
+                                  value={editFormData.totalAmount || 0}
+                                  onChange={e => setEditFormData({ ...editFormData, totalAmount: parseFloat(e.target.value) })}
+                                  className="w-full mt-1 p-1.5 border rounded bg-white"
+                                />
+                              </div>
+                            </div>
+                          ) : (
+                            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">
+                              <div>
+                                <span className="text-slate-400">Supplier:</span>
+                                <div className="font-medium text-slate-800">{doc.supplierName || '-'}</div>
+                                <div className="font-mono text-slate-500 text-[11px]">{doc.supplierGstin || '-'}</div>
+                              </div>
+                              <div>
+                                <span className="text-slate-400">Buyer:</span>
+                                <div className="font-medium text-slate-800">{doc.buyerName || '-'}</div>
+                                <div className="font-mono text-slate-500 text-[11px]">{doc.buyerGstin || '-'}</div>
+                              </div>
+                              <div>
+                                <span className="text-slate-400">Tax Breakdown:</span>
+                                <div className="text-slate-600">
+                                  CGST: ₹{Number(doc.cgstAmount).toFixed(2)} | SGST: ₹{Number(doc.sgstAmount).toFixed(2)}
+                                </div>
+                                <div className="text-slate-600">IGST: ₹{Number(doc.igstAmount).toFixed(2)}</div>
+                              </div>
+                              <div>
+                                <span className="text-slate-400">Total Value:</span>
+                                <div className="text-base font-bold text-slate-900">
+                                  ₹{Number(doc.totalAmount).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                                </div>
+                                <div className="text-[11px] text-slate-400">Taxable: ₹{Number(doc.taxableAmount).toFixed(2)}</div>
+                              </div>
+                            </div>
+                          )}
+
+                          {/* Line Items Table */}
+                          {lineItems.length > 0 && (
+                            <div className="mt-2 pt-2 border-t border-slate-100">
+                              <div className="text-[11px] font-semibold text-slate-500 mb-1">
+                                Extracted Line Items ({lineItems.length}):
+                              </div>
+                              <div className="overflow-x-auto">
+                                <table className="min-w-full text-xs text-left">
+                                  <thead>
+                                    <tr className="text-slate-400 border-b border-slate-100 text-[11px]">
+                                      <th className="py-1">Description</th>
+                                      <th className="py-1">HSN/SAC</th>
+                                      <th className="py-1">Qty</th>
+                                      <th className="py-1">Rate</th>
+                                      <th className="py-1">Taxable</th>
+                                      <th className="py-1">GST %</th>
+                                      <th className="py-1 text-right">Total</th>
+                                    </tr>
+                                  </thead>
+                                  <tbody>
+                                    {lineItems.map(l => (
+                                      <tr key={l.id} className="border-b border-slate-50">
+                                        <td className="py-1 text-slate-700">{l.itemDescription}</td>
+                                        <td className="py-1 font-mono text-slate-500">{l.hsnSac || '-'}</td>
+                                        <td className="py-1">{l.quantity ? `${l.quantity} ${l.unit || ''}` : '-'}</td>
+                                        <td className="py-1">₹{Number(l.rate || 0).toFixed(2)}</td>
+                                        <td className="py-1">₹{Number(l.taxableValue).toFixed(2)}</td>
+                                        <td className="py-1">{Number(l.taxRatePercent || 18)}%</td>
+                                        <td className="py-1 text-right font-medium text-slate-800">
+                                          ₹{Number(l.totalAmount).toFixed(2)}
+                                        </td>
+                                      </tr>
+                                    ))}
+                                  </tbody>
+                                </table>
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })
+                  )}
+                </div>
+              )}
+
+              {/* TAB 2: BANK TRANSACTIONS */}
+              {activeTab === 'bank' && (
+                <div className="space-y-4">
+                  <div className="flex items-center justify-between text-xs text-slate-500">
+                    <span>Extracted bank statement transactions reconciled against statements</span>
+                    <span>Total Extracted: {details?.bankTransactions.length || 0}</span>
+                  </div>
+                  <div className="bg-white rounded-xl border border-slate-200 overflow-hidden shadow-sm">
+                    <table className="min-w-full text-xs text-left">
+                      <thead className="bg-slate-100 text-slate-600 font-semibold border-b border-slate-200">
+                        <tr>
+                          <th className="p-3">Date</th>
+                          <th className="p-3">Bank & Account</th>
+                          <th className="p-3">Narration / Description</th>
+                          <th className="p-3">Reference No</th>
+                          <th className="p-3 text-right">Debit (₹)</th>
+                          <th className="p-3 text-right">Credit (₹)</th>
+                          <th className="p-3 text-right">Balance (₹)</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-100">
+                        {details?.bankTransactions.map(tx => (
+                          <tr key={tx.id} className="hover:bg-slate-50">
+                            <td className="p-3 text-slate-700 whitespace-nowrap">{tx.transactionDate}</td>
+                            <td className="p-3 text-slate-800">
+                              <div className="font-medium">{tx.bankName}</div>
+                              <div className="text-[11px] text-slate-400 font-mono">{tx.accountNumber}</div>
+                            </td>
+                            <td className="p-3 text-slate-700 font-mono text-[11px] max-w-xs truncate">{tx.narration}</td>
+                            <td className="p-3 font-mono text-slate-500 text-[11px]">{tx.referenceNumber || '-'}</td>
+                            <td className="p-3 text-right text-rose-600 font-medium">
+                              {Number(tx.debitAmount) > 0 ? `₹${Number(tx.debitAmount).toFixed(2)}` : '-'}
+                            </td>
+                            <td className="p-3 text-right text-emerald-600 font-medium">
+                              {Number(tx.creditAmount) > 0 ? `₹${Number(tx.creditAmount).toFixed(2)}` : '-'}
+                            </td>
+                            <td className="p-3 text-right text-slate-900 font-semibold">
+                              {tx.balance ? `₹${Number(tx.balance).toFixed(2)}` : '-'}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
+
+              {/* TAB 3: VALIDATION EXCEPTIONS */}
+              {activeTab === 'exceptions' && (
+                <div className="space-y-4">
+                  {details?.exceptions.length === 0 ? (
+                    <div className="text-center py-12 text-emerald-600 flex flex-col items-center">
+                      <CheckCircle2 className="w-12 h-12 text-emerald-500 mb-2" />
+                      <p className="font-semibold text-lg">Zero Validation Exceptions</p>
+                      <p className="text-xs text-slate-500">All arithmetic, GSTIN, and sequence audit checks passed!</p>
+                    </div>
+                  ) : (
+                    details?.exceptions.map(ex => (
+                      <div
+                        key={ex.id}
+                        className={`p-4 rounded-xl border flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 ${
+                          ex.resolved
+                            ? 'bg-slate-50 border-slate-200 opacity-60'
+                            : ex.severity === 'critical'
+                            ? 'bg-rose-50 border-rose-200'
+                            : 'bg-amber-50 border-amber-200'
+                        }`}
+                      >
+                        <div className="space-y-1">
+                          <div className="flex items-center space-x-2">
+                            <span
+                              className={`px-2 py-0.5 text-[10px] font-bold uppercase rounded ${
+                                ex.severity === 'critical'
+                                  ? 'bg-rose-600 text-white'
+                                  : ex.severity === 'warning'
+                                  ? 'bg-amber-600 text-white'
+                                  : 'bg-blue-600 text-white'
+                              }`}
+                            >
+                              {ex.severity}
+                            </span>
+                            <span className="text-xs font-semibold text-slate-700">Check: {ex.checkType}</span>
+                            {ex.resolved && (
+                              <span className="text-xs text-emerald-700 font-bold bg-emerald-100 px-2 py-0.5 rounded">
+                                RESOLVED
+                              </span>
+                            )}
+                          </div>
+                          <p className="text-xs font-medium text-slate-800">{ex.message}</p>
+                          {ex.resolutionNotes && (
+                            <p className="text-[11px] text-slate-500 italic">Resolution: {ex.resolutionNotes}</p>
+                          )}
+                        </div>
+
+                        <button
+                          onClick={() => handleResolveException(ex.id, ex.resolved)}
+                          className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition ${
+                            ex.resolved
+                              ? 'bg-slate-200 text-slate-700 hover:bg-slate-300'
+                              : 'bg-blue-600 text-white hover:bg-blue-500'
+                          }`}
+                        >
+                          {ex.resolved ? 'Reopen Exception' : 'Mark Resolved'}
+                        </button>
+                      </div>
+                    ))
+                  )}
+                </div>
+              )}
+
+              {/* TAB 4: ORIGINAL FILES */}
+              {activeTab === 'files' && (
+                <div className="space-y-4">
+                  <div className="bg-white rounded-xl border border-slate-200 overflow-hidden shadow-sm">
+                    <table className="min-w-full text-xs text-left">
+                      <thead className="bg-slate-100 text-slate-600 font-semibold border-b border-slate-200">
+                        <tr>
+                          <th className="p-3">Original Filename</th>
+                          <th className="p-3">Source Channel</th>
+                          <th className="p-3">Received Time</th>
+                          <th className="p-3">Extraction Method</th>
+                          <th className="p-3">SHA-256 Hash</th>
+                          <th className="p-3 text-right">Actions</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-100">
+                        {details?.files.map(f => (
+                          <tr key={f.id} className="hover:bg-slate-50">
+                            <td className="p-3 text-slate-800 font-medium">{f.originalFilename}</td>
+                            <td className="p-3 text-slate-600 uppercase text-[11px]">{f.source}</td>
+                            <td className="p-3 text-slate-500">{new Date(f.receivedTime).toLocaleString('en-IN')}</td>
+                            <td className="p-3 text-slate-600 font-mono text-[11px]">{f.scanMethod || 'native_pdf'}</td>
+                            <td className="p-3 font-mono text-slate-400 text-[10px] truncate max-w-xs">{f.fileHash}</td>
+                            <td className="p-3 text-right">
+                              <a
+                                href={`/api/documents/${f.id}/download`}
+                                download
+                                className="px-2.5 py-1 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded text-xs font-medium inline-flex items-center space-x-1"
+                              >
+                                <Download className="w-3 h-3" />
+                                <span>Download</span>
+                              </a>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
+
+              {/* TAB 5: GENERATED WORKBOOKS */}
+              {activeTab === 'workbooks' && (
+                <div className="space-y-4">
+                  {details?.workbooks.length === 0 ? (
+                    <div className="text-center py-12 text-slate-400">
+                      No Excel workbooks generated yet for this period.
+                    </div>
+                  ) : (
+                    details?.workbooks.map(wb => (
+                      <div
+                        key={wb.id}
+                        className="bg-white rounded-xl border border-slate-200 shadow-sm p-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3"
+                      >
+                        <div>
+                          <div className="flex items-center space-x-2">
+                            <FileSpreadsheet className="w-5 h-5 text-blue-600" />
+                            <span className="font-bold text-slate-900">{wb.filename}</span>
+                            <span className="px-2 py-0.5 text-xs font-bold bg-blue-50 text-blue-700 rounded border border-blue-200">
+                              v{wb.version}
+                            </span>
+                            <span className="text-xs uppercase px-2 py-0.5 rounded font-semibold bg-slate-100 text-slate-700">
+                              Status: {wb.status}
+                            </span>
+                          </div>
+                          <div className="text-xs text-slate-500 mt-1">
+                            Generated by {wb.generatedBy} on {new Date(wb.generatedAt).toLocaleString('en-IN')}
+                          </div>
+                          {wb.clientConfirmationText && (
+                            <div className="mt-2 text-xs bg-emerald-50 text-emerald-800 p-2 rounded border border-emerald-200 font-medium">
+                              Client Confirmed: &quot;{wb.clientConfirmationText}&quot; ({wb.clientConfirmedBy})
+                            </div>
+                          )}
+                          {wb.clientCorrectionComments && (
+                            <div className="mt-2 text-xs bg-orange-50 text-orange-800 p-2 rounded border border-orange-200 font-medium">
+                              Client Requested Corrections: &quot;{wb.clientCorrectionComments}&quot;
+                            </div>
+                          )}
+                          {wb.caApprovedAt && (
+                            <div className="mt-2 text-xs bg-purple-50 text-purple-800 p-2 rounded border border-purple-200 font-medium flex items-center space-x-1">
+                              <ShieldCheck className="w-3.5 h-3.5" />
+                              <span>
+                                CA Statutory Final Approval granted by {wb.caApprovedBy} on{' '}
+                                {new Date(wb.caApprovedAt).toLocaleString('en-IN')}
+                              </span>
+                            </div>
+                          )}
+                        </div>
+
+                        <div className="flex items-center space-x-2">
+                          <button
+                            onClick={() =>
+                              setActiveHtmlReport({
+                                isOpen: true,
+                                reportUrl: `/api/workbooks/${wb.id}/export-html`,
+                                downloadUrl: `/api/workbooks/${wb.id}/export-html?download=true`,
+                                title: `GST Working Paper HTML Report (v${wb.version}) — ${request.clientName}`,
+                                subtitle: `Filename: ${wb.filename} • Generated by: ${wb.generatedBy}`,
+                              })
+                            }
+                            className="px-3 py-1.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 text-xs font-semibold rounded-lg border border-indigo-200 transition flex items-center space-x-1"
+                            title="Preview / Export standalone HTML version"
+                          >
+                            <FileCode2 className="w-3.5 h-3.5" />
+                            <span>Export HTML</span>
+                          </button>
+
+                          <a
+                            href={`/api/workbooks/${wb.id}/download`}
+                            download
+                            className="px-3 py-1.5 bg-blue-600 hover:bg-blue-500 text-white text-xs font-semibold rounded-lg shadow-sm flex items-center space-x-1"
+                          >
+                            <Download className="w-3.5 h-3.5" />
+                            <span>Download 10-Sheet Excel</span>
+                          </a>
+
+                          {/* CA Final Approval Button (Only if CA Admin role and not yet approved) */}
+                          {currentRole === 'ca_admin' && wb.status !== 'ca_approved' && (
+                            <button
+                              onClick={() => setShowCaApprovalDialog(true)}
+                              className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold rounded-lg shadow-sm flex items-center space-x-1"
+                            >
+                              <ShieldCheck className="w-3.5 h-3.5" />
+                              <span>CA Final Approve</span>
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                    ))
+                  )}
+                </div>
+              )}
+            </>
+          )}
+        </div>
+
+        {/* CA Final Approval Dialog Modal */}
+        {showCaApprovalDialog && (
+          <div className="fixed inset-0 z-60 bg-black/70 flex items-center justify-center p-4">
+            <div className="bg-white rounded-xl shadow-2xl max-w-lg w-full p-6 space-y-4">
+              <div className="flex items-center space-x-2 text-emerald-800">
+                <ShieldCheck className="w-6 h-6 text-emerald-600" />
+                <h3 className="text-lg font-bold">Grant CA Statutory Final Approval</h3>
+              </div>
+
+              {criticalExceptions.length > 0 && (
+                <div className="bg-rose-50 border border-rose-200 rounded-lg p-3 text-xs text-rose-800 space-y-1">
+                  <div className="font-bold flex items-center space-x-1">
+                    <AlertTriangle className="w-4 h-4 text-rose-600" />
+                    <span>{criticalExceptions.length} Critical Exceptions Remain Unresolved!</span>
+                  </div>
+                  <p>As per CA statutory audit rules, an explicit CA override reason is mandatory to proceed.</p>
+                </div>
+              )}
+
+              <div>
+                <label className="text-xs font-semibold text-slate-700">CA Audit Notes / Review Sign-off</label>
+                <textarea
+                  rows={2}
+                  value={caApprovalNotes}
+                  onChange={e => setCaApprovalNotes(e.target.value)}
+                  placeholder="e.g. Inward & outward supplies cross-checked against GSTR-2B control totals. Verified."
+                  className="w-full text-xs p-2 border border-slate-300 rounded-lg mt-1 focus:ring-2 focus:ring-emerald-500"
+                />
+              </div>
+
+              {criticalExceptions.length > 0 && (
+                <div>
+                  <label className="text-xs font-semibold text-rose-700">
+                    Mandatory CA Override Reason (Required)
+                  </label>
+                  <textarea
+                    rows={2}
+                    value={caOverrideReason}
+                    onChange={e => setCaOverrideReason(e.target.value)}
+                    placeholder="State reason for overriding critical exception..."
+                    className="w-full text-xs p-2 border border-rose-300 rounded-lg mt-1 focus:ring-2 focus:ring-rose-500"
+                  />
+                </div>
+              )}
+
+              <div className="flex justify-end space-x-2 pt-2 border-t">
+                <button
+                  onClick={() => setShowCaApprovalDialog(false)}
+                  className="px-3 py-1.5 text-xs text-slate-600 hover:bg-slate-100 rounded-lg"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={() => {
+                    const latestWb = details?.workbooks[0];
+                    if (latestWb) handleCaApprove(latestWb.id);
+                  }}
+                  disabled={isSubmitting || (criticalExceptions.length > 0 && !caOverrideReason.trim())}
+                  className="px-4 py-1.5 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white text-xs font-bold rounded-lg shadow"
+                >
+                  {isSubmitting ? 'Approving...' : 'Confirm Final Approval'}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* HTML Report Preview & Export Modal */}
+        {activeHtmlReport && (
+          <HtmlReportModal
+            isOpen={activeHtmlReport.isOpen}
+            onClose={() => setActiveHtmlReport(null)}
+            reportUrl={activeHtmlReport.reportUrl}
+            downloadUrl={activeHtmlReport.downloadUrl}
+            title={activeHtmlReport.title}
+            subtitle={activeHtmlReport.subtitle}
+          />
+        )}
+      </div>
+    </div>
+  );
+};

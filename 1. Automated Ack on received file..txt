@@ -1,0 +1,4 @@
+1. Automated Ack on received file.
+2. Group message on whatsup
+3. Check any pending doc on portal and marked that its not uploaded or missing
+4. 

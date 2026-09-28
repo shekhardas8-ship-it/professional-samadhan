@@ -1,0 +1,32 @@
+TAX INVOICE (PURCHASE / INWARD SUPPLY)
+Invoice No: PUR/2026/994
+Invoice Date: 17-08-2026
+Place of Supply: 24-Gujarat
+Reverse Charge: No
+
+SUPPLIER:
+Reliance Petrochemicals Ltd
+GIDC Hazira Industrial Complex, Surat, Gujarat - 394510
+GSTIN: 24AABCR1234F1Z8
+State: Gujarat (Code 24)
+
+BUYER:
+Apex Engineering Works
+Plot 12, Kothrud Industrial Area, Pune, Maharashtra - 411038
+GSTIN: 27AAACA1234A1Z5
+State: Maharashtra (Code 27)
+
+LINE ITEMS:
+1. Description: Industrial Grade Lubricant Oil Drum 210 Litres
+   HSN Code: 2710
+   Quantity: 2 DRUMS
+   Unit Rate: Rs. 22,500.00
+   Taxable Value: Rs. 45,000.00
+   GST Rate: 18% (IGST 18% - Interstate)
+   IGST: Rs. 8,100.00
+   Total: Rs. 53,100.00
+
+SUMMARY:
+Taxable Value: Rs. 45,000.00
+IGST (18%): Rs. 8,100.00
+Grand Invoice Total: Rs. 53,100.00

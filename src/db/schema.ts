@@ -1,0 +1,277 @@
+// src/db/schema.ts
+import { relations } from 'drizzle-orm';
+import { boolean, integer, jsonb, numeric, pgTable, text, timestamp } from 'drizzle-orm/pg-core';
+
+// 1. App Users (Staff, CA Admins, Clients)
+export const users = pgTable('users', {
+  id: text('id').primaryKey(), // Firebase Auth UID or system ID
+  email: text('email').notNull(),
+  displayName: text('display_name'),
+  role: text('role').notNull().default('staff'), // 'ca_admin' | 'staff' | 'client'
+  phone: text('phone'),
+  active: boolean('active').notNull().default(true),
+  assignedClientIds: jsonb('assigned_client_ids').$type<string[]>().default([]),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+  updatedAt: timestamp('updated_at').defaultNow().notNull(),
+});
+
+// 2. Clients
+export const clients = pgTable('clients', {
+  id: text('id').primaryKey(),
+  businessName: text('business_name').notNull(),
+  contactPerson: text('contact_person').notNull(),
+  gstin: text('gstin').notNull(),
+  registeredPhone: text('registered_phone').notNull(), // WhatsApp number with country code
+  email: text('email').notNull(),
+  assignedStaffId: text('assigned_staff_id'),
+  assignedStaffName: text('assigned_staff_name'),
+  active: boolean('active').notNull().default(true),
+  // Document checklist configuration
+  requiredChecklist: jsonb('required_checklist').$type<string[]>().default([
+    'sales_invoices',
+    'purchase_invoices',
+    'bank_statements',
+    'debit_credit_notes',
+  ]),
+  // Expected bank accounts
+  expectedBankAccounts: jsonb('expected_bank_accounts').$type<Array<{
+    bankName: string;
+    accountNumber: string;
+    ifsc?: string;
+    accountType?: string;
+  }>>().default([]),
+  // WhatsApp & reminder preferences
+  whatsappConsent: boolean('whatsapp_consent').notNull().default(true),
+  whatsappConsentDate: timestamp('whatsapp_consent_date').defaultNow(),
+  reminderCadenceDays: integer('reminder_cadence_days').notNull().default(3),
+  maxReminders: integer('max_reminders').notNull().default(3),
+  remindersPaused: boolean('reminders_paused').notNull().default(false),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+  updatedAt: timestamp('updated_at').defaultNow().notNull(),
+});
+
+// 3. Monthly Document Requests
+export const monthlyRequests = pgTable('monthly_requests', {
+  id: text('id').primaryKey(),
+  clientId: text('client_id').notNull().references(() => clients.id),
+  reportingMonth: text('reporting_month').notNull(), // e.g. "2026-08" (August 2026)
+  year: integer('year').notNull(),
+  monthNumber: integer('month_number').notNull(), // 1 to 12
+  status: text('status').notNull().default('Requested'),
+  // Possible statuses: 'Requested', 'Awaiting Uploads', 'Processing', 'Missing Documents',
+  // 'Needs Review', 'Awaiting Client Confirmation', 'Corrections Requested', 'Client Confirmed', 'CA Approved'
+  secureUploadToken: text('secure_upload_token').notNull().unique(),
+  tokenExpiresAt: timestamp('token_expires_at').notNull(),
+  requestedAt: timestamp('requested_at').defaultNow().notNull(),
+  reminderCount: integer('reminder_count').notNull().default(0),
+  lastReminderAt: timestamp('last_reminder_at'),
+  nextReminderAt: timestamp('next_reminder_at'),
+  remindersPaused: boolean('reminders_paused').notNull().default(false),
+  // Client Declaration
+  noTransactionsDeclared: boolean('no_transactions_declared').default(false),
+  declarationNotes: text('declaration_notes'),
+  declaredAt: timestamp('declared_at'),
+  declaredBy: text('declared_by'),
+  caReviewedDeclaration: boolean('ca_reviewed_declaration').default(false),
+  // Summary counts
+  totalFilesReceived: integer('total_files_received').notNull().default(0),
+  totalInvoicesExtracted: integer('total_invoices_extracted').notNull().default(0),
+  unresolvedExceptionsCount: integer('unresolved_exceptions_count').notNull().default(0),
+  activeWorkbookVersion: integer('active_workbook_version').default(0),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+  updatedAt: timestamp('updated_at').defaultNow().notNull(),
+});
+
+// 4. Stored Document Files
+export const documentFiles = pgTable('document_files', {
+  id: text('id').primaryKey(),
+  monthlyRequestId: text('monthly_request_id').notNull().references(() => monthlyRequests.id),
+  clientId: text('client_id').notNull().references(() => clients.id),
+  gstin: text('gstin').notNull(),
+  reportingPeriod: text('reporting_period').notNull(),
+  originalFilename: text('original_filename').notNull(),
+  storagePath: text('storage_path').notNull(),
+  fileHash: text('file_hash').notNull(), // SHA256 for duplicate detection
+  mimeType: text('mime_type').notNull(),
+  sizeBytes: integer('size_bytes').notNull(),
+  receivedTime: timestamp('received_time').defaultNow().notNull(),
+  source: text('source').notNull().default('client_portal'), // 'client_portal' | 'staff_upload' | 'whatsapp_webhook'
+  uploaderName: text('uploader_name').notNull(),
+  status: text('status').notNull().default('received'), // 'received' | 'processing' | 'processed' | 'error' | 'password_protected'
+  isDuplicate: boolean('is_duplicate').notNull().default(false),
+  duplicateOfId: text('duplicate_of_id'),
+  pageCount: integer('page_count').default(1),
+  scanMethod: text('scan_method').default('native_pdf'), // 'native_pdf' | 'paddle_ocr' | 'spreadsheet_parse'
+  isPasswordProtected: boolean('is_password_protected').default(false),
+  scanNotes: text('scan_notes'),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+});
+
+// 5. Extracted Document Units (Invoices, Debit/Credit Notes, Bank Statements)
+export const extractedDocuments = pgTable('extracted_documents', {
+  id: text('id').primaryKey(),
+  documentFileId: text('document_file_id').notNull().references(() => documentFiles.id),
+  monthlyRequestId: text('monthly_request_id').notNull().references(() => monthlyRequests.id),
+  clientId: text('client_id').notNull().references(() => clients.id),
+  gstin: text('gstin').notNull(),
+  pageStart: integer('page_start').default(1),
+  pageEnd: integer('page_end').default(1),
+  // Classified Document Type
+  docType: text('doc_type').notNull(), // 'sales_invoice' | 'purchase_invoice' | 'bank_statement' | 'debit_note' | 'credit_note' | 'other_uncertain'
+  docNumber: text('doc_number'),
+  docDate: text('doc_date'), // YYYY-MM-DD
+  // Supplier & Buyer details
+  supplierName: text('supplier_name'),
+  supplierGstin: text('supplier_gstin'),
+  supplierAddress: text('supplier_address'),
+  buyerName: text('buyer_name'),
+  buyerGstin: text('buyer_gstin'),
+  buyerAddress: text('buyer_address'),
+  placeOfSupply: text('place_of_supply'),
+  originalInvoiceRef: text('original_invoice_ref'), // For Debit/Credit Notes
+  reverseCharge: boolean('reverse_charge').default(false),
+  currency: text('currency').default('INR'),
+  // Amounts
+  taxableAmount: numeric('taxable_amount', { precision: 14, scale: 2 }).default('0.00'),
+  cgstAmount: numeric('cgst_amount', { precision: 14, scale: 2 }).default('0.00'),
+  sgstAmount: numeric('sgst_amount', { precision: 14, scale: 2 }).default('0.00'),
+  igstAmount: numeric('igst_amount', { precision: 14, scale: 2 }).default('0.00'),
+  cessAmount: numeric('cess_amount', { precision: 14, scale: 2 }).default('0.00'),
+  roundOff: numeric('round_off', { precision: 8, scale: 2 }).default('0.00'),
+  totalAmount: numeric('total_amount', { precision: 14, scale: 2 }).default('0.00'),
+  // Extraction & Review Metadata
+  rawText: text('raw_text'),
+  extractionConfidence: numeric('extraction_confidence', { precision: 5, scale: 2 }).default('95.00'),
+  reviewStatus: text('review_status').notNull().default('auto_extracted'), // 'auto_extracted' | 'verified' | 'flagged' | 'rejected'
+  reviewerNotes: text('reviewer_notes'),
+  additionalFields: jsonb('additional_fields').$type<Record<string, any>>().default({}),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+});
+
+// 6. Extracted Line Items
+export const extractedLineItems = pgTable('extracted_line_items', {
+  id: text('id').primaryKey(),
+  documentUnitId: text('document_unit_id').notNull().references(() => extractedDocuments.id),
+  itemDescription: text('item_description').notNull(),
+  hsnSac: text('hsn_sac'),
+  quantity: numeric('quantity', { precision: 12, scale: 2 }),
+  unit: text('unit'),
+  rate: numeric('rate', { precision: 12, scale: 2 }),
+  discount: numeric('discount', { precision: 12, scale: 2 }).default('0.00'),
+  taxableValue: numeric('taxable_value', { precision: 14, scale: 2 }).notNull().default('0.00'),
+  taxRatePercent: numeric('tax_rate_percent', { precision: 5, scale: 2 }).default('18.00'),
+  cgstAmount: numeric('cgst_amount', { precision: 12, scale: 2 }).default('0.00'),
+  sgstAmount: numeric('sgst_amount', { precision: 12, scale: 2 }).default('0.00'),
+  igstAmount: numeric('igst_amount', { precision: 12, scale: 2 }).default('0.00'),
+  cessAmount: numeric('cess_amount', { precision: 12, scale: 2 }).default('0.00'),
+  totalAmount: numeric('total_amount', { precision: 14, scale: 2 }).notNull().default('0.00'),
+});
+
+// 7. Bank Transactions
+export const bankTransactions = pgTable('bank_transactions', {
+  id: text('id').primaryKey(),
+  documentUnitId: text('document_unit_id').notNull().references(() => extractedDocuments.id),
+  monthlyRequestId: text('monthly_request_id').notNull().references(() => monthlyRequests.id),
+  bankName: text('bank_name').notNull(),
+  accountNumber: text('account_number').notNull(),
+  transactionDate: text('transaction_date').notNull(), // YYYY-MM-DD
+  valueDate: text('value_date'),
+  narration: text('narration').notNull(),
+  referenceNumber: text('reference_number'),
+  debitAmount: numeric('debit_amount', { precision: 14, scale: 2 }).default('0.00'),
+  creditAmount: numeric('credit_amount', { precision: 14, scale: 2 }).default('0.00'),
+  balance: numeric('balance', { precision: 14, scale: 2 }),
+});
+
+// 8. Validation Exceptions & Audit Checkpoints
+export const validationExceptions = pgTable('validation_exceptions', {
+  id: text('id').primaryKey(),
+  monthlyRequestId: text('monthly_request_id').notNull().references(() => monthlyRequests.id),
+  documentFileId: text('document_file_id'),
+  documentUnitId: text('document_unit_id'),
+  severity: text('severity').notNull().default('warning'), // 'critical' | 'warning' | 'info'
+  checkType: text('check_type').notNull(), // 'category_missing' | 'gstin_mismatch' | 'arithmetic_discrepancy' | 'sequence_gap' | 'duplicate_invoice' | 'bank_balance_mismatch' | 'period_coverage_gap' | 'unreadable_scan'
+  message: text('message').notNull(),
+  details: jsonb('details').$type<Record<string, any>>().default({}),
+  resolved: boolean('resolved').notNull().default(false),
+  resolvedBy: text('resolved_by'),
+  resolutionNotes: text('resolution_notes'),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+});
+
+// 9. Generated Excel Workbooks
+export const generatedWorkbooks = pgTable('generated_workbooks', {
+  id: text('id').primaryKey(),
+  monthlyRequestId: text('monthly_request_id').notNull().references(() => monthlyRequests.id),
+  clientId: text('client_id').notNull().references(() => clients.id),
+  gstin: text('gstin').notNull(),
+  reportingPeriod: text('reporting_period').notNull(),
+  version: integer('version').notNull().default(1),
+  filename: text('filename').notNull(),
+  filePath: text('file_path').notNull(),
+  status: text('status').notNull().default('draft'), // 'draft' | 'awaiting_client_confirmation' | 'client_confirmed' | 'corrections_requested' | 'ca_approved'
+  generatedAt: timestamp('generated_at').defaultNow().notNull(),
+  generatedBy: text('generated_by').notNull(),
+  clientConfirmationText: text('client_confirmation_text'),
+  clientConfirmedAt: timestamp('client_confirmed_at'),
+  clientConfirmedBy: text('client_confirmed_by'),
+  clientCorrectionComments: text('client_correction_comments'),
+  caApprovedAt: timestamp('ca_approved_at'),
+  caApprovedBy: text('ca_approved_by'),
+  caApprovalNotes: text('ca_approval_notes'),
+  caOverrideReason: text('ca_override_reason'),
+  dataSnapshot: jsonb('data_snapshot').$type<Record<string, any>>(),
+});
+
+// 10. Audit & Notification Logs
+export const auditNotifications = pgTable('audit_notifications', {
+  id: text('id').primaryKey(),
+  monthlyRequestId: text('monthly_request_id').references(() => monthlyRequests.id),
+  clientId: text('client_id').references(() => clients.id),
+  eventType: text('event_type').notNull(), // 'request_prepared' | 'reminder_prepared' | 'whatsapp_sent' | 'webhook_received' | 'workbook_generated' | 'client_confirmed' | 'ca_approved'
+  channel: text('channel').notNull().default('whatsapp_manual'), // 'whatsapp_manual' | 'whatsapp_cloud_api' | 'email' | 'portal'
+  recipient: text('recipient'),
+  messageBody: text('message_body'),
+  status: text('status').notNull().default('prepared'), // 'prepared' | 'sent' | 'failed' | 'simulated_dev'
+  details: jsonb('details').$type<Record<string, any>>(),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+});
+
+// Relations
+export const clientsRelations = relations(clients, ({ many }) => ({
+  monthlyRequests: many(monthlyRequests),
+  documentFiles: many(documentFiles),
+  generatedWorkbooks: many(generatedWorkbooks),
+}));
+
+export const monthlyRequestsRelations = relations(monthlyRequests, ({ one, many }) => ({
+  client: one(clients, {
+    fields: [monthlyRequests.clientId],
+    references: [clients.id],
+  }),
+  documentFiles: many(documentFiles),
+  extractedDocuments: many(extractedDocuments),
+  validationExceptions: many(validationExceptions),
+  generatedWorkbooks: many(generatedWorkbooks),
+}));
+
+export const documentFilesRelations = relations(documentFiles, ({ one, many }) => ({
+  monthlyRequest: one(monthlyRequests, {
+    fields: [documentFiles.monthlyRequestId],
+    references: [monthlyRequests.id],
+  }),
+  client: one(clients, {
+    fields: [documentFiles.clientId],
+    references: [clients.id],
+  }),
+  extractedDocuments: many(extractedDocuments),
+}));
+
+export const extractedDocumentsRelations = relations(extractedDocuments, ({ one, many }) => ({
+  documentFile: one(documentFiles, {
+    fields: [extractedDocuments.documentFileId],
+    references: [documentFiles.id],
+  }),
+  lineItems: many(extractedLineItems),
+  bankTransactions: many(bankTransactions),
+}));

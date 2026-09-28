@@ -1,0 +1,159 @@
+{
+  "name": "Professional Samadhan - GST Document Collection & WhatsApp Orchestrator",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 9 1 * *"
+            }
+          ]
+        }
+      },
+      "id": "node_schedule_monthly",
+      "name": "1st of Month 9:00 AM IST",
+      "type": "n8n-nodes-base.cron",
+      "typeVersion": 1,
+      "position": [240, 280]
+    },
+    {
+      "parameters": {
+        "url": "http://host.docker.internal:3000/api/scheduler/run-monthly",
+        "method": "POST",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "Bearer ps_internal_worker_key_2026"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "node_trigger_monthly_requests",
+      "name": "Trigger Monthly Requests",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 3,
+      "position": [480, 280]
+    },
+    {
+      "parameters": {
+        "path": "whatsapp-meta-webhook",
+        "responseMode": "onReceived",
+        "responseData": "OK",
+        "options": {}
+      },
+      "id": "node_whatsapp_webhook",
+      "name": "Meta WhatsApp Webhook Listener",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [240, 480],
+      "webhookId": "whatsapp-meta-webhook"
+    },
+    {
+      "parameters": {
+        "url": "http://host.docker.internal:3000/api/whatsapp/webhook",
+        "method": "POST",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{JSON.stringify($json.body)}}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        }
+      },
+      "id": "node_forward_to_backend",
+      "name": "Forward Webhook to Backend",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 3,
+      "position": [480, 480]
+    },
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "30 10 * * *"
+            }
+          ]
+        }
+      },
+      "id": "node_daily_reminder_check",
+      "name": "Daily 10:30 AM Reminder Check",
+      "type": "n8n-nodes-base.cron",
+      "typeVersion": 1,
+      "position": [240, 680]
+    },
+    {
+      "parameters": {
+        "url": "http://host.docker.internal:3000/api/scheduler/check-reminders",
+        "method": "POST",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "Bearer ps_internal_worker_key_2026"
+            }
+          ]
+        }
+      },
+      "id": "node_dispatch_pending_reminders",
+      "name": "Process Due Reminders",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 3,
+      "position": [480, 680]
+    }
+  ],
+  "connections": {
+    "1st of Month 9:00 AM IST": {
+      "main": [
+        [
+          {
+            "node": "Trigger Monthly Requests",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Meta WhatsApp Webhook Listener": {
+      "main": [
+        [
+          {
+            "node": "Forward Webhook to Backend",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Daily 10:30 AM Reminder Check": {
+      "main": [
+        [
+          {
+            "node": "Process Due Reminders",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  }
+}

@@ -1,0 +1,199 @@
+// src/components/Header.tsx
+import React from 'react';
+import { UserRole } from '../types/index.ts';
+import { Building2, ShieldCheck, UserCheck, Smartphone, RefreshCw, BookOpen } from 'lucide-react';
+
+interface HeaderProps {
+  currentRole: UserRole;
+  onRoleChange: (role: UserRole) => void;
+  activeTab: string;
+  onTabChange: (tab: string) => void;
+  onRefresh: () => void;
+  isLoading: boolean;
+  isClientOnlyMode?: boolean;
+}
+
+export const Header: React.FC<HeaderProps> = ({
+  currentRole,
+  onRoleChange,
+  activeTab,
+  onTabChange,
+  onRefresh,
+  isLoading,
+  isClientOnlyMode = false,
+}) => {
+  if (isClientOnlyMode) {
+    return (
+      <header className="bg-slate-900 text-white border-b border-slate-800 sticky top-0 z-40 shadow-md">
+        <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div className="flex items-center justify-between h-16">
+            {/* Brand Logo & Name */}
+            <div className="flex items-center space-x-3">
+              <div className="w-10 h-10 rounded-lg bg-blue-600 flex items-center justify-center text-white shadow-inner font-bold text-xl tracking-wider">
+                PS
+              </div>
+              <div>
+                <div className="flex items-center space-x-2">
+                  <span className="font-bold text-lg text-white tracking-tight">Professional Samadhan</span>
+                  <span className="text-[10px] uppercase font-semibold px-2 py-0.5 rounded bg-emerald-900/80 text-emerald-300 border border-emerald-700/50">
+                    Client Portal
+                  </span>
+                </div>
+                <p className="text-xs text-slate-400">Statutory GST Document Upload & Review</p>
+              </div>
+            </div>
+
+            {/* Right side security badge */}
+            <div className="flex items-center space-x-2 bg-slate-800/80 px-3 py-1.5 rounded-lg border border-slate-700/60 text-xs text-emerald-400 font-medium">
+              <ShieldCheck className="w-4 h-4 text-emerald-400" />
+              <span className="hidden sm:inline">256-Bit Encrypted Statutory Session</span>
+              <span className="sm:hidden">Secure Upload</span>
+            </div>
+          </div>
+        </div>
+      </header>
+    );
+  }
+  return (
+    <header className="bg-slate-900 text-white border-b border-slate-800 sticky top-0 z-40 shadow-md">
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+        <div className="flex items-center justify-between h-16">
+          {/* Brand Logo & Name */}
+          <div className="flex items-center space-x-3 cursor-pointer" onClick={() => onTabChange('dashboard')}>
+            <div className="w-10 h-10 rounded-lg bg-blue-600 flex items-center justify-center text-white shadow-inner font-bold text-xl tracking-wider">
+              PS
+            </div>
+            <div>
+              <div className="flex items-center space-x-2">
+                <span className="font-bold text-lg text-white tracking-tight">Professional Samadhan</span>
+                <span className="text-[10px] uppercase font-semibold px-2 py-0.5 rounded bg-blue-900/80 text-blue-300 border border-blue-700/50">
+                  CA Firm
+                </span>
+              </div>
+              <p className="text-xs text-slate-400">GST Compliance & Document Intake System</p>
+            </div>
+          </div>
+
+          {/* Navigation Tabs */}
+          <nav className="hidden md:flex space-x-1">
+            <button
+              onClick={() => onTabChange('dashboard')}
+              className={`px-3 py-2 rounded-md text-sm font-medium transition ${
+                activeTab === 'dashboard'
+                  ? 'bg-blue-600 text-white'
+                  : 'text-slate-300 hover:bg-slate-800 hover:text-white'
+              }`}
+            >
+              CA Pipeline
+            </button>
+            <button
+              onClick={() => onTabChange('client-portal')}
+              className={`px-3 py-2 rounded-md text-sm font-medium transition ${
+                activeTab === 'client-portal'
+                  ? 'bg-emerald-600 text-white'
+                  : 'text-slate-300 hover:bg-slate-800 hover:text-white'
+              }`}
+            >
+              Client Portal
+            </button>
+            <button
+              onClick={() => onTabChange('audit-logs')}
+              className={`px-3 py-2 rounded-md text-sm font-medium transition ${
+                activeTab === 'audit-logs'
+                  ? 'bg-blue-600 text-white'
+                  : 'text-slate-300 hover:bg-slate-800 hover:text-white'
+              }`}
+            >
+              WhatsApp & Audit Logs
+            </button>
+            <button
+              onClick={() => onTabChange('guide')}
+              className={`px-3 py-2 rounded-md text-sm font-medium transition flex items-center space-x-1 ${
+                activeTab === 'guide'
+                  ? 'bg-blue-600 text-white'
+                  : 'text-slate-300 hover:bg-slate-800 hover:text-white'
+              }`}
+            >
+              <BookOpen className="w-4 h-4 mr-1" />
+              Setup & Architecture
+            </button>
+          </nav>
+
+          {/* Role Switcher & Refresh */}
+          <div className="flex items-center space-x-3">
+            <div className="flex items-center bg-slate-800 p-1 rounded-lg border border-slate-700">
+              <span className="text-xs text-slate-400 px-2 font-medium hidden sm:inline">Role:</span>
+              <button
+                onClick={() => onRoleChange('ca_admin')}
+                className={`px-2.5 py-1 text-xs font-medium rounded transition flex items-center space-x-1 ${
+                  currentRole === 'ca_admin'
+                    ? 'bg-blue-600 text-white shadow'
+                    : 'text-slate-300 hover:text-white'
+                }`}
+                title="CA Administrator - Full control, statutory approvals"
+              >
+                <ShieldCheck className="w-3.5 h-3.5" />
+                <span>CA Admin</span>
+              </button>
+              <button
+                onClick={() => onRoleChange('staff')}
+                className={`px-2.5 py-1 text-xs font-medium rounded transition flex items-center space-x-1 ${
+                  currentRole === 'staff'
+                    ? 'bg-amber-600 text-white shadow'
+                    : 'text-slate-300 hover:text-white'
+                }`}
+                title="Staff Account - Assigned clients only"
+              >
+                <UserCheck className="w-3.5 h-3.5" />
+                <span>Staff</span>
+              </button>
+              <button
+                onClick={() => {
+                  onRoleChange('client');
+                  onTabChange('client-portal');
+                }}
+                className={`px-2.5 py-1 text-xs font-medium rounded transition flex items-center space-x-1 ${
+                  currentRole === 'client'
+                    ? 'bg-emerald-600 text-white shadow'
+                    : 'text-slate-300 hover:text-white'
+                }`}
+                title="Client Portal Mode"
+              >
+                <Smartphone className="w-3.5 h-3.5" />
+                <span>Client</span>
+              </button>
+            </div>
+
+            <button
+              onClick={onRefresh}
+              disabled={isLoading}
+              className="p-2 text-slate-300 hover:text-white hover:bg-slate-800 rounded-lg transition"
+              title="Refresh Data"
+            >
+              <RefreshCw className={`w-4 h-4 ${isLoading ? 'animate-spin text-blue-400' : ''}`} />
+            </button>
+          </div>
+        </div>
+      </div>
+
+      {/* Sub-bar showing active persona */}
+      <div className="bg-slate-950 px-4 py-1 text-xs text-slate-400 border-t border-slate-800/80 flex items-center justify-between">
+        <div className="flex items-center space-x-2">
+          <span className="w-2 h-2 rounded-full bg-emerald-500"></span>
+          <span>Logged in as:</span>
+          <span className="font-semibold text-slate-200">
+            {currentRole === 'ca_admin'
+              ? 'CA Rajesh Sharma (FCA) - Partner'
+              : currentRole === 'staff'
+              ? 'Pooja Verma (Senior Associate) - Assigned 2 Clients'
+              : 'Client Upload Portal (Secure Token Access)'}
+          </span>
+        </div>
+        <div className="hidden sm:flex items-center space-x-4 text-[11px]">
+          <span>Database: <strong className="text-slate-300">PostgreSQL (Drizzle ORM)</strong></span>
+          <span>Messaging: <strong className="text-slate-300">WhatsApp Mode A & B Active</strong></span>
+        </div>
+      </div>
+    </header>
+  );
+};
