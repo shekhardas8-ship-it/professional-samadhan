@@ -185,6 +185,17 @@ export async function dispatchWhatsAppNotification(params: {
 
   try {
     const formattedTo = formatWhatsAppPhone(params.phone);
+    // Meta WhatsApp Cloud API does not allow sending automated messages to the sender's own registered number
+    if (formattedTo === '919899267141') {
+      return {
+        mode: 'automated_meta_api',
+        status: 'failed',
+        whatsappDeepLink: manualLink,
+        messageText: params.messageText,
+        details: `Meta WhatsApp API error (#100 Invalid parameter): Recipient phone (${params.phone}) is identical to your registered Meta WhatsApp Business Account (+91 98992 67141). Meta Cloud API does not permit sending automated bot messages to the sender's own number. Please update the client's phone number or click 'Send via Mode A (WhatsApp Web)'.`,
+      };
+    }
+
     const templateName = process.env.META_WHATSAPP_TEMPLATE_NAME;
 
     const requestPayload: any = templateName
@@ -224,12 +235,16 @@ export async function dispatchWhatsAppNotification(params: {
 
     const data = await res.json();
     if (!res.ok) {
+      let friendlyDetails = `Meta WhatsApp API error (${res.status}): ${JSON.stringify(data)}`;
+      if (data.error?.code === 100) {
+        friendlyDetails = `Meta WhatsApp API error (#100 Invalid parameter): Meta rejected the message to ${params.phone}. Note: Meta Cloud API does not allow messaging your own WhatsApp Business number (+91 98992 67141). Please update client's phone number or use Mode A (WhatsApp Web).`;
+      }
       return {
         mode: 'automated_meta_api',
         status: 'failed',
         whatsappDeepLink: manualLink,
         messageText: params.messageText,
-        details: `Meta WhatsApp API error (${res.status}): ${JSON.stringify(data)}`,
+        details: friendlyDetails,
       };
     }
 

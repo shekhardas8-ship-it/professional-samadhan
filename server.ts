@@ -808,7 +808,7 @@ app.post('/api/scheduler/check-reminders', requireWorkerOrAuth, async (req: Auth
 app.post('/api/monthly-requests/:id/reminder', requireAuth, async (req: AuthRequest, res: Response) => {
   try {
     const { id } = req.params;
-    const { mode } = req.body; // 'manual' | 'automated'
+    const { mode, messageText: customMessage } = req.body; // 'manual' | 'automated'
 
     const reqList = await db
       .select({
@@ -859,7 +859,7 @@ app.post('/api/monthly-requests/:id/reminder', requireAuth, async (req: AuthRequ
     const baseUrl = process.env.APP_URL || `${protocol}://${host}`;
     const secureUploadLink = `${baseUrl}/client-portal?token=${mr.secureUploadToken}`;
 
-    const reminderMsg = generateReminderMessage({
+    const reminderMsg = customMessage || generateReminderMessage({
       clientName: client.contactPerson,
       reportingMonth: mr.reportingMonth,
       missingItemsText: missingText,

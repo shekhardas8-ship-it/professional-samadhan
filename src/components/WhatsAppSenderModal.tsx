@@ -82,7 +82,7 @@ Team Professional Samadhan`;
       const res = await fetch(`/api/monthly-requests/${request.id}/reminder`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ mode: messagingMode }),
+        body: JSON.stringify({ mode: messagingMode, messageText }),
       });
 
       const data = await res.json();
@@ -216,6 +216,31 @@ Team Professional Samadhan`;
                     <span>Send via Mode A (WhatsApp Web)</span>
                   </a>
                   <span className="text-[10px] text-slate-500">Works 100% free with any phone number!</span>
+                </div>
+              </div>
+            ) : dispatchResult.details?.includes('#100') || dispatchResult.details?.includes('Invalid parameter') || dispatchResult.details?.includes('9899267141') ? (
+              <div className="space-y-1.5 text-xs text-rose-900">
+                <p className="font-semibold">
+                  ⚠️ Meta Cloud API Restriction: Cannot Message Own WhatsApp Business Number
+                </p>
+                <p className="text-[11px] text-slate-700">
+                  The recipient phone number ({request.registeredPhone}) is the same as your firm's registered Meta WhatsApp Business Account (+91 98992 67141). Meta does not allow an automated bot to send API messages to its own phone number.
+                </p>
+                <p className="text-[11px] text-slate-700">
+                  To send via automated bot, edit this client's profile in <strong>Client Management</strong> with their actual mobile number. You can also send to this number immediately using <strong>Mode A (WhatsApp Web)</strong> below:
+                </p>
+                <div className="pt-1 flex items-center gap-2">
+                  <a
+                    href={manualWhatsAppWebUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    onClick={handleDispatch}
+                    className="inline-flex items-center space-x-1.5 px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded text-xs font-semibold shadow-sm transition"
+                  >
+                    <ExternalLink className="w-3.5 h-3.5" />
+                    <span>Send via Mode A (WhatsApp Web)</span>
+                  </a>
+                  <span className="text-[10px] text-slate-500">1-click open with prefilled message</span>
                 </div>
               </div>
             ) : dispatchResult.status === 'sent' && dispatchResult.mode === 'automated_meta_api' ? (
