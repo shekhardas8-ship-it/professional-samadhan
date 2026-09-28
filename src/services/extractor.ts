@@ -1040,3 +1040,45 @@ function createFallbackDoc(type: any, text: string, filename: string, clientBusi
     scanMethod: 'native_pdf',
   };
 }
+
+export async function testPdfPasswordStatus(
+  buffer: Buffer,
+  mimeType: string,
+  filename: string,
+  providedPassword?: string
+): Promise<{ isLocked: boolean; scanNotes: string | null }> {
+  const ext = filename.split('.').pop()?.toLowerCase();
+  const isPdf = ext === 'pdf' || (mimeType && mimeType.includes('pdf'));
+  if (!isPdf) {
+    return { isLocked: false, scanNotes: null };
+  }
+
+  // 1. Try reading without a password
+  try {
+    const parser = new PDFParse({ data: buffer });
+    await parser.getText();
+    await parser.destroy();
+    return { isLocked: false, scanNotes: null };
+  } catch (err: any) {
+    const msg = (err?.message || '').toLowerCase();
+    const isPasswordError = err?.name === 'PasswordException' || msg.includes('password');
+    if (!isPasswordError) {
+      return { isLocked: false, scanNotes: null };
+    }
+
+    // PDF is genuinely password-protected. Try provided password:
+    if (providedPassword && providedPassword.trim()) {
+      try {
+        const parserWithPwd = new PDFParse({ data: buffer, password: providedPassword.trim() });
+        await parserWithPwd.getText();
+        await parserWithPwd.destroy();
+        return { isLocked: false, scanNotes: 'Protected PDF unlocked with provided password' };
+      } catch (_) {
+        return { isLocked: true, scanNotes: 'Protected PDF (Password incorrect)' };
+      }
+    }
+
+    return { isLocked: true, scanNotes: 'Protected PDF (Password required to unlock)' };
+  }
+}
+

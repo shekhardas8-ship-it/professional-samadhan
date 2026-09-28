@@ -24,7 +24,7 @@ import {
 } from './src/db/schema.ts';
 import { eq, and, or, desc, sql } from 'drizzle-orm';
 import { requireAuth, requireClientUploadAuth, AuthRequest } from './src/middleware/auth.ts';
-import { extractDocumentContent, computeFileHash, isValidGstinFormat, sanitizePostgresText } from './src/services/extractor.ts';
+import { extractDocumentContent, testPdfPasswordStatus, computeFileHash, isValidGstinFormat, sanitizePostgresText } from './src/services/extractor.ts';
 import { runValidationChecks } from './src/services/validator.ts';
 import { evaluateMonthlyChecklist } from './src/services/checklistService.ts';
 import { generateClientExcelWorkbook } from './src/services/excelGenerator.ts';
@@ -980,6 +980,7 @@ app.post('/api/documents/upload', upload.array('files', 150), async (req: Reques
     for (const f of files) {
       const buffer = fs.readFileSync(f.path);
       const fileHash = computeFileHash(buffer);
+      const pwdStatus = await testPdfPasswordStatus(buffer, f.mimetype, f.originalname, documentPassword);
 
       // Check duplicate file in this monthly request (either by fileHash OR by same filename + size)
       const existingFile = await db
@@ -1021,8 +1022,8 @@ app.post('/api/documents/upload', upload.array('files', 150), async (req: Reques
           status: 'duplicate_skipped',
           isDuplicate: true,
           duplicateOfId: existingFile[0].id,
-          isPasswordProtected: Boolean(documentPassword),
-          scanNotes: `Duplicate of "${existingFile[0].originalFilename}". Skipped to prevent double-counting.`,
+          isPasswordProtected: pwdStatus.isLocked,
+          scanNotes: pwdStatus.scanNotes || `Duplicate of "${existingFile[0].originalFilename}". Skipped to prevent double-counting.`,
         });
 
         skippedDuplicates.push({
@@ -1092,11 +1093,11 @@ app.post('/api/documents/upload', upload.array('files', 150), async (req: Reques
         sizeBytes: f.size,
         source: source || 'client_portal',
         uploaderName: uploaderName || client.contactPerson,
-        status: 'processing',
+        status: pwdStatus.isLocked ? 'password_protected' : 'processing',
         isDuplicate: false,
         duplicateOfId: null,
-        isPasswordProtected: Boolean(documentPassword),
-        scanNotes: documentPassword ? `Protected PDF (Password: ${documentPassword})` : null,
+        isPasswordProtected: pwdStatus.isLocked,
+        scanNotes: pwdStatus.scanNotes,
       });
 
       for (const item of extractedList) {

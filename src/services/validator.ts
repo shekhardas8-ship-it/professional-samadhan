@@ -68,7 +68,8 @@ export function runValidationChecks(params: {
 
   // 1. Password Protected or unreadable files
   for (const f of files) {
-    if (f.isPasswordProtected) {
+    const hasExtractedDocs = extractedDocs.some(d => (d as any).fileId === f.id || (d as any).documentFileId === f.id);
+    if (f.isPasswordProtected && (f.status === 'password_protected' || !hasExtractedDocs)) {
       exceptions.push({
         severity: 'critical',
         checkType: 'unreadable_scan',
