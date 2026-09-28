@@ -137,8 +137,11 @@ Team Professional Samadhan`;
                   : 'border-slate-200 text-slate-600 hover:bg-slate-50'
               }`}
             >
-              <div className="font-bold">Mode A: Manual WhatsApp</div>
-              <div className="text-[11px] text-slate-500 mt-0.5">Click-to-chat via WhatsApp Web / App (100% Free)</div>
+              <div className="font-bold flex items-center justify-between">
+                <span>Mode A: WhatsApp Web / App</span>
+                <span className="text-[9px] px-1.5 py-0.5 bg-emerald-100 text-emerald-800 font-bold rounded">100% Delivery</span>
+              </div>
+              <div className="text-[11px] text-slate-500 mt-0.5">Click-to-chat. Delivers to ANY client immediately without Meta 24-hr restrictions.</div>
             </button>
 
             <button
@@ -150,8 +153,11 @@ Team Professional Samadhan`;
                   : 'border-slate-200 text-slate-600 hover:bg-slate-50'
               }`}
             >
-              <div className="font-bold">Mode B: Meta Cloud API</div>
-              <div className="text-[11px] text-slate-500 mt-0.5">Automated outbound API (Optional paid)</div>
+              <div className="font-bold flex items-center justify-between">
+                <span>Mode B: Meta Cloud API</span>
+                <span className="text-[9px] px-1.5 py-0.5 bg-blue-100 text-blue-800 font-bold rounded">Automated Bot</span>
+              </div>
+              <div className="text-[11px] text-slate-500 mt-0.5">Automated API. Delivers if client messaged in last 24h or template is approved.</div>
             </button>
           </div>
         </div>
@@ -210,6 +216,32 @@ Team Professional Samadhan`;
                     <span>Send via Mode A (WhatsApp Web)</span>
                   </a>
                   <span className="text-[10px] text-slate-500">Works 100% free with any phone number!</span>
+                </div>
+              </div>
+            ) : dispatchResult.status === 'sent' && dispatchResult.mode === 'automated_meta_api' ? (
+              <div className="space-y-2 text-xs">
+                <p className="font-medium text-emerald-900">{dispatchResult.details}</p>
+                <div className="p-2.5 bg-white/80 rounded border border-emerald-300 text-slate-800 space-y-1.5 shadow-sm">
+                  <p className="font-semibold text-emerald-900 text-[11px] flex items-center gap-1">
+                    <span>📱 Note on Client Phone Delivery:</span>
+                  </p>
+                  <p className="text-[11px] text-slate-600 leading-relaxed">
+                    Meta accepted the API dispatch. Under WhatsApp Business policies, Meta delivers free-text messages to phones that have messaged your WhatsApp Business number within the last 24 hours (or numbers on your Meta test list).
+                  </p>
+                  <p className="text-[11px] text-slate-700 font-medium">
+                    If this client has not messaged you recently and did not see the message, send directly with 1 click:
+                  </p>
+                  <div className="pt-1">
+                    <a
+                      href={manualWhatsAppWebUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex items-center space-x-1.5 px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded text-xs font-bold shadow-sm transition"
+                    >
+                      <ExternalLink className="w-3.5 h-3.5" />
+                      <span>Open in WhatsApp Web / App (Guaranteed 100% Delivery)</span>
+                    </a>
+                  </div>
                 </div>
               </div>
             ) : (

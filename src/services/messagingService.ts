@@ -121,7 +121,10 @@ Chartered Accountants`;
  * Format: Country code followed by 10 digit number (e.g. 919820112345)
  */
 export function formatWhatsAppPhone(phone: string): string {
-  const digits = phone.replace(/\D/g, '');
+  let digits = (phone || '').replace(/\D/g, '');
+  if (digits.startsWith('0')) {
+    digits = digits.replace(/^0+/, '');
+  }
   if (digits.length === 10) {
     return '91' + digits; // Default India prefix
   }
@@ -176,18 +179,42 @@ export async function dispatchWhatsAppNotification(params: {
   }
 
   try {
+    const formattedTo = formatWhatsAppPhone(params.phone);
+    const templateName = process.env.META_WHATSAPP_TEMPLATE_NAME;
+
+    const requestPayload: any = templateName
+      ? {
+          messaging_product: 'whatsapp',
+          to: formattedTo,
+          type: 'template',
+          template: {
+            name: templateName,
+            language: { code: process.env.META_WHATSAPP_TEMPLATE_LANG || 'en' },
+            components: [
+              {
+                type: 'body',
+                parameters: [
+                  { type: 'text', text: params.recipientName },
+                  { type: 'text', text: params.messageText.slice(0, 1000) },
+                ],
+              },
+            ],
+          },
+        }
+      : {
+          messaging_product: 'whatsapp',
+          to: formattedTo,
+          type: 'text',
+          text: { body: params.messageText },
+        };
+
     const res = await fetch(`https://graph.facebook.com/v19.0/${phoneNumberId}/messages`, {
       method: 'POST',
       headers: {
         'Authorization': `Bearer ${metaToken}`,
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify({
-        messaging_product: 'whatsapp',
-        to: formatWhatsAppPhone(params.phone),
-        type: 'text',
-        text: { body: params.messageText },
-      }),
+      body: JSON.stringify(requestPayload),
     });
 
     const data = await res.json();
@@ -204,6 +231,7 @@ export async function dispatchWhatsAppNotification(params: {
     return {
       mode: 'automated_meta_api',
       status: 'sent',
+      whatsappDeepLink: manualLink,
       messageText: params.messageText,
       details: `Dispatched via Meta WhatsApp Cloud API (Message ID: ${data.messages?.[0]?.id || 'unknown'})`,
     };
