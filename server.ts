@@ -21,7 +21,7 @@ import {
 } from './src/db/schema.ts';
 import { eq, and, desc, sql } from 'drizzle-orm';
 import { requireAuth, requireClientUploadAuth, AuthRequest } from './src/middleware/auth.ts';
-import { extractDocumentContent, computeFileHash, isValidGstinFormat } from './src/services/extractor.ts';
+import { extractDocumentContent, computeFileHash, isValidGstinFormat, sanitizePostgresText } from './src/services/extractor.ts';
 import { runValidationChecks } from './src/services/validator.ts';
 import { evaluateMonthlyChecklist } from './src/services/checklistService.ts';
 import { generateClientExcelWorkbook } from './src/services/excelGenerator.ts';
@@ -818,16 +818,16 @@ app.post('/api/documents/upload', upload.array('files', 15), async (req: Request
           clientId: client.id,
           gstin: clientGstin,
           docType: item.docType,
-          docNumber: item.docNumber,
+          docNumber: sanitizePostgresText(item.docNumber),
           docDate: item.docDate,
-          supplierName: item.supplierName,
-          supplierGstin: item.supplierGstin,
-          supplierAddress: item.supplierAddress,
-          buyerName: item.buyerName,
-          buyerGstin: item.buyerGstin,
-          buyerAddress: item.buyerAddress,
-          placeOfSupply: item.placeOfSupply,
-          originalInvoiceRef: item.originalInvoiceRef,
+          supplierName: sanitizePostgresText(item.supplierName),
+          supplierGstin: sanitizePostgresText(item.supplierGstin),
+          supplierAddress: sanitizePostgresText(item.supplierAddress),
+          buyerName: sanitizePostgresText(item.buyerName),
+          buyerGstin: sanitizePostgresText(item.buyerGstin),
+          buyerAddress: sanitizePostgresText(item.buyerAddress),
+          placeOfSupply: sanitizePostgresText(item.placeOfSupply),
+          originalInvoiceRef: sanitizePostgresText(item.originalInvoiceRef),
           reverseCharge: Boolean(item.reverseCharge),
           currency: item.currency || 'INR',
           taxableAmount: String(item.taxableAmount || 0),
@@ -837,7 +837,7 @@ app.post('/api/documents/upload', upload.array('files', 15), async (req: Request
           cessAmount: String(item.cessAmount || 0),
           roundOff: String(item.roundOff || 0),
           totalAmount: String(item.totalAmount || 0),
-          rawText: item.rawText,
+          rawText: sanitizePostgresText(item.rawText) || `Scanned document: ${sanitizePostgresText(f.originalname)}`,
           extractionConfidence: String(item.extractionConfidence || 95),
           reviewStatus: 'auto_extracted',
           additionalFields: item.additionalFields || {},
@@ -849,8 +849,8 @@ app.post('/api/documents/upload', upload.array('files', 15), async (req: Request
             await db.insert(extractedLineItems).values({
               id: `li_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
               documentUnitId: docUnitId,
-              itemDescription: line.itemDescription,
-              hsnSac: line.hsnSac,
+              itemDescription: sanitizePostgresText(line.itemDescription) || 'Line item',
+              hsnSac: sanitizePostgresText(line.hsnSac),
               quantity: line.quantity ? String(line.quantity) : null,
               unit: line.unit,
               rate: line.rate ? String(line.rate) : null,
@@ -873,11 +873,11 @@ app.post('/api/documents/upload', upload.array('files', 15), async (req: Request
               id: `tx_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
               documentUnitId: docUnitId,
               monthlyRequestId,
-              bankName: tx.bankName,
-              accountNumber: tx.accountNumber,
+              bankName: sanitizePostgresText(tx.bankName),
+              accountNumber: sanitizePostgresText(tx.accountNumber),
               transactionDate: tx.transactionDate,
               valueDate: tx.valueDate,
-              narration: tx.narration,
+              narration: sanitizePostgresText(tx.narration) || 'Transaction',
               referenceNumber: tx.referenceNumber,
               debitAmount: String(tx.debitAmount || 0),
               creditAmount: String(tx.creditAmount || 0),

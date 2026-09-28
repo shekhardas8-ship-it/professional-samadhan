@@ -63,6 +63,15 @@ export function computeFileHash(buffer: Buffer): string {
   return crypto.createHash('sha256').update(buffer).digest('hex');
 }
 
+// Sanitize string to remove null bytes (\u0000) and invalid non-printable control characters that crash PostgreSQL UTF-8 text fields
+export function sanitizePostgresText(val: string | null | undefined): string {
+  if (!val) return '';
+  return String(val)
+    .replace(/\0/g, '')
+    .replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F]/g, ' ')
+    .trim();
+}
+
 // Sanitize string to prevent Excel formula injection
 export function sanitizeExcelValue(val: string | null | undefined): string {
   if (!val) return '';
@@ -96,16 +105,29 @@ export async function extractDocumentContent(
   mimeType: string
 ): Promise<ExtractedDocDto[]> {
   const ext = filename.split('.').pop()?.toLowerCase();
-  const fileText = buffer.toString('utf-8');
+  const isImage = ['png', 'jpg', 'jpeg', 'webp', 'bmp', 'tiff', 'gif'].includes(ext || '') || (mimeType && mimeType.startsWith('image/'));
+  const isPdf = ext === 'pdf' || (mimeType && mimeType.includes('pdf'));
+  const isCsv = ext === 'csv' || (mimeType && mimeType.includes('csv'));
 
   // 1. Spreadsheet handling (CSV or XLSX)
-  if (ext === 'csv' || mimeType.includes('csv')) {
+  if (isCsv) {
+    const fileText = sanitizePostgresText(buffer.toString('utf-8'));
     return parseCsvDocument(fileText, clientGstin, filename);
   }
 
-  // 2. Text / PDF / Image extraction
-  // Let's do intelligent extraction based on content
-  const detectedDoc = parseDocumentTextOrScan(fileText, filename, clientGstin);
+  // 2. Images & PDFs: NEVER pass raw binary buffer containing \0 directly to PostgreSQL text column
+  let cleanText = '';
+  if (isImage) {
+    cleanText = `Scanned image invoice/document: ${sanitizePostgresText(filename)}`;
+  } else if (isPdf) {
+    const raw = buffer.toString('latin1');
+    const printable = raw.replace(/[^\x20-\x7E\r\n\t]/g, ' ');
+    cleanText = sanitizePostgresText(printable.length > 50 ? printable.slice(0, 1000) : `PDF Document: ${filename}`);
+  } else {
+    cleanText = sanitizePostgresText(buffer.toString('utf-8').slice(0, 1000));
+  }
+
+  const detectedDoc = parseDocumentTextOrScan(cleanText, filename, clientGstin);
   return [detectedDoc];
 }
 
@@ -255,7 +277,7 @@ function parseDocumentTextOrScan(text: string, filename: string, clientGstin: st
           balance: 430300.00,
         },
       ],
-      rawText: text.slice(0, 400) || `Scanned Bank Statement of ${bankName} account ${accNo} for August 2026`,
+      rawText: sanitizePostgresText(text.slice(0, 400)) || `Scanned Bank Statement of ${bankName} account ${accNo} for August 2026`,
       extractionConfidence: 95.8,
       scanMethod: lower.includes('.pdf') ? 'native_pdf' : 'paddle_ocr',
     };
@@ -299,7 +321,7 @@ function parseDocumentTextOrScan(text: string, filename: string, clientGstin: st
           totalAmount: 14160.00,
         },
       ],
-      rawText: text.slice(0, 400) || 'Credit Note CN/26-27/004 against INV/26-27/042',
+      rawText: sanitizePostgresText(text.slice(0, 400)) || 'Credit Note CN/26-27/004 against INV/26-27/042',
       extractionConfidence: 96.0,
       scanMethod: 'paddle_ocr',
     };
@@ -336,7 +358,7 @@ function parseDocumentTextOrScan(text: string, filename: string, clientGstin: st
           totalAmount: 10030.00,
         },
       ],
-      rawText: text.slice(0, 400) || 'Debit Note DN/26-27/002',
+      rawText: sanitizePostgresText(text.slice(0, 400)) || 'Debit Note DN/26-27/002',
       extractionConfidence: 95.0,
       scanMethod: 'native_pdf',
     };
@@ -392,7 +414,7 @@ function parseDocumentTextOrScan(text: string, filename: string, clientGstin: st
           totalAmount: total,
         },
       ],
-      rawText: text.slice(0, 450) || `Tax Invoice from ${isInterstate ? 'Reliance Petrochem' : 'Shree Steel Suppliers'} to client`,
+      rawText: sanitizePostgresText(text.slice(0, 450)) || `Tax Invoice from ${isInterstate ? 'Reliance Petrochem' : 'Shree Steel Suppliers'} to client`,
       extractionConfidence: 97.4,
       scanMethod: lower.includes('.pdf') ? 'native_pdf' : 'paddle_ocr',
     };
@@ -442,7 +464,7 @@ function parseDocumentTextOrScan(text: string, filename: string, clientGstin: st
         totalAmount: total,
       },
     ],
-    rawText: text.slice(0, 450) || `Sales Tax Invoice INV/26-27/${docNumRandom} issued by Apex Engineering Works`,
+    rawText: sanitizePostgresText(text.slice(0, 450)) || `Sales Tax Invoice INV/26-27/${docNumRandom} issued by Apex Engineering Works`,
     extractionConfidence: 98.2,
     scanMethod: lower.includes('.pdf') ? 'native_pdf' : 'paddle_ocr',
   };
