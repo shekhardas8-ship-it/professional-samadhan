@@ -399,9 +399,22 @@ function parseDocumentTextOrScan(
 
   const otherGstin = gstinList.find(g => g !== clientGstin) || '';
   const supplierName = isSales ? (clientBusinessName || 'Client') : (extractPartyNameFromText(text, 'supplier') || 'Vendor Supplier');
-  const supplierGstin = isSales ? clientGstin : (otherGstin || '27AAACS9988E1Z1');
-  const buyerName = isSales ? (extractPartyNameFromText(text, 'buyer') || 'Customer / Buyer') : (clientBusinessName || 'Client');
-  const buyerGstin = isSales ? (otherGstin || '27AABCB4321A1Z9') : clientGstin;
+  const supplierGstin = isSales ? clientGstin : (otherGstin || gstinList[0] || clientGstin);
+  const buyerName = isSales ? (extractPartyNameFromText(text, 'buyer') || 'Customer / Buyer') : (extractPartyNameFromText(text, 'buyer') || clientBusinessName || 'Client');
+  const buyerGstin = isSales ? (otherGstin || '07AABCB4321A1Z9') : clientGstin;
+
+  // Extract real Place of Supply
+  let placeOfSupply = '07-Delhi';
+  const posMatch = text.match(/(?:place\s*of\s*supply|place\s*of\s*delivery|pos)\s*[:\-]?\s*([A-Za-z0-9\s\-]{2,20})/i);
+  if (posMatch && posMatch[1]) {
+    const rawPos = posMatch[1].trim();
+    if (/delhi|dl\b/i.test(rawPos)) placeOfSupply = '07-Delhi';
+    else if (/haryana|hr\b/i.test(rawPos)) placeOfSupply = '06-Haryana';
+    else if (/maharashtra|mh\b/i.test(rawPos)) placeOfSupply = '27-Maharashtra';
+    else if (/telangana|tg\b/i.test(rawPos)) placeOfSupply = '36-Telangana';
+    else if (/karnataka|ka\b/i.test(rawPos)) placeOfSupply = '29-Karnataka';
+    else placeOfSupply = rawPos;
+  }
 
   // Extract or generate real line item description from text
   const lineItems = extractLineItemsFromText(text, taxable, cgst, sgst, igst, total, filename);
@@ -414,7 +427,7 @@ function parseDocumentTextOrScan(
     supplierGstin,
     buyerName,
     buyerGstin,
-    placeOfSupply: '27-Maharashtra',
+    placeOfSupply,
     reverseCharge: combinedLower.includes('reverse charge: yes'),
     currency: 'INR',
     taxableAmount: taxable,
@@ -559,8 +572,30 @@ function extractBankTransactionsFromText(
 }
 
 function extractDocNumber(text: string, filename: string, prefix: string): string {
-  const match = text.match(/(?:invoice\s*(?:no|number|#)?|inv\s*(?:no|#)?|bill\s*(?:no|#)?|tax\s*invoice\s*no)\s*[:.\-]?\s*([A-Za-z0-9\/\-_]{3,25})/i);
-  if (match && match[1]) return match[1].trim();
+  // 1. Look for explicit Invoice Number labels with :, #, or whitespace
+  // Match patterns like "Invoice Number # LIAAHI6270027299", "Tax Invoice Number : NBAAJ27017733654", "Invoice Number : DEL5-1714631", "Invoice Number : IN-1010"
+  const patterns = [
+    /(?:tax\s*invoice\s*number|tax\s*invoice\s*no\.?)\s*[:#\-]?\s*([A-Za-z0-9\/\-_]{3,35})/i,
+    /(?:invoice\s*number|invoice\s*no\.?|inv\s*no\.?)\s*[:#\-]?\s*([A-Za-z0-9\/\-_]{3,35})/i,
+    /(?:bill\s*number|bill\s*no\.?)\s*[:#\-]?\s*([A-Za-z0-9\/\-_]{3,35})/i,
+  ];
+
+  for (const regex of patterns) {
+    const matches = Array.from(text.matchAll(new RegExp(regex.source, 'gi')));
+    for (const match of matches) {
+      const val = match[1]?.trim();
+      // Ignore false positives like "Bill", "Bill of Supply", "Invoice", "Cash Memo"
+      if (val && !['BILL', 'INVOICE', 'SUPPLY', 'MEMO', 'ORIGINAL', 'DUPLICATE', 'TAX'].includes(val.toUpperCase()) && !val.startsWith('/Bill')) {
+        return val;
+      }
+    }
+  }
+
+  // 2. Try Order ID or Reference if invoice number not found
+  const orderMatch = text.match(/(?:order\s*id|order\s*number|order\s*no\.?)\s*[:#\-]?\s*([A-Za-z0-9\/\-_]{6,35})/i);
+  if (orderMatch && orderMatch[1]) {
+    return `ORD-${orderMatch[1].trim()}`;
+  }
 
   // Try extracting from filename
   const cleanName = filename.replace(/\.[^/.]+$/, '').replace(/[^a-zA-Z0-9_\-]/g, '_');
@@ -600,32 +635,119 @@ function extractInvoiceAmounts(text: string): {
   igst: number;
   total: number;
 } {
-  const totalMatch = text.match(/(?:grand\s*total|invoice\s*total|total\s*amount|total\s*value|net\s*amount|amount\s*payable)\s*[:.\-]?\s*(?:₹|rs\.?|inr)?\s*([0-9,]+(?:\.[0-9]{2})?)/i);
-  const taxableMatch = text.match(/(?:taxable\s*value|taxable\s*amount|sub\s*total|base\s*amount)\s*[:.\-]?\s*(?:₹|rs\.?|inr)?\s*([0-9,]+(?:\.[0-9]{2})?)/i);
-  const cgstMatch = text.match(/cgst\s*(?:@\s*\d+(?:\.\d+)?%)?\s*[:.\-]?\s*(?:₹|rs\.?|inr)?\s*([0-9,]+(?:\.[0-9]{2})?)/i);
-  const sgstMatch = text.match(/sgst\s*(?:@\s*\d+(?:\.\d+)?%)?\s*[:.\-]?\s*(?:₹|rs\.?|inr)?\s*([0-9,]+(?:\.[0-9]{2})?)/i);
-  const igstMatch = text.match(/igst\s*(?:@\s*\d+(?:\.\d+)?%)?\s*[:.\-]?\s*(?:₹|rs\.?|inr)?\s*([0-9,]+(?:\.[0-9]{2})?)/i);
+  let total = 0;
+  let taxable = 0;
+  let cgst = 0;
+  let sgst = 0;
+  let igst = 0;
 
-  const parseNum = (m: RegExpMatchArray | null) => (m && m[1] ? parseFloat(m[1].replace(/,/g, '')) || 0 : 0);
+  // 1. Check Flipkart Grand Total pattern: "Grand Total ₹ 5273.00" or "Grand Total ₹ 899.00"
+  const grandTotalMatch = text.match(/grand\s*total\s*[:\-]?\s*(?:₹|rs\.?|inr)?\s*([0-9,]+(?:\.[0-9]{2})?)/i);
+  if (grandTotalMatch) {
+    total = parseFloat(grandTotalMatch[1].replace(/,/g, ''));
+  }
 
-  let total = parseNum(totalMatch);
-  let taxable = parseNum(taxableMatch);
-  let cgst = parseNum(cgstMatch);
-  let sgst = parseNum(sgstMatch);
-  let igst = parseNum(igstMatch);
-
-  // If taxable is missing but total is known, calculate backwards with 18% standard GST
-  if (total > 0 && taxable === 0) {
-    taxable = Math.round((total / 1.18) * 100) / 100;
-    const tax = Math.round((total - taxable) * 100) / 100;
-    cgst = Math.round((tax / 2) * 100) / 100;
-    sgst = Math.round((tax / 2) * 100) / 100;
-  } else if (taxable > 0 && total === 0) {
-    if (cgst === 0 && sgst === 0 && igst === 0) {
-      cgst = Math.round((taxable * 0.09) * 100) / 100;
-      sgst = Math.round((taxable * 0.09) * 100) / 100;
+  // 2. Check Amazon TOTAL summary row: "TOTAL: ₹46.14 ₹969.00" or "TOTAL: ₹1,021.88 ₹6,699.00"
+  const amazonTotalMatch = text.match(/TOTAL\s*:\s*(?:₹|rs\.?|inr)?\s*([0-9,]+\.\d{2})\s*(?:₹|rs\.?|inr)?\s*([0-9,]+\.\d{2})/i);
+  if (amazonTotalMatch) {
+    const grandAmt = parseFloat(amazonTotalMatch[2].replace(/,/g, ''));
+    if (grandAmt > 0) {
+      total = grandAmt;
     }
-    total = taxable + cgst + sgst + igst;
+  }
+
+  // 3. Check Flipkart GTA row: "Total 1.0 ₹113.00 ₹95.76 ₹17.24 ₹113.00" or "Total 1.0 ₹575.00 ₹487.29 ₹87.71 ₹575.00"
+  const flipkartGTA = text.match(/Total\s+([0-9.]+)\s+(?:₹?\s*)?([0-9,.]+\.\d{2})\s+(?:₹?\s*)?([0-9,.]+\.\d{2})\s+(?:₹?\s*)?([0-9,.]+\.\d{2})\s+(?:₹?\s*)?([0-9,.]+\.\d{2})/i);
+  if (flipkartGTA) {
+    taxable = parseFloat(flipkartGTA[3].replace(/,/g, ''));
+    igst = parseFloat(flipkartGTA[4].replace(/,/g, ''));
+    total = parseFloat(flipkartGTA[5].replace(/,/g, ''));
+  }
+
+  // 4. Single total with currency symbol: "Total ₹ 113.00" or "Total ₹ 5273.00"
+  if (total === 0) {
+    const singleTotalMatch = text.match(/(?:total\s*amount|invoice\s*total|net\s*payable|amount\s*payable|total)\s*[:\-]?\s*(?:₹|rs\.?|inr)\s*([0-9,]+(?:\.[0-9]{2})?)/i);
+    if (singleTotalMatch) {
+      total = parseFloat(singleTotalMatch[1].replace(/,/g, ''));
+    }
+  }
+
+  // 5. Taxable value: Check "Taxable Value ₹ 4468.64" or "Net Amount ... ₹922.86"
+  if (taxable === 0) {
+    const taxableMatch = text.match(/(?:taxable\s*value|taxable\s*amount|net\s*amount|sub\s*total)\s*[:\-]?\s*(?:₹|rs\.?|inr)?\s*([0-9,]+(?:\.[0-9]{2})?)/i);
+    if (taxableMatch) {
+      taxable = parseFloat(taxableMatch[1].replace(/,/g, ''));
+    }
+  }
+
+  // 6. Taxes: IGST, CGST, SGST
+  if (igst === 0) {
+    const igstMatch = text.match(/igst(?:\s*₹|\s*[:\-]?\s*(?:₹|rs\.?|inr)?)\s*([0-9,]+\.\d{2})/i);
+    if (igstMatch) {
+      igst = parseFloat(igstMatch[1].replace(/,/g, ''));
+    }
+  }
+
+  if (cgst === 0) {
+    const cgstMatch = text.match(/cgst(?:\s*₹|\s*[:\-]?\s*(?:₹|rs\.?|inr)?)\s*([0-9,]+\.\d{2})/i);
+    if (cgstMatch) {
+      cgst = parseFloat(cgstMatch[1].replace(/,/g, ''));
+    }
+  }
+
+  if (sgst === 0) {
+    const sgstMatch = text.match(/(?:sgst|utgst)(?:\s*₹|\s*[:\-]?\s*(?:₹|rs\.?|inr)?)\s*([0-9,]+\.\d{2})/i);
+    if (sgstMatch) {
+      sgst = parseFloat(sgstMatch[1].replace(/,/g, ''));
+    }
+  }
+
+  // 7. Check 3 space-separated numbers at end of line: "4468.64 804.35 5273.00"
+  if (taxable === 0 || (cgst === 0 && sgst === 0 && igst === 0)) {
+    const m3 = text.match(/([0-9,]+\.\d{2})\s+([0-9,]+\.\d{2})\s+([0-9,]+\.\d{2})\s*$/m);
+    if (m3) {
+      const v1 = parseFloat(m3[1].replace(/,/g, ''));
+      const v2 = parseFloat(m3[2].replace(/,/g, ''));
+      const v3 = parseFloat(m3[3].replace(/,/g, ''));
+      if (Math.abs((v1 + v2) - v3) < 0.05) {
+        if (taxable === 0) taxable = v1;
+        if (total === 0) total = v3;
+        if (igst === 0 && cgst === 0 && sgst === 0) {
+          if (text.toLowerCase().includes('igst')) igst = v2;
+          else {
+            cgst = Math.round((v2 / 2) * 100) / 100;
+            sgst = Math.round((v2 / 2) * 100) / 100;
+          }
+        }
+      }
+    }
+  }
+
+  // 8. Check 4 space-separated numbers: "761.86 68.57 68.57 899.00"
+  if (taxable === 0 || (cgst === 0 && sgst === 0 && igst === 0)) {
+    const m4 = text.match(/([0-9,]+\.\d{2})\s+([0-9,]+\.\d{2})\s+([0-9,]+\.\d{2})\s+([0-9,]+\.\d{2})\s*$/m);
+    if (m4) {
+      const tVal = parseFloat(m4[1].replace(/,/g, ''));
+      const sVal = parseFloat(m4[2].replace(/,/g, ''));
+      const cVal = parseFloat(m4[3].replace(/,/g, ''));
+      const totVal = parseFloat(m4[4].replace(/,/g, ''));
+      if (Math.abs((tVal + sVal + cVal) - totVal) < 0.05) {
+        if (taxable === 0) taxable = tVal;
+        if (sgst === 0) sgst = sVal;
+        if (cgst === 0) cgst = cVal;
+        if (total === 0) total = totVal;
+      }
+    }
+  }
+
+  // If taxable is missing but total and tax are known:
+  if (total > 0 && taxable === 0) {
+    const taxSum = (cgst + sgst + igst);
+    if (taxSum > 0 && total > taxSum) {
+      taxable = Math.round((total - taxSum) * 100) / 100;
+    } else {
+      taxable = Math.round((total / 1.18) * 100) / 100;
+    }
   }
 
   return { taxable, cgst, sgst, igst, total };
@@ -633,13 +755,32 @@ function extractInvoiceAmounts(text: string): {
 
 function extractPartyNameFromText(text: string, type: 'supplier' | 'buyer'): string | null {
   const lines = text.split(/\r?\n/).map(l => l.trim()).filter(l => l.length > 0);
-  for (let i = 0; i < Math.min(lines.length, 25); i++) {
-    const l = lines[i].toLowerCase();
-    if (type === 'supplier' && (l.includes('supplier:') || l.includes('sold by:') || l.includes('seller:'))) {
-      return lines[i].split(':')[1]?.trim() || lines[i + 1]?.trim() || null;
+
+  if (type === 'supplier') {
+    for (let i = 0; i < lines.length; i++) {
+      const l = lines[i].toLowerCase();
+      if (l.startsWith('sold by') || l.includes('sold by :') || l.includes('sold by:')) {
+        const afterColon = lines[i].split(/sold by\s*[:\-]?/i)[1]?.trim();
+        if (afterColon && afterColon.length > 2 && afterColon !== '*') return afterColon.replace(/,$/, '').trim();
+        if (lines[i + 1] && lines[i + 1] !== '*' && lines[i + 1].length > 2) return lines[i + 1].replace(/\*$/, '').replace(/,$/, '').trim();
+      }
+      if (l.startsWith('billed from') || l.includes('billed from:')) {
+        const afterColon = lines[i].split(/billed from\s*[:\-]?/i)[1]?.trim();
+        if (afterColon && afterColon.length > 2) return afterColon;
+        if (lines[i + 1] && lines[i + 1].length > 2) return lines[i + 1].trim();
+      }
     }
-    if (type === 'buyer' && (l.includes('buyer:') || l.includes('bill to:') || l.includes('customer:'))) {
-      return lines[i].split(':')[1]?.trim() || lines[i + 1]?.trim() || null;
+  } else {
+    for (let i = 0; i < lines.length; i++) {
+      const l = lines[i].toLowerCase();
+      if (l.startsWith('bill to') || l.includes('bill to:') || l.startsWith('billed to')) {
+        const afterColon = lines[i].split(/bill(?:ed)?\s*to\s*[:\-]?/i)[1]?.trim();
+        if (afterColon && afterColon.length > 2) return afterColon;
+        if (lines[i + 1] && lines[i + 1].length > 2) {
+          if (lines[i + 2] && lines[i + 2].includes('STORE')) return `${lines[i + 1]} (${lines[i + 2]})`;
+          return lines[i + 1].trim();
+        }
+      }
     }
   }
   return null;
@@ -657,30 +798,57 @@ function extractLineItemsFromText(
   const lines = text.split(/\r?\n/).map(l => l.trim()).filter(l => l.length > 0);
   const items: ExtractedLineItemDto[] = [];
 
-  // Look for lines containing HSN or product descriptions
-  for (const line of lines) {
-    if (line.toLowerCase().includes('description') || line.toLowerCase().includes('total') || line.toLowerCase().includes('invoice')) continue;
+  // Look for Product Title / Particulars lines
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
 
-    // Check for HSN (4 to 8 digits)
-    const hsnMatch = line.match(/\b([0-9]{4,8})\b/);
-    const amountMatch = line.match(/([0-9,]+\.\d{2})/);
+    // Flipkart GT Charges
+    if (line.includes('GT Charges') && line.includes('996511')) {
+      items.push({
+        itemDescription: 'GT Charges (Flipkart Goods Transport)',
+        hsnSac: '996511',
+        taxableValue: taxable,
+        taxRatePercent: 18,
+        cgstAmount: cgst,
+        sgstAmount: sgst,
+        igstAmount: igst,
+        totalAmount: total,
+      });
+      continue;
+    }
 
-    if (hsnMatch && amountMatch) {
-      const itemTaxable = parseFloat(amountMatch[1].replace(/,/g, '')) || taxable;
-      const desc = line.replace(hsnMatch[0], '').replace(amountMatch[0], '').replace(/[^a-zA-Z0-9\s]/g, ' ').trim();
+    // Flipkart Product: lines following "Product Title" or having HSN/SAC
+    if (line.includes('HSN/SAC:') || line.includes('HSN:')) {
+      const hsnMatch = line.match(/(?:HSN\/SAC|HSN)\s*[:]?\s*([0-9]{4,8})/i);
+      const hsn = hsnMatch ? hsnMatch[1] : '9983';
 
-      if (desc.length > 3) {
+      let desc = '';
+      for (let j = Math.max(0, i - 4); j <= Math.min(lines.length - 1, i + 4); j++) {
+        if (/Ant Esports|Portronics|Cortina|Solimo|Deep Fryer|Sandwich Griller|Kitchenware|Commercial|Computer Components|Keyboards/i.test(lines[j])) {
+          desc = lines[j];
+          break;
+        }
+      }
+
+      if (!desc) {
+        if (lines[i - 1] && !lines[i - 1].includes('Product') && !lines[i - 1].includes('Title') && lines[i - 1].length > 3) {
+          desc = lines[i - 1];
+        } else if (lines[i + 1] && lines[i + 1].length > 3 && !lines[i + 1].includes('₹') && !lines[i + 1].includes('Warranty')) {
+          desc = lines[i + 1];
+        }
+      }
+
+      if (desc) {
         items.push({
-          itemDescription: sanitizePostgresText(desc.slice(0, 100)),
-          hsnSac: hsnMatch[1],
-          taxableValue: itemTaxable,
+          itemDescription: sanitizePostgresText(desc.slice(0, 150)),
+          hsnSac: hsn,
+          taxableValue: taxable,
           taxRatePercent: 18,
           cgstAmount: cgst,
           sgstAmount: sgst,
           igstAmount: igst,
-          totalAmount: total || itemTaxable,
+          totalAmount: total,
         });
-        if (items.length >= 10) break;
       }
     }
   }
