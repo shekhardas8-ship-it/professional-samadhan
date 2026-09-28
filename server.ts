@@ -256,6 +256,60 @@ app.put('/api/clients/:id', requireAuth, async (req: AuthRequest, res: Response)
   }
 });
 
+// Delete client (Staff or CA Admin) with cascade cleanup of requests and documents
+app.delete('/api/clients/:id', requireAuth, async (req: AuthRequest, res: Response) => {
+  try {
+    const { id } = req.params;
+
+    const existing = await db.select().from(clients).where(eq(clients.id, id)).limit(1);
+    if (existing.length === 0) {
+      return res.status(404).json({ error: 'Client not found.' });
+    }
+
+    // 1. Get all monthly requests for this client
+    const clientRequests = await db
+      .select({ id: monthlyRequests.id })
+      .from(monthlyRequests)
+      .where(eq(monthlyRequests.clientId, id));
+    const requestIds = clientRequests.map(r => r.id);
+
+    // 2. Cascade delete documents and records for those requests
+    if (requestIds.length > 0) {
+      const docs = await db
+        .select({ id: extractedDocuments.id })
+        .from(extractedDocuments)
+        .where(sql`${extractedDocuments.monthlyRequestId} IN ${requestIds}`);
+      const docIds = docs.map(d => d.id);
+
+      if (docIds.length > 0) {
+        await db.delete(extractedLineItems).where(sql`${extractedLineItems.documentUnitId} IN ${docIds}`);
+      }
+
+      await db.delete(extractedDocuments).where(sql`${extractedDocuments.monthlyRequestId} IN ${requestIds}`);
+      await db.delete(bankTransactions).where(sql`${bankTransactions.monthlyRequestId} IN ${requestIds}`);
+      await db.delete(validationExceptions).where(sql`${validationExceptions.monthlyRequestId} IN ${requestIds}`);
+      await db.delete(generatedWorkbooks).where(sql`${generatedWorkbooks.monthlyRequestId} IN ${requestIds}`);
+      await db.delete(documentFiles).where(sql`${documentFiles.monthlyRequestId} IN ${requestIds}`);
+      await db.delete(monthlyRequests).where(eq(monthlyRequests.clientId, id));
+    }
+
+    // 3. Delete audit notifications
+    await db.delete(auditNotifications).where(eq(auditNotifications.clientId, id));
+
+    // 4. Delete client record
+    await db.delete(clients).where(eq(clients.id, id));
+
+    res.json({
+      success: true,
+      message: `Client "${existing[0].businessName}" and all associated filing records were permanently deleted.`,
+      deletedClientId: id,
+    });
+  } catch (err: any) {
+    console.error('Failed to delete client:', err);
+    res.status(500).json({ error: 'Failed to delete client: ' + err.message });
+  }
+});
+
 // Get all CA staff and app users
 app.get('/api/users', requireAuth, async (_req: AuthRequest, res: Response) => {
   try {
