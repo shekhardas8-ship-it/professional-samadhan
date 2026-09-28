@@ -27,6 +27,7 @@ import {
   ArrowRight,
   FileCode2,
   PlusCircle,
+  Trash2,
 } from 'lucide-react';
 import { HtmlReportModal } from './HtmlReportModal.tsx';
 
@@ -154,6 +155,54 @@ export const StaffReviewModal: React.FC<StaffReviewModalProps> = ({
       if (!res.ok) throw new Error('Failed to update document');
       setMessage({ type: 'success', text: 'Extracted document updated and marked verified.' });
       setEditingDocId(null);
+      await fetchDetails();
+      onRefreshParent();
+    } catch (err: any) {
+      setMessage({ type: 'error', text: err.message });
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const handleDeleteDoc = async (id: string, docNumber?: string) => {
+    if (!window.confirm(`Delete document ${docNumber || 'record'}? This will remove this extracted invoice and its line items.`)) return;
+    try {
+      setIsSubmitting(true);
+      const res = await fetch(`/api/extracted-documents/${id}`, { method: 'DELETE' });
+      if (!res.ok) throw new Error('Failed to delete document');
+      setMessage({ type: 'success', text: `Document ${docNumber || ''} removed successfully.` });
+      await fetchDetails();
+      onRefreshParent();
+    } catch (err: any) {
+      setMessage({ type: 'error', text: err.message });
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const handleDeleteBankTx = async (id: string) => {
+    if (!window.confirm('Delete this bank transaction?')) return;
+    try {
+      setIsSubmitting(true);
+      const res = await fetch(`/api/bank-transactions/${id}`, { method: 'DELETE' });
+      if (!res.ok) throw new Error('Failed to delete transaction');
+      setMessage({ type: 'success', text: 'Bank transaction removed successfully.' });
+      await fetchDetails();
+      onRefreshParent();
+    } catch (err: any) {
+      setMessage({ type: 'error', text: err.message });
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const handleClearAllData = async () => {
+    if (!window.confirm('Clear all extracted sample invoices, notes, and bank transactions for this client to start with a fresh slate? (Original uploaded files will be preserved)')) return;
+    try {
+      setIsSubmitting(true);
+      const res = await fetch(`/api/monthly-requests/${request.id}/clear-all-data`, { method: 'POST' });
+      if (!res.ok) throw new Error('Failed to clear data');
+      setMessage({ type: 'success', text: 'All sample/extracted data cleared. Ready for genuine uploads.' });
       await fetchDetails();
       onRefreshParent();
     } catch (err: any) {
@@ -347,6 +396,16 @@ export const StaffReviewModal: React.FC<StaffReviewModalProps> = ({
               <FileSpreadsheet className="w-3.5 h-3.5" />
               <span>Compile & Generate Excel</span>
             </button>
+
+            <button
+              onClick={handleClearAllData}
+              disabled={isSubmitting}
+              className="px-2.5 py-1.5 bg-rose-50 hover:bg-rose-100 text-rose-700 text-xs font-semibold rounded-lg border border-rose-200 transition flex items-center space-x-1"
+              title="Clear sample/extracted data for this client period to start fresh with clean slate"
+            >
+              <Trash2 className="w-3.5 h-3.5 text-rose-600" />
+              <span>Clear Sample Data</span>
+            </button>
           </div>
         </div>
 
@@ -507,13 +566,23 @@ export const StaffReviewModal: React.FC<StaffReviewModalProps> = ({
                                   <span>Save Changes</span>
                                 </button>
                               ) : (
-                                <button
-                                  onClick={() => handleEditDoc(doc)}
-                                  className="px-2.5 py-1 text-slate-600 hover:bg-slate-100 text-xs font-medium rounded-lg border border-slate-200 flex items-center space-x-1"
-                                >
-                                  <Edit2 className="w-3.5 h-3.5" />
-                                  <span>Edit / Adjust</span>
-                                </button>
+                                <div className="flex items-center space-x-1.5">
+                                  <button
+                                    onClick={() => handleEditDoc(doc)}
+                                    className="px-2.5 py-1 text-slate-600 hover:bg-slate-100 text-xs font-medium rounded-lg border border-slate-200 flex items-center space-x-1"
+                                  >
+                                    <Edit2 className="w-3.5 h-3.5" />
+                                    <span>Edit / Adjust</span>
+                                  </button>
+                                  <button
+                                    onClick={() => handleDeleteDoc(doc.id, doc.docNumber)}
+                                    disabled={isSubmitting}
+                                    className="p-1 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg border border-slate-200 transition"
+                                    title="Delete this invoice from records"
+                                  >
+                                    <Trash2 className="w-3.5 h-3.5" />
+                                  </button>
+                                </div>
                               )}
                             </div>
                           </div>
@@ -686,6 +755,7 @@ export const StaffReviewModal: React.FC<StaffReviewModalProps> = ({
                           <th className="p-3 text-right">Debit (₹)</th>
                           <th className="p-3 text-right">Credit (₹)</th>
                           <th className="p-3 text-right">Balance (₹)</th>
+                          <th className="p-3 text-center w-12">Action</th>
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-slate-100">
@@ -706,6 +776,16 @@ export const StaffReviewModal: React.FC<StaffReviewModalProps> = ({
                             </td>
                             <td className="p-3 text-right text-slate-900 font-semibold">
                               {tx.balance ? `₹${Number(tx.balance).toFixed(2)}` : '-'}
+                            </td>
+                            <td className="p-3 text-center">
+                              <button
+                                onClick={() => handleDeleteBankTx(tx.id)}
+                                disabled={isSubmitting}
+                                className="p-1 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded transition"
+                                title="Delete this bank transaction"
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                              </button>
                             </td>
                           </tr>
                         ))}

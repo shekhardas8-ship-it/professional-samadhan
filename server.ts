@@ -237,6 +237,19 @@ app.put('/api/clients/:id', requireAuth, async (req: AuthRequest, res: Response)
     if (updated.length === 0) {
       return res.status(404).json({ error: 'Client not found.' });
     }
+
+    // Keep existing extracted documents in sync with updated business name
+    const cleanGstin = gstin.trim().toUpperCase();
+    await db
+      .update(extractedDocuments)
+      .set({ buyerName: businessName.trim() })
+      .where(and(eq(extractedDocuments.clientId, id), eq(extractedDocuments.buyerGstin, cleanGstin)));
+
+    await db
+      .update(extractedDocuments)
+      .set({ supplierName: businessName.trim() })
+      .where(and(eq(extractedDocuments.clientId, id), eq(extractedDocuments.supplierGstin, cleanGstin)));
+
     res.json(updated[0]);
   } catch (err: any) {
     res.status(500).json({ error: 'Failed to update client: ' + err.message });
@@ -883,8 +896,15 @@ app.post('/api/documents/upload', upload.array('files', 150), async (req: Reques
       const isDuplicate = existingFileWithHash.length > 0;
       const fileId = `doc_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
 
-      // Run document extraction with optional bank/PDF password
-      const extractedList = await extractDocumentContent(buffer, f.originalname, clientGstin, f.mimetype, documentPassword);
+      // Run document extraction with optional bank/PDF password and actual client business name
+      const extractedList = await extractDocumentContent(
+        buffer,
+        f.originalname,
+        clientGstin,
+        f.mimetype,
+        documentPassword,
+        client.businessName || client.contactPerson
+      );
 
       // Upload to Google Drive (creates Client & Month folders, deletes local temp file if Drive is active)
       const driveUpload = await googleDriveStorage.uploadDocument({
@@ -1356,6 +1376,62 @@ app.patch('/api/extracted-documents/:id', requireAuth, async (req: AuthRequest, 
     res.json(updated[0]);
   } catch (err: any) {
     res.status(500).json({ error: 'Failed to update extracted document: ' + err.message });
+  }
+});
+
+// Delete an individual extracted document and its line items
+app.delete('/api/extracted-documents/:id', requireAuth, async (req: AuthRequest, res: Response) => {
+  try {
+    const { id } = req.params;
+    await db.delete(extractedLineItems).where(eq(extractedLineItems.documentUnitId, id));
+    await db.delete(extractedDocuments).where(eq(extractedDocuments.id, id));
+    res.json({ success: true, id });
+  } catch (err: any) {
+    res.status(500).json({ error: 'Failed to delete extracted document: ' + err.message });
+  }
+});
+
+// Delete an individual bank transaction
+app.delete('/api/bank-transactions/:id', requireAuth, async (req: AuthRequest, res: Response) => {
+  try {
+    const { id } = req.params;
+    await db.delete(bankTransactions).where(eq(bankTransactions.id, id));
+    res.json({ success: true, id });
+  } catch (err: any) {
+    res.status(500).json({ error: 'Failed to delete bank transaction: ' + err.message });
+  }
+});
+
+// Clear all extracted/sample documents & transactions for a monthly request (reset to clean slate)
+app.post('/api/monthly-requests/:id/clear-all-data', requireAuth, async (req: AuthRequest, res: Response) => {
+  try {
+    const { id } = req.params;
+    const docs = await db
+      .select({ id: extractedDocuments.id })
+      .from(extractedDocuments)
+      .where(eq(extractedDocuments.monthlyRequestId, id));
+    const docIds = docs.map(d => d.id);
+
+    if (docIds.length > 0) {
+      await db.delete(extractedLineItems).where(sql`${extractedLineItems.documentUnitId} IN ${docIds}`);
+    }
+
+    await db.delete(extractedDocuments).where(eq(extractedDocuments.monthlyRequestId, id));
+    await db.delete(bankTransactions).where(eq(bankTransactions.monthlyRequestId, id));
+    await db.delete(validationExceptions).where(eq(validationExceptions.monthlyRequestId, id));
+    await db.delete(generatedWorkbooks).where(eq(generatedWorkbooks.monthlyRequestId, id));
+
+    await db
+      .update(monthlyRequests)
+      .set({
+        status: 'Pending Documents',
+        updatedAt: new Date(),
+      })
+      .where(eq(monthlyRequests.id, id));
+
+    res.json({ success: true, message: 'Cleared all extracted documents and transactions for this period.' });
+  } catch (err: any) {
+    res.status(500).json({ error: 'Failed to clear data: ' + err.message });
   }
 });
 
