@@ -888,19 +888,40 @@ export const StaffReviewModal: React.FC<StaffReviewModalProps> = ({
                           <th className="p-3">Original Filename</th>
                           <th className="p-3">Source Channel</th>
                           <th className="p-3">Received Time</th>
-                          <th className="p-3">Extraction Method</th>
+                          <th className="p-3">Status</th>
                           <th className="p-3">SHA-256 Hash</th>
                           <th className="p-3 text-right">Actions</th>
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-slate-100">
-                        {details?.files.map(f => (
-                          <tr key={f.id} className="hover:bg-slate-50">
-                            <td className="p-3 text-slate-800 font-medium">{f.originalFilename}</td>
-                            <td className="p-3 text-slate-600 uppercase text-[11px]">{f.source}</td>
-                            <td className="p-3 text-slate-500">{new Date(f.receivedTime).toLocaleString('en-IN')}</td>
-                            <td className="p-3 text-slate-600 font-mono text-[11px]">{f.scanMethod || 'native_pdf'}</td>
-                            <td className="p-3 font-mono text-slate-400 text-[10px] truncate max-w-xs">{f.fileHash}</td>
+                        {details?.files.map(f => {
+                          const isDup = f.isDuplicate || f.status === 'duplicate_skipped' || f.status === 'duplicate_flagged';
+                          return (
+                            <tr key={f.id} className={isDup ? 'bg-amber-50/40 hover:bg-amber-50/60' : 'hover:bg-slate-50'}>
+                              <td className="p-3 text-slate-800 font-medium">
+                                <div>{f.originalFilename}</div>
+                                {isDup && (
+                                  <div className="text-[10px] text-amber-700 font-normal">
+                                    ⚠️ Duplicate file skipped (not double-counted)
+                                  </div>
+                                )}
+                              </td>
+                              <td className="p-3 text-slate-600 uppercase text-[11px]">{f.source}</td>
+                              <td className="p-3 text-slate-500">{new Date(f.receivedTime).toLocaleString('en-IN')}</td>
+                              <td className="p-3">
+                                <span
+                                  className={`px-2 py-0.5 text-[10px] font-semibold rounded uppercase ${
+                                    isDup
+                                      ? 'bg-amber-100 text-amber-800 border border-amber-300'
+                                      : f.status === 'processed'
+                                      ? 'bg-emerald-100 text-emerald-800'
+                                      : 'bg-slate-100 text-slate-700'
+                                  }`}
+                                >
+                                  {isDup ? 'Duplicate (Skipped)' : f.status}
+                                </span>
+                              </td>
+                              <td className="p-3 font-mono text-slate-400 text-[10px] truncate max-w-xs">{f.fileHash}</td>
                             <td className="p-3 text-right">
                               <div className="inline-flex items-center space-x-1.5">
                                 <a
@@ -924,7 +945,8 @@ export const StaffReviewModal: React.FC<StaffReviewModalProps> = ({
                               </div>
                             </td>
                           </tr>
-                        ))}
+                        );
+                      })}
                       </tbody>
                     </table>
                   </div>

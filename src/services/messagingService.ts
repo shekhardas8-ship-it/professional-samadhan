@@ -75,8 +75,13 @@ export function generateUploadAcknowledgementMessage(params: {
   ackReferenceId: string;
   missingItems?: string[];
   secureUploadLink?: string;
+  duplicateCount?: number;
+  duplicateFilesSummary?: string;
 }): string {
   const hasMissing = params.missingItems && params.missingItems.length > 0;
+  const duplicateNotice = (params.duplicateCount && params.duplicateCount > 0)
+    ? `\n\n⚠️ DUPLICATE FILE NOTICE: ${params.duplicateCount} duplicate file(s) were detected and safely skipped to protect your GST filing from double-counting.`
+    : '';
 
   if (hasMissing) {
     const missingListText = params.missingItems!.map((item, idx) => `${idx + 1}. ${item}`).join('\n');
@@ -84,7 +89,7 @@ export function generateUploadAcknowledgementMessage(params: {
 
 Thank you! We received your document upload for ${params.businessName} (${params.reportingMonth}).
 Receipt Ref: ${params.ackReferenceId}
-Extracted Entries: ${params.extractedCount} item(s)
+Extracted Entries: ${params.extractedCount} item(s)${duplicateNotice}
 
 ${params.filesSummaryText}
 
@@ -105,7 +110,7 @@ Chartered Accountants`;
 
 Thank you! All required documents for ${params.businessName} (${params.reportingMonth}) have been successfully received and extracted!
 Receipt Ref: ${params.ackReferenceId}
-Extracted Entries: ${params.extractedCount} item(s)
+Extracted Entries: ${params.extractedCount} item(s)${duplicateNotice}
 
 ${params.filesSummaryText}
 

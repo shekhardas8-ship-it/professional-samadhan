@@ -975,25 +975,70 @@ app.post('/api/documents/upload', upload.array('files', 150), async (req: Reques
 
     const processedDocs: any[] = [];
     const newExceptions: any[] = [];
+    const skippedDuplicates: any[] = [];
 
     for (const f of files) {
       const buffer = fs.readFileSync(f.path);
       const fileHash = computeFileHash(buffer);
 
-      // Check duplicate file hash in this monthly request
-      const existingFileWithHash = await db
+      // Check duplicate file in this monthly request (either by fileHash OR by same filename + size)
+      const existingFile = await db
         .select()
         .from(documentFiles)
         .where(
           and(
             eq(documentFiles.monthlyRequestId, monthlyRequestId),
-            eq(documentFiles.fileHash, fileHash)
+            or(
+              eq(documentFiles.fileHash, fileHash),
+              and(
+                eq(documentFiles.originalFilename, f.originalname),
+                eq(documentFiles.sizeBytes, f.size)
+              )
+            )
           )
         )
         .limit(1);
 
-      const isDuplicate = existingFileWithHash.length > 0;
+      const isDuplicate = existingFile.length > 0;
       const fileId = `doc_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+
+      if (isDuplicate) {
+        console.log(`[DUPLICATE FILE SKIPPED] "${f.originalname}" is identical to existing file "${existingFile[0].originalFilename}" (${existingFile[0].id}).`);
+        // Save file entry with duplicate_skipped status, without inserting duplicate extracted records
+        await db.insert(documentFiles).values({
+          id: fileId,
+          monthlyRequestId,
+          clientId: client.id,
+          gstin: clientGstin,
+          reportingPeriod: mr.reportingMonth,
+          originalFilename: f.originalname,
+          storagePath: existingFile[0].storagePath || 'duplicate',
+          fileHash,
+          mimeType: f.mimetype,
+          sizeBytes: f.size,
+          source: source || 'client_portal',
+          uploaderName: uploaderName || client.contactPerson,
+          status: 'duplicate_skipped',
+          isDuplicate: true,
+          duplicateOfId: existingFile[0].id,
+          isPasswordProtected: Boolean(documentPassword),
+          scanNotes: `Duplicate of "${existingFile[0].originalFilename}". Skipped to prevent double-counting.`,
+        });
+
+        skippedDuplicates.push({
+          filename: f.originalname,
+          originalFilename: existingFile[0].originalFilename,
+          originalFileId: existingFile[0].id,
+          reason: 'Identical file content or name/size already received for this monthly period',
+        });
+
+        // Delete local temp file
+        try {
+          if (fs.existsSync(f.path)) fs.unlinkSync(f.path);
+        } catch (_) {}
+
+        continue;
+      }
 
       // Run document extraction with targetCategory guidance and actual client business name
       const extractedList = await extractDocumentContent(
@@ -1042,14 +1087,43 @@ app.post('/api/documents/upload', upload.array('files', 150), async (req: Reques
         sizeBytes: f.size,
         source: source || 'client_portal',
         uploaderName: uploaderName || client.contactPerson,
-        status: isDuplicate ? 'duplicate_flagged' : 'processing',
-        isDuplicate,
-        duplicateOfId: isDuplicate ? existingFileWithHash[0].id : null,
+        status: 'processing',
+        isDuplicate: false,
+        duplicateOfId: null,
         isPasswordProtected: Boolean(documentPassword),
         scanNotes: documentPassword ? `Protected PDF (Password: ${documentPassword})` : null,
       });
 
       for (const item of extractedList) {
+        const cleanDocNo = sanitizePostgresText(item.docNumber)?.trim();
+        const isGenericDocNo = !cleanDocNo || cleanDocNo.length < 3 || ['INVOICE', 'BILL', 'TAX INVOICE', 'CASH MEMO', 'TAX_INVOICE'].includes(cleanDocNo.toUpperCase());
+
+        // Invoice-level duplicate check for this client & monthly request
+        if (!isGenericDocNo) {
+          const existingInv = await db
+            .select()
+            .from(extractedDocuments)
+            .where(
+              and(
+                eq(extractedDocuments.monthlyRequestId, monthlyRequestId),
+                eq(extractedDocuments.docNumber, cleanDocNo)
+              )
+            )
+            .limit(1);
+
+          const inBatchDup = processedDocs.some(pd => pd.docNumber && pd.docNumber.trim().toUpperCase() === cleanDocNo.toUpperCase());
+
+          if (existingInv.length > 0 || inBatchDup) {
+            console.log(`[DUPLICATE INVOICE SKIPPED] Invoice number "${cleanDocNo}" already exists in request ${monthlyRequestId}. Skipping re-insertion.`);
+            skippedDuplicates.push({
+              filename: f.originalname,
+              docNumber: cleanDocNo,
+              reason: `Invoice number "${cleanDocNo}" was already extracted earlier in this period`,
+            });
+            continue;
+          }
+        }
+
         const docUnitId = `ext_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
 
         await db.insert(extractedDocuments).values({
@@ -1240,6 +1314,7 @@ app.post('/api/documents/upload', upload.array('files', 150), async (req: Reques
       ackReferenceId: ackRef,
       missingItems: checklistEvaluation.missingItems,
       secureUploadLink,
+      duplicateCount: skippedDuplicates.length,
     });
 
     const dispatchResult = await dispatchWhatsAppNotification({
@@ -1263,6 +1338,8 @@ app.post('/api/documents/upload', upload.array('files', 150), async (req: Reques
         ackReferenceId: ackRef,
         filesUploadedCount: files.length,
         extractedCount: processedDocs.length,
+        duplicateCount: skippedDuplicates.length,
+        skippedDuplicates,
         missingItems: checklistEvaluation.missingItems,
         isFullySatisfied: checklistEvaluation.isFullySatisfied,
         dispatch: dispatchResult,
@@ -1275,6 +1352,8 @@ app.post('/api/documents/upload', upload.array('files', 150), async (req: Reques
       ackMessage: ackMessageText,
       filesUploaded: files.length,
       extractedCount: processedDocs.length,
+      duplicateCount: skippedDuplicates.length,
+      skippedDuplicates,
       isFullySatisfied: checklistEvaluation.isFullySatisfied,
       missingItems: checklistEvaluation.missingItems,
       checklist: checklistEvaluation.checklist,

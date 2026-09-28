@@ -167,8 +167,36 @@ export const ClientPortalView: React.FC<ClientPortalProps> = ({ initialToken, is
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files.length > 0) {
-      const arr = Array.from(e.target.files);
-      setSelectedFiles(prev => [...prev, ...arr]);
+      const incoming = Array.from(e.target.files);
+      const existingQueueKeys = new Set(selectedFiles.map(f => `${f.name}_${f.size}`));
+      const previouslyUploadedKeys = new Set(
+        (session?.files || []).map((f: any) => `${f.originalFilename}_${f.sizeBytes}`)
+      );
+
+      const duplicatesInQueue: string[] = [];
+      const duplicatesPreviouslyUploaded: string[] = [];
+      const newFilesToStage: File[] = [];
+
+      for (const file of incoming) {
+        const key = `${file.name}_${file.size}`;
+        if (existingQueueKeys.has(key)) {
+          duplicatesInQueue.push(file.name);
+        } else {
+          existingQueueKeys.add(key);
+          newFilesToStage.push(file);
+          if (previouslyUploadedKeys.has(key)) {
+            duplicatesPreviouslyUploaded.push(file.name);
+          }
+        }
+      }
+
+      if (duplicatesInQueue.length > 0) {
+        setError(`Ignored ${duplicatesInQueue.length} duplicate file(s) already in your selection queue (${duplicatesInQueue.slice(0, 2).join(', ')}${duplicatesInQueue.length > 2 ? '...' : ''}).`);
+      } else if (duplicatesPreviouslyUploaded.length > 0) {
+        setError(`⚠️ Notice: ${duplicatesPreviouslyUploaded.length} selected file(s) were already uploaded previously for this period. Our system will automatically detect and skip duplicates to prevent double-counting.`);
+      }
+
+      setSelectedFiles(prev => [...prev, ...newFilesToStage]);
       setIsUploadAreaOpen(true);
       // Reset input value so same files can be re-selected if removed
       e.target.value = '';
@@ -216,7 +244,12 @@ export const ClientPortalView: React.FC<ClientPortalProps> = ({ initialToken, is
         dispatchResult: data.dispatchResult,
       });
 
-      if (data.missingItems && data.missingItems.length > 0) {
+      if (data.duplicateCount && data.duplicateCount > 0) {
+        const newCount = data.filesUploaded - data.duplicateCount;
+        setSuccessMsg(
+          `Processed ${newCount} new document(s) (${data.extractedCount} invoices extracted). Notice: ${data.duplicateCount} duplicate file(s) were safely skipped to protect against duplicate GST calculations.`
+        );
+      } else if (data.missingItems && data.missingItems.length > 0) {
         setSuccessMsg(`Uploaded ${selectedFiles.length} file(s) (${data.extractedCount} invoices extracted). Notice: ${data.missingItems.length} document(s) still required to complete filing.`);
       } else {
         setSuccessMsg(`Successfully uploaded and scanned ${selectedFiles.length} document(s)! All monthly checklist requirements are complete.`);
@@ -772,36 +805,46 @@ export const ClientPortalView: React.FC<ClientPortalProps> = ({ initialToken, is
                     </div>
 
                     {/* Scrollable file list with Delete Option per file */}
-                    <div className="max-h-48 overflow-y-auto space-y-1.5 pr-1">
-                      {selectedFiles.map((file, idx) => (
-                        <div
-                          key={idx}
-                          className="text-xs bg-white p-2.5 rounded-lg border border-slate-200 flex items-center justify-between group hover:border-slate-300 transition"
-                        >
-                          <div className="flex items-center space-x-2 min-w-0 flex-1 pr-2">
-                            <FileText className="w-4 h-4 text-blue-500 shrink-0" />
-                            <span className="font-medium text-slate-800 truncate" title={file.name}>
-                              {file.name}
-                            </span>
-                          </div>
+                      {selectedFiles.map((file, idx) => {
+                        const isAlreadyUploaded = session?.files?.some((f: any) => f.originalFilename === file.name && f.sizeBytes === file.size);
+                        return (
+                          <div
+                            key={idx}
+                            className={`text-xs p-2.5 rounded-lg border flex items-center justify-between group transition ${
+                              isAlreadyUploaded
+                                ? 'bg-amber-50/70 border-amber-300 hover:border-amber-400'
+                                : 'bg-white border-slate-200 hover:border-slate-300'
+                            }`}
+                          >
+                            <div className="flex items-center space-x-2 min-w-0 flex-1 pr-2">
+                              <FileText className={`w-4 h-4 shrink-0 ${isAlreadyUploaded ? 'text-amber-600' : 'text-blue-500'}`} />
+                              <span className="font-medium text-slate-800 truncate" title={file.name}>
+                                {file.name}
+                              </span>
+                              {isAlreadyUploaded && (
+                                <span className="px-1.5 py-0.5 bg-amber-200 text-amber-900 text-[10px] font-bold rounded shrink-0">
+                                  Already Uploaded (Will Skip)
+                                </span>
+                              )}
+                            </div>
 
-                          <div className="flex items-center space-x-3 shrink-0">
-                            <span className="text-[11px] text-slate-400">{formatFileSize(file.size)}</span>
-                            <button
-                              type="button"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                removeSelectedFile(idx);
-                              }}
-                              className="p-1 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded transition"
-                              title="Delete / remove this file from upload"
-                            >
-                              <Trash2 className="w-3.5 h-3.5" />
-                            </button>
+                            <div className="flex items-center space-x-3 shrink-0">
+                              <span className="text-[11px] text-slate-400">{formatFileSize(file.size)}</span>
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  removeSelectedFile(idx);
+                                }}
+                                className="p-1 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded transition"
+                                title="Delete / remove this file from upload"
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                              </button>
+                            </div>
                           </div>
-                        </div>
-                      ))}
-                    </div>
+                        );
+                      })}
 
                     {/* Bank Statement Password Option */}
                     <div className="p-3 bg-amber-50/70 border border-amber-200 rounded-lg space-y-1.5">
@@ -994,24 +1037,33 @@ export const ClientPortalView: React.FC<ClientPortalProps> = ({ initialToken, is
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100">
-                    {session.files.map((file: any) => (
-                      <tr key={file.id}>
-                        <td className="py-2 font-medium text-slate-800">{file.originalFilename}</td>
-                        <td className="py-2 text-slate-500 uppercase text-[11px]">{file.source}</td>
-                        <td className="py-2 text-slate-500">{new Date(file.receivedTime).toLocaleString('en-IN')}</td>
-                        <td className="py-2">
-                          <span
-                            className={`px-2 py-0.5 text-[10px] font-semibold rounded uppercase ${
-                              file.status === 'processed'
-                                ? 'bg-emerald-100 text-emerald-800'
-                                : file.status === 'duplicate_flagged'
-                                ? 'bg-amber-100 text-amber-800'
-                                : 'bg-slate-100 text-slate-700'
-                            }`}
-                          >
-                            {file.status}
-                          </span>
-                        </td>
+                    {session.files.map((file: any) => {
+                      const isDup = file.isDuplicate || file.status === 'duplicate_skipped' || file.status === 'duplicate_flagged';
+                      return (
+                        <tr key={file.id} className={isDup ? 'bg-amber-50/40' : ''}>
+                          <td className="py-2 font-medium text-slate-800">
+                            <div>{file.originalFilename}</div>
+                            {isDup && (
+                              <span className="text-[10px] text-amber-700 block font-normal">
+                                ⚠️ Skipped duplicate (prevents double-counting in GST)
+                              </span>
+                            )}
+                          </td>
+                          <td className="py-2 text-slate-500 uppercase text-[11px]">{file.source}</td>
+                          <td className="py-2 text-slate-500">{new Date(file.receivedTime).toLocaleString('en-IN')}</td>
+                          <td className="py-2">
+                            <span
+                              className={`px-2 py-0.5 text-[10px] font-semibold rounded uppercase ${
+                                isDup
+                                  ? 'bg-amber-100 text-amber-800 border border-amber-300'
+                                  : file.status === 'processed'
+                                  ? 'bg-emerald-100 text-emerald-800'
+                                  : 'bg-slate-100 text-slate-700'
+                              }`}
+                            >
+                              {isDup ? 'Duplicate (Skipped)' : file.status}
+                            </span>
+                          </td>
                         <td className="py-2 text-right">
                           <div className="inline-flex items-center space-x-1.5">
                             <a
@@ -1035,7 +1087,8 @@ export const ClientPortalView: React.FC<ClientPortalProps> = ({ initialToken, is
                           </div>
                         </td>
                       </tr>
-                    ))}
+                      );
+                    })}
                   </tbody>
                 </table>
               </div>

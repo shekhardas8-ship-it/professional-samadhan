@@ -76,11 +76,11 @@ export function runValidationChecks(params: {
         documentFileId: f.id,
       });
     }
-    if (f.isDuplicate) {
+    if (f.isDuplicate || f.status === 'duplicate_skipped' || f.status === 'duplicate_flagged') {
       exceptions.push({
         severity: 'warning',
         checkType: 'duplicate_invoice',
-        message: `Probable duplicate file detected: "${f.originalFilename}". Exact hash matches previously submitted file.`,
+        message: `Duplicate file skipped: "${f.originalFilename}". Exact copy already uploaded for this period.`,
         documentFileId: f.id,
       });
     }
@@ -133,21 +133,25 @@ export function runValidationChecks(params: {
     }
   }
 
-  // 4. Duplicate Invoice Detection (same supplier GSTIN, docNumber, docDate)
+  // 4. Duplicate Invoice Detection (checks sales and purchase invoices by number)
   const invoiceKeys = new Map<string, string>();
   for (const doc of extractedDocs) {
-    if (doc.docNumber && doc.supplierGstin) {
-      const key = `${doc.supplierGstin.trim().toUpperCase()}__${doc.docNumber.trim().toUpperCase()}`;
-      if (invoiceKeys.has(key)) {
-        exceptions.push({
-          severity: 'critical',
-          checkType: 'duplicate_invoice',
-          message: `Duplicate Invoice Number detected: ${doc.docNumber} from GSTIN ${doc.supplierGstin}.`,
-          documentUnitId: doc.id,
-          documentFileId: doc.documentFileId,
-        });
-      } else {
-        invoiceKeys.set(key, doc.id);
+    if (doc.docNumber) {
+      const cleanNo = doc.docNumber.trim().toUpperCase();
+      if (cleanNo.length >= 3 && !['INVOICE', 'BILL', 'TAX INVOICE', 'CASH MEMO'].includes(cleanNo)) {
+        const partyGstin = (doc.supplierGstin || doc.buyerGstin || client.gstin || 'CLIENT').trim().toUpperCase();
+        const key = `${doc.docType || 'doc'}__${partyGstin}__${cleanNo}`;
+        if (invoiceKeys.has(key)) {
+          exceptions.push({
+            severity: 'critical',
+            checkType: 'duplicate_invoice',
+            message: `Duplicate Invoice Number detected: "${doc.docNumber}" (${(doc.docType || 'invoice').replace('_', ' ')}).`,
+            documentUnitId: doc.id,
+            documentFileId: doc.documentFileId,
+          });
+        } else {
+          invoiceKeys.set(key, doc.id);
+        }
       }
     }
   }
