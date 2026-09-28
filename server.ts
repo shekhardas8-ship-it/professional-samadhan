@@ -22,7 +22,7 @@ import {
   generatedWorkbooks,
   auditNotifications,
 } from './src/db/schema.ts';
-import { eq, and, desc, sql } from 'drizzle-orm';
+import { eq, and, or, desc, sql } from 'drizzle-orm';
 import { requireAuth, requireClientUploadAuth, AuthRequest } from './src/middleware/auth.ts';
 import { extractDocumentContent, computeFileHash, isValidGstinFormat, sanitizePostgresText } from './src/services/extractor.ts';
 import { runValidationChecks } from './src/services/validator.ts';
@@ -273,30 +273,75 @@ app.delete('/api/clients/:id', requireAuth, async (req: AuthRequest, res: Respon
       .where(eq(monthlyRequests.clientId, id));
     const requestIds = clientRequests.map(r => r.id);
 
-    // 2. Cascade delete documents and records for those requests
-    if (requestIds.length > 0) {
-      const docs = await db
-        .select({ id: extractedDocuments.id })
-        .from(extractedDocuments)
-        .where(sql`${extractedDocuments.monthlyRequestId} IN ${requestIds}`);
-      const docIds = docs.map(d => d.id);
+    // 2. Find all extracted documents associated with this client or its monthly requests
+    const docs = await db
+      .select({ id: extractedDocuments.id })
+      .from(extractedDocuments)
+      .where(
+        requestIds.length > 0
+          ? or(eq(extractedDocuments.clientId, id), sql`${extractedDocuments.monthlyRequestId} IN ${requestIds}`)
+          : eq(extractedDocuments.clientId, id)
+      );
+    const docIds = docs.map(d => d.id);
 
-      if (docIds.length > 0) {
-        await db.delete(extractedLineItems).where(sql`${extractedLineItems.documentUnitId} IN ${docIds}`);
-      }
+    // 3. Delete extracted line items (foreign key referencing extractedDocuments.id)
+    if (docIds.length > 0) {
+      await db.delete(extractedLineItems).where(sql`${extractedLineItems.documentUnitId} IN ${docIds}`);
+    }
 
-      await db.delete(extractedDocuments).where(sql`${extractedDocuments.monthlyRequestId} IN ${requestIds}`);
+    // 4. Delete bank transactions FIRST (they reference extractedDocuments.id and monthlyRequests.id)
+    if (docIds.length > 0 && requestIds.length > 0) {
+      await db.delete(bankTransactions).where(
+        or(
+          sql`${bankTransactions.documentUnitId} IN ${docIds}`,
+          sql`${bankTransactions.monthlyRequestId} IN ${requestIds}`
+        )
+      );
+    } else if (docIds.length > 0) {
+      await db.delete(bankTransactions).where(sql`${bankTransactions.documentUnitId} IN ${docIds}`);
+    } else if (requestIds.length > 0) {
       await db.delete(bankTransactions).where(sql`${bankTransactions.monthlyRequestId} IN ${requestIds}`);
+    }
+
+    // 5. Delete validation exceptions (referencing monthlyRequests.id)
+    if (requestIds.length > 0) {
       await db.delete(validationExceptions).where(sql`${validationExceptions.monthlyRequestId} IN ${requestIds}`);
-      await db.delete(generatedWorkbooks).where(sql`${generatedWorkbooks.monthlyRequestId} IN ${requestIds}`);
+    }
+
+    // 6. Delete generated workbooks (referencing monthlyRequests.id and clients.id)
+    await db.delete(generatedWorkbooks).where(
+      requestIds.length > 0
+        ? or(eq(generatedWorkbooks.clientId, id), sql`${generatedWorkbooks.monthlyRequestId} IN ${requestIds}`)
+        : eq(generatedWorkbooks.clientId, id)
+    );
+
+    // 7. Delete extracted documents (now safe because line items and bank transactions referencing them are deleted)
+    if (docIds.length > 0) {
+      await db.delete(extractedDocuments).where(sql`${extractedDocuments.id} IN ${docIds}`);
+    }
+    if (requestIds.length > 0) {
+      await db.delete(extractedDocuments).where(sql`${extractedDocuments.monthlyRequestId} IN ${requestIds}`);
+    }
+    await db.delete(extractedDocuments).where(eq(extractedDocuments.clientId, id));
+
+    // 8. Delete document files (referencing monthlyRequests.id and clients.id)
+    if (requestIds.length > 0) {
       await db.delete(documentFiles).where(sql`${documentFiles.monthlyRequestId} IN ${requestIds}`);
+    }
+    await db.delete(documentFiles).where(eq(documentFiles.clientId, id));
+
+    // 9. Delete audit notifications (referencing monthlyRequests.id and clients.id)
+    if (requestIds.length > 0) {
+      await db.delete(auditNotifications).where(sql`${auditNotifications.monthlyRequestId} IN ${requestIds}`);
+    }
+    await db.delete(auditNotifications).where(eq(auditNotifications.clientId, id));
+
+    // 10. Delete monthly requests
+    if (requestIds.length > 0) {
       await db.delete(monthlyRequests).where(eq(monthlyRequests.clientId, id));
     }
 
-    // 3. Delete audit notifications
-    await db.delete(auditNotifications).where(eq(auditNotifications.clientId, id));
-
-    // 4. Delete client record
+    // 11. Delete client record
     await db.delete(clients).where(eq(clients.id, id));
 
     res.json({
