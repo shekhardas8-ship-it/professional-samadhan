@@ -14,7 +14,9 @@
   "dependencies": {
     "@google/genai": "^2.4.0",
     "@tailwindcss/vite": "^4.3.3",
+    "@types/archiver": "^8.0.0",
     "@vitejs/plugin-react": "^6.1.1",
+    "archiver": "^8.0.0",
     "dotenv": "^17.2.3",
     "drizzle-orm": "^0.45.3",
     "exceljs": "^4.4.0",

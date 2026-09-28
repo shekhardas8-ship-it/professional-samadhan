@@ -266,6 +266,16 @@ export const StaffReviewModal: React.FC<StaffReviewModalProps> = ({
           </div>
 
           <div className="flex items-center space-x-2">
+            <a
+              href={`/api/monthly-requests/${request.id}/download-package?purge=true`}
+              download
+              className="px-3 py-1.5 bg-amber-50 hover:bg-amber-100 text-amber-800 text-xs font-semibold rounded-lg border border-amber-300 transition flex items-center space-x-1.5"
+              title="Download entire client package (.zip) to PC and purge server disk"
+            >
+              <Download className="w-3.5 h-3.5 text-amber-700" />
+              <span>Save to PC (.zip)</span>
+            </a>
+
             <button
               onClick={() =>
                 setActiveHtmlReport({
@@ -619,6 +629,26 @@ export const StaffReviewModal: React.FC<StaffReviewModalProps> = ({
               {/* TAB 4: ORIGINAL FILES */}
               {activeTab === 'files' && (
                 <div className="space-y-4">
+                  <div className="bg-gradient-to-r from-amber-50 to-orange-50 border border-amber-200 rounded-xl p-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 shadow-xs">
+                    <div>
+                      <h4 className="text-xs font-bold text-amber-900 flex items-center space-x-1.5">
+                        <Download className="w-4 h-4 text-amber-700" />
+                        <span>Zero-Bloat Local Archive: Download All Files</span>
+                      </h4>
+                      <p className="text-[11px] text-amber-700 mt-0.5">
+                        Stream all {details?.files.length || 0} client documents, bank statements, and manifests into a single .zip to your local PC.
+                      </p>
+                    </div>
+                    <a
+                      href={`/api/monthly-requests/${request.id}/download-package?purge=true`}
+                      download
+                      className="px-3.5 py-1.5 bg-amber-600 hover:bg-amber-500 text-white rounded-lg text-xs font-bold shadow-xs inline-flex items-center space-x-1.5 self-start sm:self-auto transition"
+                    >
+                      <Download className="w-3.5 h-3.5" />
+                      <span>Download Package & Purge Server (.zip)</span>
+                    </a>
+                  </div>
+
                   <div className="bg-white rounded-xl border border-slate-200 overflow-hidden shadow-sm">
                     <table className="min-w-full text-xs text-left">
                       <thead className="bg-slate-100 text-slate-600 font-semibold border-b border-slate-200">

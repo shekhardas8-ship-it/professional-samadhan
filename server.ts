@@ -5,6 +5,7 @@ import { createServer as createViteServer } from 'vite';
 import path from 'path';
 import fs from 'fs';
 import multer from 'multer';
+import archiver from 'archiver';
 import { db } from './src/db/index.ts';
 import {
   users,
@@ -1325,6 +1326,184 @@ app.get('/api/workbooks/:id/download', async (req: Request, res: Response) => {
     res.status(404).json({ error: 'Workbook file not found' });
   } catch (err: any) {
     res.status(500).json({ error: 'Download failed: ' + err.message });
+  }
+});
+
+// Stream all uploaded documents, statements, and Excel workbooks for a client into a single .zip to the CA's local PC
+app.get('/api/monthly-requests/:id/download-package', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const purgeAfter = req.query.purge === 'true';
+
+    const reqList = await db
+      .select({
+        request: monthlyRequests,
+        client: clients,
+      })
+      .from(monthlyRequests)
+      .innerJoin(clients, eq(monthlyRequests.clientId, clients.id))
+      .where(eq(monthlyRequests.id, id))
+      .limit(1);
+
+    if (reqList.length === 0) {
+      return res.status(404).json({ error: 'Monthly request not found.' });
+    }
+
+    const { request: mr, client } = reqList[0];
+    const files = await db.select().from(documentFiles).where(eq(documentFiles.monthlyRequestId, id));
+    const workbooks = await db.select().from(generatedWorkbooks).where(eq(generatedWorkbooks.monthlyRequestId, id));
+
+    const sanitizedClient = client.businessName.replace(/[^a-zA-Z0-9_-]/g, '_');
+    const sanitizedMonth = mr.reportingMonth.replace(/[^a-zA-Z0-9_-]/g, '_');
+    const zipFilename = `${sanitizedClient}_${sanitizedMonth}_GST_Package.zip`;
+
+    res.setHeader('Content-Type', 'application/zip');
+    res.setHeader('Content-Disposition', `attachment; filename="${zipFilename}"`);
+
+    const archive = archiver('zip', { zlib: { level: 9 } });
+
+    archive.on('error', (err) => {
+      console.error('Archive error:', err);
+      if (!res.headersSent) res.status(500).send({ error: err.message });
+    });
+
+    archive.pipe(res);
+
+    // 1. Add Summary Manifest
+    const manifestText = `PROFESSIONAL SAMADHAN CHARTERED ACCOUNTANTS
+STATUTORY GST CLIENT PACKAGE
+===========================================================
+Client Business : ${client.businessName}
+GSTIN           : ${client.gstin}
+Contact Person  : ${client.contactPerson} (${client.registeredPhone})
+Email           : ${client.email}
+Reporting Month : ${mr.reportingMonth}
+Package Export  : ${new Date().toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' })}
+Total Documents : ${files.length}
+Invoices Count  : ${mr.totalInvoicesExtracted}
+Status          : ${mr.status}
+
+FILES INCLUDED IN THIS PACKAGE:
+${files.length > 0 ? files.map((f, i) => `${i + 1}. [${f.source}] ${f.originalFilename} (${(f.sizeBytes / 1024).toFixed(1)} KB) - Hash: ${f.fileHash}`).join('\n') : 'No uploaded document files recorded.'}
+
+WORKBOOKS INCLUDED:
+${workbooks.length > 0 ? workbooks.map((w, i) => `${i + 1}. v${w.version} ${w.filename} (${w.status})`).join('\n') : 'No workbooks generated yet.'}
+===========================================================
+Downloaded directly to Local PC storage.
+Extracted GST tax line items remain preserved in Neon PostgreSQL Database.`;
+
+    archive.append(manifestText, { name: 'PACKAGE_MANIFEST.txt' });
+
+    // 2. Add all physical uploaded files
+    const filesToPurge: string[] = [];
+    for (const f of files) {
+      if (f.storagePath && fs.existsSync(f.storagePath)) {
+        archive.file(f.storagePath, { name: `Client_Documents/${f.originalFilename}` });
+        filesToPurge.push(f.storagePath);
+      }
+    }
+
+    // 3. Add workbooks if present
+    for (const wb of workbooks) {
+      if (wb.filePath && fs.existsSync(wb.filePath)) {
+        archive.file(wb.filePath, { name: `Workbooks/${wb.filename}` });
+      }
+    }
+
+    await archive.finalize();
+
+    // If purge was requested, reclaim server disk space immediately after stream
+    if (purgeAfter && filesToPurge.length > 0) {
+      res.on('finish', () => {
+        for (const p of filesToPurge) {
+          try {
+            if (fs.existsSync(p)) fs.unlinkSync(p);
+          } catch (e: any) {
+            console.error('Error auto-cleaning file from server:', p, e.message);
+          }
+        }
+        console.log(`[Storage Auto-Clean] Reclaimed server disk: deleted ${filesToPurge.length} files for ${mr.id}.`);
+      });
+    }
+  } catch (err: any) {
+    console.error('Download package error:', err);
+    res.status(500).json({ error: 'Failed to build package: ' + err.message });
+  }
+});
+
+// Storage Health & Disk Usage endpoint
+app.get('/api/system/storage-info', requireAuth, (_req: Request, res: Response) => {
+  try {
+    let uploadBytes = 0;
+    let uploadCount = 0;
+    if (fs.existsSync(UPLOAD_DIR)) {
+      const uFiles = fs.readdirSync(UPLOAD_DIR);
+      uploadCount = uFiles.length;
+      uploadBytes = uFiles.reduce((acc, f) => {
+        try {
+          return acc + fs.statSync(path.join(UPLOAD_DIR, f)).size;
+        } catch {
+          return acc;
+        }
+      }, 0);
+    }
+
+    let wbBytes = 0;
+    let wbCount = 0;
+    if (fs.existsSync(WORKBOOK_DIR)) {
+      const wFiles = fs.readdirSync(WORKBOOK_DIR);
+      wbCount = wFiles.length;
+      wbBytes = wFiles.reduce((acc, f) => {
+        try {
+          return acc + fs.statSync(path.join(WORKBOOK_DIR, f)).size;
+        } catch {
+          return acc;
+        }
+      }, 0);
+    }
+
+    const totalBytes = uploadBytes + wbBytes;
+    res.json({
+      uploadCount,
+      uploadSizeMB: +(uploadBytes / (1024 * 1024)).toFixed(2),
+      workbookCount: wbCount,
+      workbookSizeMB: +(wbBytes / (1024 * 1024)).toFixed(2),
+      totalSizeMB: +(totalBytes / (1024 * 1024)).toFixed(2),
+      status: totalBytes > 200 * 1024 * 1024 ? 'warning_high' : 'optimized_lean',
+    });
+  } catch (err: any) {
+    res.status(500).json({ error: 'Failed to inspect storage: ' + err.message });
+  }
+});
+
+// 1-Click Server Disk Purge (Reclaim Cloud Storage)
+app.post('/api/system/purge-storage', requireAuth, async (_req: Request, res: Response) => {
+  try {
+    let deletedCount = 0;
+    let freedBytes = 0;
+
+    if (fs.existsSync(UPLOAD_DIR)) {
+      const files = fs.readdirSync(UPLOAD_DIR);
+      for (const f of files) {
+        try {
+          const fp = path.join(UPLOAD_DIR, f);
+          const sz = fs.statSync(fp).size;
+          fs.unlinkSync(fp);
+          deletedCount++;
+          freedBytes += sz;
+        } catch {}
+      }
+    }
+
+    console.log(`[Manual Purge] Deleted ${deletedCount} files, freed ${(freedBytes / 1024 / 1024).toFixed(2)} MB on server.`);
+    res.json({
+      success: true,
+      deletedCount,
+      freedMB: +(freedBytes / (1024 * 1024)).toFixed(2),
+      message: `Successfully reclaimed ${(freedBytes / 1024 / 1024).toFixed(2)} MB of server space! Extracted database records remain completely safe.`,
+    });
+  } catch (err: any) {
+    res.status(500).json({ error: 'Failed to purge storage: ' + err.message });
   }
 });
 

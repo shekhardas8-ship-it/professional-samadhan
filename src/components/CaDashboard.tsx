@@ -1,5 +1,5 @@
 // src/components/CaDashboard.tsx
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { MonthlyRequest, MonthlyRequestStatus } from '../types/index.ts';
 import {
   FileText,
@@ -19,6 +19,9 @@ import {
   UserPlus,
   Users,
   Settings2,
+  HardDrive,
+  Trash2,
+  X,
 } from 'lucide-react';
 import { HtmlReportModal } from './HtmlReportModal.tsx';
 import { ClientManagementModal } from './ClientManagementModal.tsx';
@@ -57,6 +60,55 @@ export const CaDashboard: React.FC<CaDashboardProps> = ({
     title: string;
     subtitle: string;
   } | null>(null);
+
+  // Storage Health & Zero-Bloat Manager State
+  const [isStorageModalOpen, setIsStorageModalOpen] = useState(false);
+  const [storageInfo, setStorageInfo] = useState<{
+    uploadCount: number;
+    uploadSizeMB: number;
+    workbookCount: number;
+    workbookSizeMB: number;
+    totalSizeMB: number;
+    status: string;
+  } | null>(null);
+  const [isPurging, setIsPurging] = useState(false);
+  const [storageMessage, setStorageMessage] = useState<string | null>(null);
+
+  const fetchStorageInfo = async () => {
+    try {
+      const res = await fetch('/api/system/storage-info');
+      if (res.ok) {
+        const data = await res.json();
+        setStorageInfo(data);
+      }
+    } catch (e) {
+      console.error('Failed to fetch storage info:', e);
+    }
+  };
+
+  useEffect(() => {
+    fetchStorageInfo();
+  }, []);
+
+  const handlePurgeStorage = async () => {
+    if (!window.confirm('Clean temporary files from cloud server? All extracted GST invoice records, tax numbers, and audit trails remain 100% safe in PostgreSQL.')) return;
+    try {
+      setIsPurging(true);
+      setStorageMessage(null);
+      const res = await fetch('/api/system/purge-storage', { method: 'POST' });
+      const data = await res.json();
+      if (res.ok) {
+        setStorageMessage(data.message);
+        fetchStorageInfo();
+      } else {
+        setStorageMessage(data.error || 'Failed to purge storage');
+      }
+    } catch (err: any) {
+      setStorageMessage(err.message);
+    } finally {
+      setIsPurging(false);
+    }
+  };
 
   const statusList: { key: string; label: string; color: string }[] = [
     { key: 'all', label: 'All Filings', color: 'bg-slate-800 text-slate-200' },
@@ -114,6 +166,18 @@ export const CaDashboard: React.FC<CaDashboardProps> = ({
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-3">
+          <button
+            onClick={() => {
+              setIsStorageModalOpen(true);
+              fetchStorageInfo();
+            }}
+            className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 text-sm font-semibold rounded-lg border border-slate-700 shadow transition flex items-center space-x-2"
+            title="Inspect server disk usage and free up space"
+          >
+            <HardDrive className="w-4 h-4 text-amber-400" />
+            <span>Storage: {storageInfo ? `${storageInfo.totalSizeMB} MB` : 'Checking...'}</span>
+          </button>
+
           <button
             onClick={() => setIsClientModalOpen(true)}
             className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white text-sm font-semibold rounded-lg shadow transition flex items-center space-x-2"
@@ -291,6 +355,17 @@ export const CaDashboard: React.FC<CaDashboardProps> = ({
                       <span>Review Data & OCR</span>
                     </button>
 
+                    <a
+                      href={`/api/monthly-requests/${req.id}/download-package?purge=true`}
+                      download
+                      onClick={() => setTimeout(fetchStorageInfo, 3000)}
+                      className="px-3 py-1.5 bg-amber-50 hover:bg-amber-100 text-amber-800 text-xs font-semibold rounded-lg border border-amber-300 transition flex items-center space-x-1.5"
+                      title="Download complete zip package directly to local PC and auto-free server disk"
+                    >
+                      <Download className="w-3.5 h-3.5 text-amber-700" />
+                      <span>Save to PC (.zip)</span>
+                    </a>
+
                     <button
                       onClick={() => onOpenWhatsApp(req, req.status === 'Requested' ? 'initial' : 'reminder')}
                       className="px-3 py-1.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 text-xs font-semibold rounded-lg border border-emerald-300 transition flex items-center space-x-1.5"
@@ -410,6 +485,80 @@ export const CaDashboard: React.FC<CaDashboardProps> = ({
         }}
         selectedClientIds={selectedClientIds}
       />
+
+      {/* Server Storage Health & Zero-Bloat Purge Modal */}
+      {isStorageModalOpen && (
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl shadow-2xl max-w-lg w-full overflow-hidden border border-slate-200 animate-in fade-in zoom-in-95">
+            <div className="bg-slate-900 text-white px-6 py-4 flex items-center justify-between">
+              <div className="flex items-center space-x-2">
+                <HardDrive className="w-5 h-5 text-amber-400" />
+                <h3 className="font-bold text-base">Server Storage & Zero-Bloat Manager</h3>
+              </div>
+              <button
+                onClick={() => setIsStorageModalOpen(false)}
+                className="text-slate-400 hover:text-white transition"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="p-6 space-y-5">
+              <div className="bg-blue-50 border border-blue-200 rounded-xl p-4 text-xs text-blue-900 space-y-1.5">
+                <div className="font-bold flex items-center space-x-1.5 text-blue-800">
+                  <CheckCircle2 className="w-4 h-4 text-blue-600 shrink-0" />
+                  <span>Point-to-Point Device Storage Model</span>
+                </div>
+                <p>
+                  Client documents are parsed and validated immediately upon receipt, with 100% of GST invoices, line items, and tax numbers stored safely in your <strong>Neon PostgreSQL Cloud Database</strong>.
+                </p>
+                <p className="text-blue-700">
+                  Click <strong>&quot;Save to PC (.zip)&quot;</strong> on any client card to stream all files directly into your local machine and automatically purge temporary copies from the cloud server.
+                </p>
+              </div>
+
+              {storageInfo ? (
+                <div className="grid grid-cols-2 gap-3 text-center">
+                  <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl">
+                    <div className="text-[11px] text-slate-500 font-medium uppercase">Client Uploads on Server</div>
+                    <div className="text-xl font-bold text-slate-800 mt-1">{storageInfo.uploadSizeMB} MB</div>
+                    <div className="text-xs text-slate-400">{storageInfo.uploadCount} files on temporary disk</div>
+                  </div>
+                  <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl">
+                    <div className="text-[11px] text-slate-500 font-medium uppercase">Excel Workbooks</div>
+                    <div className="text-xl font-bold text-slate-800 mt-1">{storageInfo.workbookSizeMB} MB</div>
+                    <div className="text-xs text-slate-400">{storageInfo.workbookCount} compiled sheets</div>
+                  </div>
+                </div>
+              ) : (
+                <div className="text-center py-4 text-sm text-slate-400">Loading storage metrics...</div>
+              )}
+
+              {storageMessage && (
+                <div className="p-3 bg-emerald-50 border border-emerald-200 text-emerald-800 rounded-xl text-xs font-semibold flex items-center space-x-2">
+                  <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                  <span>{storageMessage}</span>
+                </div>
+              )}
+
+              <div className="pt-3 border-t border-slate-100 flex items-center justify-between">
+                <div className="text-xs text-slate-500">
+                  Total Container Disk: <strong>{storageInfo ? `${storageInfo.totalSizeMB} MB` : '0 MB'}</strong>
+                </div>
+                <button
+                  onClick={handlePurgeStorage}
+                  disabled={isPurging}
+                  className="px-4 py-2 bg-rose-600 hover:bg-rose-500 text-white text-xs font-bold rounded-lg shadow transition flex items-center space-x-1.5 disabled:opacity-50"
+                  title="Purge temporary physical files while preserving 100% of database records"
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                  <span>{isPurging ? 'Purging...' : '1-Click Free Server Space'}</span>
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
