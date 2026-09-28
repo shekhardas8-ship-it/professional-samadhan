@@ -335,6 +335,17 @@ export const CaDashboard: React.FC<CaDashboardProps> = ({
                         className="w-4 h-4 rounded text-blue-600 border-slate-300 focus:ring-blue-500 cursor-pointer"
                       />
                       <h2 className="text-lg font-bold text-slate-900">{req.clientName}</h2>
+                      <button
+                        onClick={() => {
+                          setClientToEdit(req.clientId);
+                          setIsClientModalOpen(true);
+                        }}
+                        className="px-2 py-0.5 bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200 rounded-md text-xs font-semibold inline-flex items-center space-x-1 transition shadow-2xs cursor-pointer"
+                        title={`Edit profile, phone number, GSTIN, and settings for ${req.clientName}`}
+                      >
+                        <Edit2 className="w-3 h-3 text-blue-600" />
+                        <span>Edit</span>
+                      </button>
                       {getStatusBadge(req.status)}
                       {req.noTransactionsDeclared && (
                         <span className="px-2 py-0.5 text-[11px] font-semibold rounded bg-amber-50 text-amber-700 border border-amber-300">
