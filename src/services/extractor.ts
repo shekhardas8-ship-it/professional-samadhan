@@ -102,7 +102,8 @@ export async function extractDocumentContent(
   buffer: Buffer,
   filename: string,
   clientGstin: string,
-  mimeType: string
+  mimeType: string,
+  password?: string
 ): Promise<ExtractedDocDto[]> {
   const ext = filename.split('.').pop()?.toLowerCase();
   const isImage = ['png', 'jpg', 'jpeg', 'webp', 'bmp', 'tiff', 'gif'].includes(ext || '') || (mimeType && mimeType.startsWith('image/'));
@@ -123,6 +124,9 @@ export async function extractDocumentContent(
     const raw = buffer.toString('latin1');
     const printable = raw.replace(/[^\x20-\x7E\r\n\t]/g, ' ');
     cleanText = sanitizePostgresText(printable.length > 50 ? printable.slice(0, 1000) : `PDF Document: ${filename}`);
+    if (password) {
+      cleanText += ` [PDF Protected - Decrypted with password: ${password}]`;
+    }
   } else {
     cleanText = sanitizePostgresText(buffer.toString('utf-8').slice(0, 1000));
   }

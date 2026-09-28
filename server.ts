@@ -828,15 +828,17 @@ app.post('/api/monthly-requests/:id/pause-reminders', requireAuth, async (req: R
 // 4. DOCUMENT UPLOAD & INTAKE ZONE
 // ==========================================
 
-// Handle multi-file document upload (from staff or client portal)
-app.post('/api/documents/upload', upload.array('files', 15), async (req: Request, res: Response) => {
+// Handle multi-file document upload (from staff or client portal) - Supports up to 150 files in single batch
+app.post('/api/documents/upload', upload.array('files', 150), async (req: Request, res: Response) => {
   try {
     const files = req.files as Express.Multer.File[];
     if (!files || files.length === 0) {
       return res.status(400).json({ error: 'No files provided for upload.' });
     }
 
-    const { monthlyRequestId, uploaderName, source, clientGstinOverride } = req.body;
+    const { monthlyRequestId, uploaderName, source, clientGstinOverride, pdfPassword, bankStatementPassword } = req.body;
+    const documentPassword = (pdfPassword || bankStatementPassword || '').trim();
+
     if (!monthlyRequestId) {
       return res.status(400).json({ error: 'monthlyRequestId is required.' });
     }
@@ -881,8 +883,8 @@ app.post('/api/documents/upload', upload.array('files', 15), async (req: Request
       const isDuplicate = existingFileWithHash.length > 0;
       const fileId = `doc_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
 
-      // Run document extraction
-      const extractedList = await extractDocumentContent(buffer, f.originalname, clientGstin, f.mimetype);
+      // Run document extraction with optional bank/PDF password
+      const extractedList = await extractDocumentContent(buffer, f.originalname, clientGstin, f.mimetype, documentPassword);
 
       // Upload to Google Drive (creates Client & Month folders, deletes local temp file if Drive is active)
       const driveUpload = await googleDriveStorage.uploadDocument({
@@ -912,6 +914,8 @@ app.post('/api/documents/upload', upload.array('files', 15), async (req: Request
         status: isDuplicate ? 'duplicate_flagged' : 'processing',
         isDuplicate,
         duplicateOfId: isDuplicate ? existingFileWithHash[0].id : null,
+        isPasswordProtected: Boolean(documentPassword),
+        scanNotes: documentPassword ? `Protected PDF (Password: ${documentPassword})` : null,
       });
 
       for (const item of extractedList) {

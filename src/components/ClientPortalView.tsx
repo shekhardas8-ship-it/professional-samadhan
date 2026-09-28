@@ -16,6 +16,16 @@ import {
   Shield,
   Layers,
   FileCode2,
+  Trash2,
+  Plus,
+  Lock,
+  Eye,
+  EyeOff,
+  ChevronDown,
+  ChevronUp,
+  X,
+  FileCheck,
+  FolderPlus,
 } from 'lucide-react';
 import { HtmlReportModal } from './HtmlReportModal.tsx';
 
@@ -31,10 +41,14 @@ export const ClientPortalView: React.FC<ClientPortalProps> = ({ initialToken, is
   const [error, setError] = useState<string | null>(null);
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
 
-  // File Upload State
+  // File Upload & Queue State
   const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
   const [isUploading, setIsUploading] = useState(false);
+  const [pdfPassword, setPdfPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
+  const [isUploadAreaOpen, setIsUploadAreaOpen] = useState(true);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const uploadSectionRef = useRef<HTMLDivElement>(null);
 
   // Nil Transaction Declaration State
   const [showNilDeclaration, setShowNilDeclaration] = useState(false);
@@ -118,10 +132,35 @@ export const ClientPortalView: React.FC<ClientPortalProps> = ({ initialToken, is
     }
   }, [token]);
 
+  const removeSelectedFile = (indexToRemove: number) => {
+    setSelectedFiles(prev => prev.filter((_, idx) => idx !== indexToRemove));
+  };
+
+  const clearAllSelectedFiles = () => {
+    setSelectedFiles([]);
+    if (fileInputRef.current) fileInputRef.current.value = '';
+  };
+
+  const formatFileSize = (bytes: number) => {
+    if (bytes < 1024) return bytes + ' B';
+    if (bytes < 1048576) return (bytes / 1024).toFixed(1) + ' KB';
+    return (bytes / 1048576).toFixed(2) + ' MB';
+  };
+
+  const openUploadSection = () => {
+    setIsUploadAreaOpen(true);
+    setTimeout(() => {
+      uploadSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    }, 50);
+  };
+
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (e.target.files) {
+    if (e.target.files && e.target.files.length > 0) {
       const arr = Array.from(e.target.files);
       setSelectedFiles(prev => [...prev, ...arr]);
+      setIsUploadAreaOpen(true);
+      // Reset input value so same files can be re-selected if removed
+      e.target.value = '';
     }
   };
 
@@ -137,6 +176,11 @@ export const ClientPortalView: React.FC<ClientPortalProps> = ({ initialToken, is
       formData.append('monthlyRequestId', session.request.id);
       formData.append('uploaderName', session.client.contactPerson);
       formData.append('source', 'client_portal');
+
+      if (pdfPassword.trim()) {
+        formData.append('pdfPassword', pdfPassword.trim());
+        formData.append('bankStatementPassword', pdfPassword.trim());
+      }
 
       selectedFiles.forEach(file => {
         formData.append('files', file);
@@ -166,6 +210,7 @@ export const ClientPortalView: React.FC<ClientPortalProps> = ({ initialToken, is
         setSuccessMsg(`Successfully uploaded and scanned ${selectedFiles.length} document(s)! All monthly checklist requirements are complete.`);
       }
       setSelectedFiles([]);
+      setPdfPassword('');
       if (fileInputRef.current) fileInputRef.current.value = '';
       await fetchSession(token);
     } catch (err: any) {
@@ -417,63 +462,84 @@ export const ClientPortalView: React.FC<ClientPortalProps> = ({ initialToken, is
             </div>
           )}
 
-          {/* Checklist & Document Status */}
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-5 space-y-4">
-              <div className="flex items-center justify-between">
-                <h3 className="font-bold text-slate-800 text-sm flex items-center space-x-2">
-                  <Layers className="w-4 h-4 text-blue-600" />
+          {/* 1. Primary Highlight: Monthly Document Checklist (Full Width) */}
+          <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-5 space-y-4">
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 pb-3 border-b border-slate-100">
+              <div>
+                <h3 className="font-bold text-slate-900 text-base flex items-center space-x-2">
+                  <Layers className="w-5 h-5 text-blue-600" />
                   <span>Monthly Document Checklist</span>
                 </h3>
-                {session.missingItems?.length > 0 ? (
-                  <span className="px-2 py-0.5 rounded text-[11px] bg-rose-100 text-rose-800 font-bold border border-rose-200">
-                    {session.missingItems.length} Missing
-                  </span>
-                ) : (
-                  <span className="px-2 py-0.5 rounded text-[11px] bg-emerald-100 text-emerald-800 font-bold border border-emerald-200">
-                    All Complete
-                  </span>
-                )}
+                <p className="text-xs text-slate-500 mt-0.5">
+                  Audit requirements for <strong>{session.request.reportingMonth}</strong> ({session.client.businessName})
+                </p>
               </div>
 
-              <div className="space-y-3">
-                {session.checklist && session.checklist.length > 0 ? (
-                  session.checklist.map((item: any) => (
-                    <div
-                      key={item.id}
-                      className={`p-3 rounded-lg border text-xs transition ${
-                        item.status === 'uploaded'
-                          ? 'bg-emerald-50/60 border-emerald-200'
-                          : item.status === 'nil_declared'
-                          ? 'bg-slate-50 border-slate-200'
-                          : 'bg-rose-50/50 border-rose-200'
-                      }`}
-                    >
-                      <div className="flex items-start justify-between gap-2">
-                        <div>
-                          <div className="font-bold text-slate-800 flex items-center space-x-1.5">
-                            {item.status === 'uploaded' && <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 shrink-0" />}
-                            {item.status === 'missing' && <AlertTriangle className="w-3.5 h-3.5 text-rose-600 shrink-0" />}
-                            {item.status === 'nil_declared' && <Clock className="w-3.5 h-3.5 text-slate-400 shrink-0" />}
-                            <span>{item.label}</span>
-                          </div>
-                          <p className="text-[11px] text-slate-500 mt-0.5">{item.description}</p>
-                          {item.missingReason && (
-                            <p className="text-[11px] text-rose-600 font-medium mt-1">⚠️ {item.missingReason}</p>
-                          )}
-                          {item.nilNotes && (
-                            <p className="text-[11px] text-slate-500 italic mt-1">Note: {item.nilNotes}</p>
-                          )}
+              <div className="flex flex-wrap items-center gap-2">
+                {session.missingItems?.length > 0 ? (
+                  <span className="px-2.5 py-1 rounded-full text-xs bg-rose-100 text-rose-800 font-bold border border-rose-200 flex items-center space-x-1">
+                    <AlertTriangle className="w-3.5 h-3.5 text-rose-600" />
+                    <span>{session.missingItems.length} Missing Requirements</span>
+                  </span>
+                ) : (
+                  <span className="px-2.5 py-1 rounded-full text-xs bg-emerald-100 text-emerald-800 font-bold border border-emerald-200 flex items-center space-x-1">
+                    <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
+                    <span>All Requirements Complete</span>
+                  </span>
+                )}
+
+                <button
+                  onClick={() => {
+                    openUploadSection();
+                    fileInputRef.current?.click();
+                  }}
+                  className="px-3 py-1.5 bg-blue-600 hover:bg-blue-500 text-white text-xs font-semibold rounded-lg shadow-xs transition flex items-center space-x-1"
+                >
+                  <Plus className="w-3.5 h-3.5" />
+                  <span>+ Upload Documents</span>
+                </button>
+
+                <button
+                  onClick={() => setShowNilDeclaration(true)}
+                  className="px-2.5 py-1.5 text-xs text-slate-600 hover:text-slate-800 font-medium rounded-lg border border-slate-200 hover:bg-slate-50 transition"
+                  title="Declare zero business transactions for the entire month"
+                >
+                  Declare Entire Month Nil
+                </button>
+              </div>
+            </div>
+
+            {/* Checklist Category Cards Grid */}
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3.5">
+              {session.checklist && session.checklist.length > 0 ? (
+                session.checklist.map((item: any) => (
+                  <div
+                    key={item.id}
+                    className={`p-4 rounded-xl border transition-all flex flex-col justify-between ${
+                      item.status === 'uploaded'
+                        ? 'bg-emerald-50/50 border-emerald-300 shadow-xs'
+                        : item.status === 'nil_declared'
+                        ? 'bg-slate-50 border-slate-300'
+                        : 'bg-rose-50/60 border-rose-300 shadow-xs'
+                    }`}
+                  >
+                    <div>
+                      <div className="flex items-start justify-between gap-2 mb-1.5">
+                        <div className="font-bold text-slate-800 text-xs flex items-center space-x-1.5">
+                          {item.status === 'uploaded' && <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />}
+                          {item.status === 'missing' && <AlertTriangle className="w-4 h-4 text-rose-600 shrink-0" />}
+                          {item.status === 'nil_declared' && <Clock className="w-4 h-4 text-slate-400 shrink-0" />}
+                          <span className="leading-tight">{item.label}</span>
                         </div>
 
-                        <div className="text-right shrink-0">
+                        <div className="shrink-0">
                           {item.status === 'uploaded' && (
-                            <span className="px-2 py-0.5 rounded text-[10px] bg-emerald-100 text-emerald-800 font-bold">
+                            <span className="px-2 py-0.5 rounded text-[10px] bg-emerald-100 text-emerald-800 font-bold border border-emerald-200">
                               {item.uploadedCount} Extracted
                             </span>
                           )}
                           {item.status === 'missing' && (
-                            <span className="px-2 py-0.5 rounded text-[10px] bg-rose-100 text-rose-800 font-bold">
+                            <span className="px-2 py-0.5 rounded text-[10px] bg-rose-100 text-rose-800 font-bold border border-rose-200">
                               Not Uploaded
                             </span>
                           )}
@@ -485,125 +551,252 @@ export const ClientPortalView: React.FC<ClientPortalProps> = ({ initialToken, is
                         </div>
                       </div>
 
-                      {/* Action buttons per checklist category */}
-                      <div className="mt-2 pt-2 border-t border-slate-200/60 flex items-center justify-between text-[11px]">
-                        {item.status === 'missing' ? (
-                          <>
-                            <button
-                              onClick={() => fileInputRef.current?.click()}
-                              className="font-bold text-blue-600 hover:text-blue-800 flex items-center space-x-1"
-                            >
-                              <UploadCloud className="w-3 h-3" />
-                              <span>Upload File</span>
-                            </button>
-                            <button
-                              onClick={() => handleCategoryNilToggle(item.id, 'nil')}
-                              className="text-slate-500 hover:text-slate-800"
-                              title="Confirm that your business had no transactions or bills for this category this month"
-                            >
-                              Mark as Nil / None
-                            </button>
-                          </>
-                        ) : item.status === 'nil_declared' ? (
-                          <>
-                            <span className="text-slate-400">Confirmed Nil</span>
-                            <button
-                              onClick={() => handleCategoryNilToggle(item.id, 'pending')}
-                              className="text-blue-600 hover:underline"
-                            >
-                              Undo / Upload File
-                            </button>
-                          </>
-                        ) : (
-                          <div className="text-slate-400 text-[10px]">
-                            Verified in current filing
-                          </div>
-                        )}
-                      </div>
+                      <p className="text-[11px] text-slate-600 line-clamp-2">{item.description}</p>
+
+                      {item.missingReason && (
+                        <div className="mt-2 p-1.5 bg-rose-100/70 border border-rose-200 rounded text-[11px] text-rose-800 font-medium">
+                          ⚠️ {item.missingReason}
+                        </div>
+                      )}
+                      {item.nilNotes && (
+                        <p className="text-[11px] text-slate-500 italic mt-1.5">Note: {item.nilNotes}</p>
+                      )}
                     </div>
-                  ))
-                ) : (
-                  <div className="text-slate-400 text-center py-4">No checklist items configured.</div>
-                )}
+
+                    {/* Action buttons per checklist card */}
+                    <div className="mt-3 pt-2.5 border-t border-slate-200/80 flex items-center justify-between text-xs">
+                      {item.status === 'missing' ? (
+                        <>
+                          <button
+                            onClick={() => {
+                              openUploadSection();
+                              fileInputRef.current?.click();
+                            }}
+                            className="font-bold text-blue-700 hover:text-blue-900 flex items-center space-x-1 py-0.5 px-1.5 rounded hover:bg-blue-100/60 transition"
+                          >
+                            <UploadCloud className="w-3.5 h-3.5" />
+                            <span>Upload File</span>
+                          </button>
+                          <button
+                            onClick={() => handleCategoryNilToggle(item.id, 'nil')}
+                            className="text-slate-500 hover:text-slate-800 text-[11px] hover:underline"
+                            title="Confirm no bills or transactions for this category this month"
+                          >
+                            Mark as Nil / None
+                          </button>
+                        </>
+                      ) : item.status === 'nil_declared' ? (
+                        <>
+                          <span className="text-slate-400 text-[11px]">Confirmed Nil</span>
+                          <button
+                            onClick={() => handleCategoryNilToggle(item.id, 'pending')}
+                            className="text-blue-600 hover:underline text-[11px] font-medium"
+                          >
+                            Undo / Upload File
+                          </button>
+                        </>
+                      ) : (
+                        <div className="flex items-center justify-between w-full">
+                          <span className="text-emerald-700 font-medium text-[11px] flex items-center space-x-1">
+                            <Check className="w-3 h-3 text-emerald-600" />
+                            <span>Verified</span>
+                          </span>
+                          <button
+                            onClick={() => {
+                              openUploadSection();
+                              fileInputRef.current?.click();
+                            }}
+                            className="text-slate-500 hover:text-blue-600 text-[11px] hover:underline"
+                          >
+                            + Upload More
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                ))
+              ) : (
+                <div className="text-slate-400 text-center py-4 col-span-3">No checklist items configured.</div>
+              )}
+            </div>
+          </div>
+
+          {/* 2. Squeezed, Compact & Collapsible Upload Area */}
+          <div ref={uploadSectionRef} className="bg-white rounded-2xl shadow-sm border border-slate-200 p-5 space-y-4">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center space-x-2">
+                <UploadCloud className="w-5 h-5 text-blue-600" />
+                <h3 className="font-bold text-slate-800 text-sm">
+                  Upload Monthly Documents
+                </h3>
+                <span className="hidden sm:inline-block text-[11px] bg-slate-100 text-slate-600 px-2 py-0.5 rounded font-medium">
+                  Up to 150 files per batch
+                </span>
               </div>
 
-              <div className="pt-2 border-t border-slate-100">
+              <div className="flex items-center space-x-2">
+                <span className="text-[11px] text-slate-400 hidden md:inline">PDF, JPG, PNG, XLSX, CSV (Max 25MB each)</span>
                 <button
-                  onClick={() => setShowNilDeclaration(true)}
-                  className="w-full text-xs text-slate-600 hover:text-slate-800 font-medium text-center py-1 rounded hover:bg-slate-100 transition"
+                  onClick={() => setIsUploadAreaOpen(!isUploadAreaOpen)}
+                  className="px-2.5 py-1 text-xs text-slate-600 hover:text-slate-900 bg-slate-100 hover:bg-slate-200 rounded-lg flex items-center space-x-1 transition font-medium"
                 >
-                  Declare Entire Month Nil (&quot;Zero Business Activity&quot;)
+                  <span>{isUploadAreaOpen ? 'Squeeze / Minimize' : 'Expand Upload Box'}</span>
+                  {isUploadAreaOpen ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
                 </button>
               </div>
             </div>
 
-            {/* Document Intake & Dropzone */}
-            <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-5 md:col-span-2 space-y-4">
-              <div className="flex items-center justify-between">
-                <h3 className="font-bold text-slate-800 text-sm flex items-center space-x-2">
+            {/* Hidden File Input */}
+            <input
+              type="file"
+              ref={fileInputRef}
+              onChange={handleFileChange}
+              multiple
+              accept=".pdf,.jpg,.jpeg,.png,.xlsx,.csv"
+              className="hidden"
+            />
+
+            {!isUploadAreaOpen && selectedFiles.length === 0 ? (
+              <div className="p-3 bg-slate-50 hover:bg-blue-50/40 border border-dashed border-slate-300 hover:border-blue-400 rounded-xl flex items-center justify-between transition cursor-pointer"
+                   onClick={() => fileInputRef.current?.click()}>
+                <div className="flex items-center space-x-2 text-xs text-slate-600">
                   <UploadCloud className="w-4 h-4 text-blue-600" />
-                  <span>Upload Monthly Documents</span>
-                </h3>
-                <span className="text-[11px] text-slate-400">PDF, JPG, PNG, XLSX, CSV (Max 25MB)</span>
-              </div>
-
-              {/* Dropzone */}
-              <div
-                onClick={() => fileInputRef.current?.click()}
-                className="border-2 border-dashed border-slate-300 hover:border-blue-500 rounded-xl p-6 text-center cursor-pointer bg-slate-50 hover:bg-blue-50/50 transition space-y-2"
-              >
-                <UploadCloud className="w-8 h-8 mx-auto text-blue-600" />
-                <div className="text-xs font-semibold text-slate-700">
-                  Click to browse or drop your GST files here
+                  <span>Click to select files (accepts multiple sales invoices, expense bills, and bank statements)</span>
                 </div>
-                <p className="text-[11px] text-slate-400">
-                  Multiple files, multi-page PDFs, bank statements, or scanned receipts supported.
-                </p>
-                <input
-                  type="file"
-                  ref={fileInputRef}
-                  onChange={handleFileChange}
-                  multiple
-                  accept=".pdf,.jpg,.jpeg,.png,.xlsx,.csv"
-                  className="hidden"
-                />
+                <button
+                  type="button"
+                  className="px-3 py-1 bg-blue-600 hover:bg-blue-500 text-white text-xs font-semibold rounded-lg shadow-xs"
+                >
+                  Select Files
+                </button>
               </div>
-
-              {/* Selected Files Preview */}
-              {selectedFiles.length > 0 && (
-                <div className="space-y-2 pt-2">
+            ) : (
+              <div className="space-y-4">
+                {/* Compact Dropzone */}
+                <div
+                  onClick={() => fileInputRef.current?.click()}
+                  className="border-2 border-dashed border-slate-300 hover:border-blue-500 rounded-xl p-4 sm:p-5 text-center cursor-pointer bg-slate-50 hover:bg-blue-50/40 transition space-y-1"
+                >
+                  <UploadCloud className="w-7 h-7 mx-auto text-blue-600" />
                   <div className="text-xs font-semibold text-slate-700">
-                    Files ready for upload ({selectedFiles.length}):
+                    Click to browse or drop files here (select multiple files at once)
                   </div>
-                  <div className="max-h-32 overflow-y-auto space-y-1">
-                    {selectedFiles.map((file, idx) => (
-                      <div
-                        key={idx}
-                        className="text-xs bg-slate-100 p-2 rounded flex items-center justify-between"
-                      >
-                        <span className="font-medium text-slate-800 truncate max-w-sm">{file.name}</span>
-                        <span className="text-slate-400">{(file.size / 1024).toFixed(1)} KB</span>
-                      </div>
-                    ))}
-                  </div>
-
-                  <button
-                    onClick={handleUploadSubmit}
-                    disabled={isUploading}
-                    className="w-full py-2 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white text-xs font-bold rounded-lg shadow transition flex items-center justify-center space-x-1"
-                  >
-                    {isUploading ? (
-                      <span>Scanning & Extracting with PaddleOCR...</span>
-                    ) : (
-                      <>
-                        <UploadCloud className="w-4 h-4 mr-1" />
-                        <span>Upload & Process Documents</span>
-                      </>
-                    )}
-                  </button>
+                  <p className="text-[11px] text-slate-400">
+                    Supports high-volume batch uploads (up to 150 files), multi-page PDFs, bank statements, Excel workbooks & scanned bills.
+                  </p>
                 </div>
-              )}
-            </div>
+
+                {/* Staged Files Queue Editor (Add more, delete individual files, clear all) */}
+                {selectedFiles.length > 0 && (
+                  <div className="space-y-3 p-4 bg-slate-50 rounded-xl border border-slate-200">
+                    <div className="flex items-center justify-between text-xs pb-2 border-b border-slate-200">
+                      <div className="font-bold text-slate-800 flex items-center space-x-1.5">
+                        <span>Files Staged for Upload ({selectedFiles.length})</span>
+                        <span className="text-slate-400 font-normal">
+                          • Total {formatFileSize(selectedFiles.reduce((acc, f) => acc + f.size, 0))}
+                        </span>
+                      </div>
+
+                      <div className="flex items-center space-x-2">
+                        <button
+                          type="button"
+                          onClick={() => fileInputRef.current?.click()}
+                          className="px-2.5 py-1 bg-white hover:bg-slate-100 text-blue-700 text-xs font-semibold rounded border border-blue-200 flex items-center space-x-1 transition shadow-2xs"
+                        >
+                          <Plus className="w-3.5 h-3.5" />
+                          <span>Add More Files</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={clearAllSelectedFiles}
+                          className="px-2 py-1 text-rose-600 hover:text-rose-800 text-xs hover:bg-rose-50 rounded transition"
+                        >
+                          Clear All
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* Scrollable file list with Delete Option per file */}
+                    <div className="max-h-48 overflow-y-auto space-y-1.5 pr-1">
+                      {selectedFiles.map((file, idx) => (
+                        <div
+                          key={idx}
+                          className="text-xs bg-white p-2.5 rounded-lg border border-slate-200 flex items-center justify-between group hover:border-slate-300 transition"
+                        >
+                          <div className="flex items-center space-x-2 min-w-0 flex-1 pr-2">
+                            <FileText className="w-4 h-4 text-blue-500 shrink-0" />
+                            <span className="font-medium text-slate-800 truncate" title={file.name}>
+                              {file.name}
+                            </span>
+                          </div>
+
+                          <div className="flex items-center space-x-3 shrink-0">
+                            <span className="text-[11px] text-slate-400">{formatFileSize(file.size)}</span>
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                removeSelectedFile(idx);
+                              }}
+                              className="p-1 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded transition"
+                              title="Delete / remove this file from upload"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+
+                    {/* Bank Statement Password Option */}
+                    <div className="p-3 bg-amber-50/70 border border-amber-200 rounded-lg space-y-1.5">
+                      <div className="flex items-center space-x-1.5">
+                        <Lock className="w-4 h-4 text-amber-700 shrink-0" />
+                        <span className="text-xs font-bold text-amber-900">
+                          Bank Statement / Encrypted PDF Password (Optional)
+                        </span>
+                      </div>
+                      <p className="text-[11px] text-amber-800 leading-tight">
+                        Bank statements (SBI, HDFC, ICICI, Axis, PNB) are typically password-protected. Provide the password below so our OCR scanner can decrypt and scan it for your report.
+                      </p>
+                      <div className="relative mt-1">
+                        <input
+                          type={showPassword ? 'text' : 'password'}
+                          value={pdfPassword}
+                          onChange={(e) => setPdfPassword(e.target.value)}
+                          placeholder="e.g. PAN card number in CAPITALS or DOB (DDMMYYYY)"
+                          className="w-full text-xs px-3 py-2 pr-10 border border-amber-300 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-amber-500 font-mono"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => setShowPassword(!showPassword)}
+                          className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-700"
+                          title={showPassword ? 'Hide password' : 'Show password'}
+                        >
+                          {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* Submit Upload Button */}
+                    <button
+                      onClick={handleUploadSubmit}
+                      disabled={isUploading}
+                      className="w-full py-2.5 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white text-xs font-bold rounded-lg shadow transition flex items-center justify-center space-x-1.5"
+                    >
+                      {isUploading ? (
+                        <span>Scanning & Extracting with PaddleOCR...</span>
+                      ) : (
+                        <>
+                          <UploadCloud className="w-4 h-4" />
+                          <span>Upload & Scan {selectedFiles.length} Document(s)</span>
+                        </>
+                      )}
+                    </button>
+                  </div>
+                )}
+              </div>
+            )}
           </div>
 
           {/* Section: Compiled Excel Workbook Review & Client Confirmation */}
