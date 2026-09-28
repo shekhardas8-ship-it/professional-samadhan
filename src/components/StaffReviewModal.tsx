@@ -164,6 +164,25 @@ export const StaffReviewModal: React.FC<StaffReviewModalProps> = ({
     }
   };
 
+  const handleQuickChangeDocType = async (id: string, newType: string) => {
+    try {
+      setIsSubmitting(true);
+      const res = await fetch(`/api/extracted-documents/${id}/change-type`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ docType: newType }),
+      });
+      if (!res.ok) throw new Error('Failed to update document type');
+      setMessage({ type: 'success', text: `Document reclassified as ${newType.replace('_', ' ')}.` });
+      await fetchDetails();
+      onRefreshParent();
+    } catch (err: any) {
+      setMessage({ type: 'error', text: err.message });
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
   const handleDeleteDoc = async (id: string, docNumber?: string) => {
     if (!window.confirm(`Delete document ${docNumber || 'record'}? This will remove this extracted invoice and its line items.`)) return;
     try {
@@ -536,18 +555,24 @@ export const StaffReviewModal: React.FC<StaffReviewModalProps> = ({
                           className="bg-white rounded-xl border border-slate-200 shadow-sm p-4 space-y-3 hover:border-blue-300 transition"
                         >
                           <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 border-b border-slate-100 pb-2">
-                            <div className="flex items-center space-x-2">
-                              <span
-                                className={`px-2 py-0.5 text-xs font-bold uppercase rounded ${
+                            <div className="flex flex-wrap items-center gap-2">
+                              <select
+                                value={doc.docType}
+                                onChange={e => handleQuickChangeDocType(doc.id, e.target.value)}
+                                className={`px-2 py-0.5 text-xs font-bold uppercase rounded border transition cursor-pointer ${
                                   doc.docType === 'sales_invoice'
-                                    ? 'bg-blue-100 text-blue-800'
+                                    ? 'bg-blue-100 text-blue-900 border-blue-300'
                                     : doc.docType === 'purchase_invoice'
-                                    ? 'bg-emerald-100 text-emerald-800'
-                                    : 'bg-purple-100 text-purple-800'
+                                    ? 'bg-emerald-100 text-emerald-900 border-emerald-300'
+                                    : 'bg-purple-100 text-purple-900 border-purple-300'
                                 }`}
+                                title="Click to reclassify (Sales Invoice vs Purchase Bill)"
                               >
-                                {doc.docType.replace('_', ' ')}
-                              </span>
+                                <option value="sales_invoice">Sales Invoice (GSTR-1 Outward)</option>
+                                <option value="purchase_invoice">Purchase Bill (ITC Inward)</option>
+                                <option value="credit_note">Credit Note</option>
+                                <option value="debit_note">Debit Note</option>
+                              </select>
                               <span className="font-bold text-slate-800">{doc.docNumber || 'No Doc Number'}</span>
                               <span className="text-xs text-slate-400">Date: {doc.docDate || 'N/A'}</span>
                               <span className="text-[11px] text-slate-400 bg-slate-100 px-2 py-0.5 rounded">
@@ -590,6 +615,19 @@ export const StaffReviewModal: React.FC<StaffReviewModalProps> = ({
                           {/* Invoice Fields */}
                           {isEditing ? (
                             <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 bg-slate-50 p-3 rounded-lg text-xs">
+                              <div>
+                                <label className="font-semibold text-slate-600">Document Type</label>
+                                <select
+                                  value={editFormData.docType || 'sales_invoice'}
+                                  onChange={e => setEditFormData({ ...editFormData, docType: e.target.value as any })}
+                                  className="w-full mt-1 p-1.5 border rounded bg-white font-medium"
+                                >
+                                  <option value="sales_invoice">Sales Invoice (Outward)</option>
+                                  <option value="purchase_invoice">Purchase Invoice (Inward)</option>
+                                  <option value="credit_note">Credit Note</option>
+                                  <option value="debit_note">Debit Note</option>
+                                </select>
+                              </div>
                               <div>
                                 <label className="font-semibold text-slate-600">Invoice Number</label>
                                 <input

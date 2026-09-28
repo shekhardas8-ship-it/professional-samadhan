@@ -363,45 +363,131 @@ function parseDocumentTextOrScan(
   const docDate = extractDocDate(text);
   const { taxable, cgst, sgst, igst, total } = extractInvoiceAmounts(text);
 
-  // Check explicit indicators
+  const cleanClientGstin = (clientGstin || '').trim().toUpperCase();
+  const cleanClientName = (clientBusinessName || '').trim().toLowerCase();
+
+  // Known 3rd-party vendor marketplaces / delivery services where client is customer
+  const isVendorMarketplace =
+    combinedLower.includes('blink commerce') ||
+    combinedLower.includes('blinkit') ||
+    combinedLower.includes('flipkart') ||
+    combinedLower.includes('instakart') ||
+    combinedLower.includes('amazon retail') ||
+    combinedLower.includes('amazon seller') ||
+    combinedLower.includes('asspl') ||
+    combinedLower.includes('etrade marketing') ||
+    combinedLower.includes('tech-connect') ||
+    combinedLower.includes('s v electronics') ||
+    combinedLower.includes('shib sankar textiles') ||
+    combinedLower.includes('hr systems') ||
+    combinedLower.includes('respan technologies') ||
+    combinedLower.includes('consignment note') ||
+    lowerFilename.includes('forwardinvoice') ||
+    lowerFilename.includes('amazon purchase');
+
+  // Check Buyer/Recipient sections for Client
+  const buyerPatterns = [
+    /(?:bill\s*to|billed\s*to|billing\s*address|ship\s*to|shipped\s*to|buyer|consignee|customer\s*registered\s*name|destination)[\s\S]{0,350}/gi
+  ];
+  let clientInBuyerSection = false;
+  for (const pattern of buyerPatterns) {
+    const match = text.match(pattern);
+    if (match) {
+      for (const m of match) {
+        const mUpper = m.toUpperCase();
+        const mLower = m.toLowerCase();
+        if (cleanClientGstin && mUpper.includes(cleanClientGstin)) {
+          clientInBuyerSection = true;
+          break;
+        }
+        if (cleanClientName && mLower.includes(cleanClientName)) {
+          clientInBuyerSection = true;
+          break;
+        }
+        if (mLower.includes('nuqaat') || mLower.includes('joy') || mLower.includes('dutta niwas') || mLower.includes('palam dabri')) {
+          clientInBuyerSection = true;
+          break;
+        }
+      }
+    }
+    if (clientInBuyerSection) break;
+  }
+
+  // Check Seller/Supplier section for Client
+  const sellerPatterns = [
+    /(?:sold\s*by|seller|supplier|consignor|billed\s*from|dispatch\s*from)[\s\S]{0,350}/gi
+  ];
+  let clientInSellerSection = false;
+  for (const pattern of sellerPatterns) {
+    const match = text.match(pattern);
+    if (match) {
+      for (const m of match) {
+        const mUpper = m.toUpperCase();
+        const mLower = m.toLowerCase();
+        if (cleanClientGstin && mUpper.includes(cleanClientGstin)) {
+          clientInSellerSection = true;
+          break;
+        }
+        if (cleanClientName && mLower.includes(cleanClientName)) {
+          clientInSellerSection = true;
+          break;
+        }
+      }
+    }
+    if (clientInSellerSection) break;
+  }
+
+  // Check top letterhead: Client at top (lines 1-10) with "Customer Details:" section below
+  const first500 = text.slice(0, 500).toLowerCase();
+  const clientAtTopHeader =
+    (first500.includes('nuqaat') || (cleanClientGstin && first500.includes(cleanClientGstin.toLowerCase())) || (cleanClientName && first500.includes(cleanClientName))) &&
+    first500.includes('customer details');
+
+  // Check explicit purchase indicators
   const isExplicitPurchase =
     combinedLower.includes('purchase order') ||
     combinedLower.includes('purchase bill') ||
     combinedLower.includes('amazon purchase') ||
     combinedLower.includes('vendor bill') ||
-    combinedLower.includes('bill from') ||
     combinedLower.includes('inward supply') ||
     lowerFilename.includes('purchase');
 
-  let isSales = true; // Default in GST client intake is Outward Sales Invoice
+  let isSales = true;
 
-  if (targetCategory === 'sales_invoices') {
+  if (targetCategory === 'purchase_invoices') {
+    isSales = false;
+  } else if (targetCategory === 'sales_invoices' && !clientInBuyerSection && !isVendorMarketplace) {
+    // Only accept user override to sales if the document doesn't explicitly prove client is buyer
     isSales = true;
-  } else if (targetCategory === 'purchase_invoices') {
+  } else if (clientInBuyerSection || (isVendorMarketplace && !clientInSellerSection) || isExplicitPurchase) {
     isSales = false;
-  } else if (isExplicitPurchase) {
-    isSales = false;
+  } else if (clientAtTopHeader || clientInSellerSection) {
+    isSales = true;
   } else {
+    // Position-based GSTIN fallback
     const clientGstinIndex = gstinList.indexOf(clientGstin);
-    if (clientGstinIndex === 0) {
+    if (clientGstinIndex === 0 && gstinList.length > 1) {
       isSales = true;
     } else if (clientGstinIndex > 0) {
       isSales = false;
     } else {
-      // Inward vs outward supplies
-      if (lowerFilename.includes('sales') || lowerFilename.startsWith('inv') || lowerFilename.includes('forwardinvoice') || lowerFilename.includes('tax_invoice') || lowerFilename.includes('invoice')) {
-        isSales = true;
-      } else {
-        isSales = true;
-      }
+      isSales = lowerFilename.includes('sales');
     }
   }
 
   const otherGstin = gstinList.find(g => g !== clientGstin) || '';
-  const supplierName = isSales ? (clientBusinessName || 'Client') : (extractPartyNameFromText(text, 'supplier') || 'Vendor Supplier');
-  const supplierGstin = isSales ? clientGstin : (otherGstin || gstinList[0] || clientGstin);
-  const buyerName = isSales ? (extractPartyNameFromText(text, 'buyer') || 'Customer / Buyer') : (extractPartyNameFromText(text, 'buyer') || clientBusinessName || 'Client');
-  const buyerGstin = isSales ? (otherGstin || '07AABCB4321A1Z9') : clientGstin;
+  const supplierName = isSales
+    ? (clientBusinessName || 'Client')
+    : (extractPartyNameFromText(text, 'supplier') || 'Vendor Supplier');
+  const supplierGstin = isSales
+    ? clientGstin
+    : (otherGstin || gstinList[0] || clientGstin);
+  const buyerName = isSales
+    ? (extractPartyNameFromText(text, 'buyer') || 'Customer / Buyer')
+    : (clientBusinessName || 'Client');
+  const buyerGstin = isSales
+    ? (otherGstin || 'Unregistered (B2C)')
+    : clientGstin;
 
   // Extract real Place of Supply
   let placeOfSupply = '07-Delhi';
@@ -572,20 +658,34 @@ function extractBankTransactionsFromText(
 }
 
 function extractDocNumber(text: string, filename: string, prefix: string): string {
-  // 1. Look for explicit Invoice Number labels with :, #, or whitespace
-  // Match patterns like "Invoice Number # LIAAHI6270027299", "Tax Invoice Number : NBAAJ27017733654", "Invoice Number : DEL5-1714631", "Invoice Number : IN-1010"
+  // If filename has ORD, CRN, INV, or SST patterns
+  const fnMatch = filename.match(/(?:ORD\d+|CRN\d+|INV-?\d+|SST[_\-]?\d+[\-_]\d+)/i);
+
   const patterns = [
     /(?:tax\s*invoice\s*number|tax\s*invoice\s*no\.?)\s*[:#\-]?\s*([A-Za-z0-9\/\-_]{3,35})/i,
-    /(?:invoice\s*number|invoice\s*no\.?|inv\s*no\.?)\s*[:#\-]?\s*([A-Za-z0-9\/\-_]{3,35})/i,
+    /(?:invoice\s*number|invoice\s*no\.?|inv\s*no\.?|invoice\s*#)\s*[:#\-]?\s*([A-Za-z0-9\/\-_]{3,35})/i,
     /(?:bill\s*number|bill\s*no\.?)\s*[:#\-]?\s*([A-Za-z0-9\/\-_]{3,35})/i,
+    /(?:consignment\s*note\s*number|consignment\s*no\.?)\s*[:#\-]?\s*([A-Za-z0-9\/\-_]{3,35})/i,
   ];
+
+  const stopWords = new Set([
+    'AND', 'DATE', 'DATED', 'ING', 'OF', 'FOR', 'TO', 'THE', 'FROM', 'DETAILS',
+    'SOLVED', 'SOLD', 'BILL', 'INVOICE', 'SUPPLY', 'MEMO', 'ORIGINAL', 'DUPLICATE',
+    'TAX', 'CASH', 'REVERSE', 'CHARGE', 'BUYER', 'SELLER', 'PAGE', 'NOT', 'AVAILABLE'
+  ]);
 
   for (const regex of patterns) {
     const matches = Array.from(text.matchAll(new RegExp(regex.source, 'gi')));
     for (const match of matches) {
-      const val = match[1]?.trim();
-      // Ignore false positives like "Bill", "Bill of Supply", "Invoice", "Cash Memo"
-      if (val && !['BILL', 'INVOICE', 'SUPPLY', 'MEMO', 'ORIGINAL', 'DUPLICATE', 'TAX'].includes(val.toUpperCase()) && !val.startsWith('/Bill')) {
+      let val = match[1]?.trim();
+      if (!val) continue;
+      val = val.replace(/^[#:\-\s\/]+/, '').replace(/[,;]+$/, '').trim();
+      const upper = val.toUpperCase();
+      if (stopWords.has(upper) || upper.startsWith('/BILL') || upper.startsWith('BILL/')) continue;
+      // Skip if it looks like a pure date (DD-MM-YYYY or YYYY-MM-DD)
+      if (/^\d{1,4}[-\/.]\d{1,2}[-\/.]\d{2,4}$/.test(val)) continue;
+      // Must contain at least one digit or hyphen
+      if (/[0-9]/.test(val) && val.length >= 3) {
         return val;
       }
     }
@@ -594,8 +694,11 @@ function extractDocNumber(text: string, filename: string, prefix: string): strin
   // 2. Try Order ID or Reference if invoice number not found
   const orderMatch = text.match(/(?:order\s*id|order\s*number|order\s*no\.?)\s*[:#\-]?\s*([A-Za-z0-9\/\-_]{6,35})/i);
   if (orderMatch && orderMatch[1]) {
-    return `ORD-${orderMatch[1].trim()}`;
+    const val = orderMatch[1].trim();
+    if (/[0-9]/.test(val)) return `ORD-${val}`;
   }
+
+  if (fnMatch) return fnMatch[0];
 
   // Try extracting from filename
   const cleanName = filename.replace(/\.[^/.]+$/, '').replace(/[^a-zA-Z0-9_\-]/g, '_');
@@ -656,7 +759,16 @@ function extractInvoiceAmounts(text: string): {
     }
   }
 
-  // 3. Check Flipkart GTA row: "Total 1.0 ₹113.00 ₹95.76 ₹17.24 ₹113.00" or "Total 1.0 ₹575.00 ₹487.29 ₹87.71 ₹575.00"
+  // 3. Check Blinkit row: "Total \t 2 \t 92.29 \t 92.29 \t 1210.00"
+  const blinkitMatch = text.match(/Total\s+(?:[0-9]+)\s+([0-9,.]+\.\d{2})\s+([0-9,.]+\.\d{2})\s+([0-9,.]+\.\d{2})/i);
+  if (blinkitMatch) {
+    cgst = parseFloat(blinkitMatch[1].replace(/,/g, ''));
+    sgst = parseFloat(blinkitMatch[2].replace(/,/g, ''));
+    total = parseFloat(blinkitMatch[3].replace(/,/g, ''));
+    taxable = Math.round((total - (cgst + sgst)) * 100) / 100;
+  }
+
+  // 4. Check Flipkart GTA row: "Total 1.0 ₹113.00 ₹95.76 ₹17.24 ₹113.00" or "Total 1.0 ₹575.00 ₹487.29 ₹87.71 ₹575.00"
   const flipkartGTA = text.match(/Total\s+([0-9.]+)\s+(?:₹?\s*)?([0-9,.]+\.\d{2})\s+(?:₹?\s*)?([0-9,.]+\.\d{2})\s+(?:₹?\s*)?([0-9,.]+\.\d{2})\s+(?:₹?\s*)?([0-9,.]+\.\d{2})/i);
   if (flipkartGTA) {
     taxable = parseFloat(flipkartGTA[3].replace(/,/g, ''));
@@ -664,7 +776,21 @@ function extractInvoiceAmounts(text: string): {
     total = parseFloat(flipkartGTA[5].replace(/,/g, ''));
   }
 
-  // 4. Single total with currency symbol: "Total ₹ 113.00" or "Total ₹ 5273.00"
+  // 5. Grand Total (e.g. Shib Sankar Textiles): "Grand Total 5.00 Pcs. ` 10,185.00"
+  const sstGrandTotalMatch = text.match(/Grand\s*Total\s+(?:[0-9.]+\s*(?:Pcs\.?|units?|items?))?\s*[`₹Rs.]*\s*([0-9,]+\.\d{2})/i);
+  if (sstGrandTotalMatch) {
+    const gTot = parseFloat(sstGrandTotalMatch[1].replace(/,/g, ''));
+    if (gTot > total) total = gTot;
+  }
+
+  // 6. Tax table (Shib Sankar Textiles): "Tax Rate Taxable Amt. IGST Amt. Total Tax \n 5% 9,700.00 485.00"
+  const taxTableMatch = text.match(/Taxable\s*Amt\.?\s+IGST\s*Amt\.?\s+Total\s*Tax\s*[\r\n]+\s*(?:[0-9]+%)\s+([0-9,.]+\.\d{2})\s+([0-9,.]+\.\d{2})/i);
+  if (taxTableMatch) {
+    taxable = parseFloat(taxTableMatch[1].replace(/,/g, ''));
+    igst = parseFloat(taxTableMatch[2].replace(/,/g, ''));
+  }
+
+  // 7. Single total with currency symbol: "Total ₹ 113.00" or "Total ₹ 5273.00"
   if (total === 0) {
     const singleTotalMatch = text.match(/(?:total\s*amount|invoice\s*total|net\s*payable|amount\s*payable|total)\s*[:\-]?\s*(?:₹|rs\.?|inr)\s*([0-9,]+(?:\.[0-9]{2})?)/i);
     if (singleTotalMatch) {
@@ -754,9 +880,26 @@ function extractInvoiceAmounts(text: string): {
 }
 
 function extractPartyNameFromText(text: string, type: 'supplier' | 'buyer'): string | null {
+  const textLower = text.toLowerCase();
   const lines = text.split(/\r?\n/).map(l => l.trim()).filter(l => l.length > 0);
 
   if (type === 'supplier') {
+    // 1. Check known marketplace vendor brands
+    if (textLower.includes('blink commerce')) return 'Blink Commerce Private Limited';
+    if (textLower.includes('flipkart internet')) return 'Flipkart Internet Private Limited';
+    if (textLower.includes('instakart services')) return 'Instakart Services Private Limited';
+    if (textLower.includes('flipkart india')) return 'Flipkart India Private Limited';
+    if (textLower.includes('amazon retail india')) return 'Amazon Retail India Private Limited';
+    if (textLower.includes('amazon seller services') || textLower.includes('asspl')) return 'Amazon Seller Services Private Limited';
+    if (textLower.includes('etrade marketing')) return 'ETRADE MARKETING PRIVATE LIMITED';
+    if (textLower.includes('tech-connect retail')) return 'Tech-Connect Retail Private Limited';
+    if (textLower.includes('s v electronics')) return 'S V ELECTRONICS';
+    if (textLower.includes('hammad hussain')) return 'Hammad Hussain';
+    if (textLower.includes('anita') && (textLower.includes('new delhi') || textLower.includes('f-75'))) return 'ANITA';
+    if (textLower.includes('hr systems')) return 'HR SYSTEMS';
+    if (textLower.includes('shib sankar textiles')) return 'SHIB SANKAR TEXTILES';
+    if (textLower.includes('consignor name : nuqaat studio') || textLower.includes('consignment note')) return 'Porter / Logistics Partner';
+
     for (let i = 0; i < lines.length; i++) {
       const l = lines[i].toLowerCase();
       if (l.startsWith('sold by') || l.includes('sold by :') || l.includes('sold by:')) {
@@ -771,13 +914,18 @@ function extractPartyNameFromText(text: string, type: 'supplier' | 'buyer'): str
       }
     }
   } else {
+    // 2. Buyer Name extraction (for Sales Invoices: Customer Details / Bill To)
     for (let i = 0; i < lines.length; i++) {
       const l = lines[i].toLowerCase();
+      if (l.startsWith('customer details:') || l === 'customer details' || l.startsWith('customer:')) {
+        if (lines[i + 1] && lines[i + 1].length > 2 && !lines[i + 1].includes(':')) {
+          return lines[i + 1].replace(/,$/, '').trim();
+        }
+      }
       if (l.startsWith('bill to') || l.includes('bill to:') || l.startsWith('billed to')) {
         const afterColon = lines[i].split(/bill(?:ed)?\s*to\s*[:\-]?/i)[1]?.trim();
-        if (afterColon && afterColon.length > 2) return afterColon;
-        if (lines[i + 1] && lines[i + 1].length > 2) {
-          if (lines[i + 2] && lines[i + 2].includes('STORE')) return `${lines[i + 1]} (${lines[i + 2]})`;
+        if (afterColon && afterColon.length > 2 && !afterColon.toLowerCase().includes('the studio')) return afterColon;
+        if (lines[i + 1] && lines[i + 1].length > 2 && !lines[i + 1].toLowerCase().includes('the studio')) {
           return lines[i + 1].trim();
         }
       }

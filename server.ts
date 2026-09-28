@@ -1051,12 +1051,17 @@ app.post('/api/documents/upload', upload.array('files', 150), async (req: Reques
         targetCategory
       );
 
-      // Enforce target category if explicitly declared by user
+      // Enforce target category if explicitly declared by user (without blindly overriding vendor purchase bills to sales)
       for (const item of extractedList) {
-        if (targetCategory === 'sales_invoices' && item.docType !== 'credit_note' && item.docType !== 'debit_note') {
-          item.docType = 'sales_invoice';
-        } else if (targetCategory === 'purchase_invoices' && item.docType !== 'credit_note' && item.docType !== 'debit_note') {
-          item.docType = 'purchase_invoice';
+        if (targetCategory === 'sales_invoices') {
+          // Only enforce sales_invoice if it was not detected as an inward purchase bill or note
+          if (item.docType !== 'purchase_invoice' && item.docType !== 'credit_note' && item.docType !== 'debit_note') {
+            item.docType = 'sales_invoice';
+          }
+        } else if (targetCategory === 'purchase_invoices') {
+          if (item.docType !== 'credit_note' && item.docType !== 'debit_note') {
+            item.docType = 'purchase_invoice';
+          }
         } else if (targetCategory === 'bank_statements') {
           item.docType = 'bank_statement';
         }

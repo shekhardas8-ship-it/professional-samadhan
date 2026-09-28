@@ -47,7 +47,7 @@ export const ClientPortalView: React.FC<ClientPortalProps> = ({ initialToken, is
   const [pdfPassword, setPdfPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [isUploadAreaOpen, setIsUploadAreaOpen] = useState(true);
-  const [targetCategory, setTargetCategory] = useState<'sales_invoices' | 'purchase_invoices' | 'bank_statements' | 'debit_credit_notes' | 'auto'>('sales_invoices');
+  const [targetCategory, setTargetCategory] = useState<'sales_invoices' | 'purchase_invoices' | 'bank_statements' | 'debit_credit_notes' | 'auto'>('auto');
   const fileInputRef = useRef<HTMLInputElement>(null);
   const uploadSectionRef = useRef<HTMLDivElement>(null);
 
@@ -159,7 +159,7 @@ export const ClientPortalView: React.FC<ClientPortalProps> = ({ initialToken, is
     if (categoryId && ['sales_invoices', 'purchase_invoices', 'bank_statements', 'debit_credit_notes'].includes(categoryId)) {
       setTargetCategory(categoryId as any);
     } else {
-      setTargetCategory('sales_invoices');
+      setTargetCategory('auto');
     }
     openUploadSection();
     fileInputRef.current?.click();
@@ -716,6 +716,17 @@ export const ClientPortalView: React.FC<ClientPortalProps> = ({ initialToken, is
                   <span className="font-bold text-slate-700 text-xs mr-1">Upload To Section:</span>
                   <button
                     type="button"
+                    onClick={() => setTargetCategory('auto')}
+                    className={`px-3 py-1 rounded-lg font-bold text-xs transition cursor-pointer flex items-center space-x-1.5 ${
+                      targetCategory === 'auto'
+                        ? 'bg-slate-900 text-white shadow-xs'
+                        : 'bg-white text-slate-700 hover:bg-slate-100 border border-slate-200'
+                    }`}
+                  >
+                    <span>✨ Smart Auto-Detect (Recommended)</span>
+                  </button>
+                  <button
+                    type="button"
                     onClick={() => setTargetCategory('sales_invoices')}
                     className={`px-3 py-1 rounded-lg font-bold text-xs transition cursor-pointer flex items-center space-x-1.5 ${
                       targetCategory === 'sales_invoices'
@@ -746,17 +757,6 @@ export const ClientPortalView: React.FC<ClientPortalProps> = ({ initialToken, is
                     }`}
                   >
                     <span>Bank Statements</span>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setTargetCategory('auto')}
-                    className={`px-2.5 py-1 rounded-lg font-medium text-xs transition cursor-pointer ${
-                      targetCategory === 'auto'
-                        ? 'bg-slate-800 text-white shadow-xs'
-                        : 'bg-white text-slate-600 hover:bg-slate-100 border border-slate-200'
-                    }`}
-                  >
-                    <span>Auto-Detect</span>
                   </button>
                 </div>
 
