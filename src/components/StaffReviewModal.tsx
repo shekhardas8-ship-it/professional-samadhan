@@ -822,14 +822,26 @@ export const StaffReviewModal: React.FC<StaffReviewModalProps> = ({
                             <td className="p-3 text-slate-600 font-mono text-[11px]">{f.scanMethod || 'native_pdf'}</td>
                             <td className="p-3 font-mono text-slate-400 text-[10px] truncate max-w-xs">{f.fileHash}</td>
                             <td className="p-3 text-right">
-                              <a
-                                href={`/api/documents/${f.id}/download`}
-                                download
-                                className="px-2.5 py-1 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded text-xs font-medium inline-flex items-center space-x-1"
-                              >
-                                <Download className="w-3 h-3" />
-                                <span>Download</span>
-                              </a>
+                              <div className="inline-flex items-center space-x-1.5">
+                                <a
+                                  href={`/api/documents/${f.id}/download`}
+                                  download={f.originalFilename}
+                                  className="px-2.5 py-1 bg-blue-50 hover:bg-blue-100 text-blue-700 rounded text-xs font-medium inline-flex items-center space-x-1 transition"
+                                  title="Save directly to PC"
+                                >
+                                  <Download className="w-3 h-3 text-blue-600" />
+                                  <span>Save to PC</span>
+                                </a>
+                                <a
+                                  href={`/api/documents/${f.id}/preview`}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="px-2 py-1 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded text-xs font-medium transition"
+                                  title="Preview in new tab"
+                                >
+                                  Preview
+                                </a>
+                              </div>
                             </td>
                           </tr>
                         ))}

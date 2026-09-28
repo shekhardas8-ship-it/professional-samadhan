@@ -718,7 +718,19 @@ export const ClientPortalView: React.FC<ClientPortalProps> = ({ initialToken, is
 
           {/* Upload History Table */}
           <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-5 space-y-3">
-            <h3 className="font-bold text-slate-800 text-sm">Uploaded Document Register ({session.files?.length || 0})</h3>
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <h3 className="font-bold text-slate-800 text-sm">Uploaded Document Register ({session.files?.length || 0})</h3>
+              {session.files && session.files.length > 0 && session.request?.id && (
+                <a
+                  href={`/api/monthly-requests/${session.request.id}/download-zip`}
+                  className="px-3 py-1.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 text-xs font-semibold rounded-lg border border-emerald-200 transition inline-flex items-center space-x-1.5 shadow-sm"
+                  title="Download all uploaded documents for this period as a single ZIP file"
+                >
+                  <Download className="w-3.5 h-3.5 text-emerald-600" />
+                  <span>Save All to PC (.ZIP)</span>
+                </a>
+              )}
+            </div>
             {session.files?.length === 0 ? (
               <div className="text-center py-6 text-xs text-slate-400">No documents uploaded yet for this period.</div>
             ) : (
@@ -730,7 +742,7 @@ export const ClientPortalView: React.FC<ClientPortalProps> = ({ initialToken, is
                       <th className="py-2">Source</th>
                       <th className="py-2">Upload Time</th>
                       <th className="py-2">Status</th>
-                      <th className="py-2 text-right">Download</th>
+                      <th className="py-2 text-right">Actions</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100">
@@ -753,14 +765,26 @@ export const ClientPortalView: React.FC<ClientPortalProps> = ({ initialToken, is
                           </span>
                         </td>
                         <td className="py-2 text-right">
-                          <a
-                            href={`/api/documents/${file.id}/download`}
-                            download
-                            className="text-blue-600 hover:text-blue-800 font-medium inline-flex items-center space-x-1"
-                          >
-                            <Download className="w-3 h-3" />
-                            <span>Original</span>
-                          </a>
+                          <div className="inline-flex items-center space-x-1.5">
+                            <a
+                              href={`/api/documents/${file.id}/download`}
+                              download={file.originalFilename}
+                              className="px-2.5 py-1 bg-blue-50 hover:bg-blue-100 text-blue-700 font-medium rounded border border-blue-200 transition inline-flex items-center space-x-1"
+                              title="Save file directly to your PC"
+                            >
+                              <Download className="w-3 h-3 text-blue-600" />
+                              <span>Save to PC</span>
+                            </a>
+                            <a
+                              href={`/api/documents/${file.id}/preview`}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="px-2 py-1 bg-slate-100 hover:bg-slate-200 text-slate-700 font-medium rounded transition"
+                              title="Preview in new tab"
+                            >
+                              Preview
+                            </a>
+                          </div>
                         </td>
                       </tr>
                     ))}

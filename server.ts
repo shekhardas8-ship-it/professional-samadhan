@@ -5,8 +5,11 @@ import { createServer as createViteServer } from 'vite';
 import path from 'path';
 import fs from 'fs';
 import multer from 'multer';
-import { ZipArchive } from 'archiver';
+import { createRequire } from 'module';
+const require = createRequire(import.meta.url);
+const archiver = require('archiver');
 import { db } from './src/db/index.ts';
+import { googleDriveStorage } from './src/services/googleDriveStorage.ts';
 import {
   users,
   clients,
@@ -786,6 +789,20 @@ app.post('/api/documents/upload', upload.array('files', 15), async (req: Request
       const isDuplicate = existingFileWithHash.length > 0;
       const fileId = `doc_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
 
+      // Run document extraction
+      const extractedList = await extractDocumentContent(buffer, f.originalname, clientGstin, f.mimetype);
+
+      // Upload to Google Drive (creates Client & Month folders, deletes local temp file if Drive is active)
+      const driveUpload = await googleDriveStorage.uploadDocument({
+        fileName: f.originalname,
+        mimeType: f.mimetype,
+        buffer,
+        clientName: client.businessName || client.contactPerson,
+        clientGstin,
+        reportingPeriod: mr.reportingMonth,
+        localTempPath: f.path,
+      });
+
       // Save document file entry
       await db.insert(documentFiles).values({
         id: fileId,
@@ -794,7 +811,7 @@ app.post('/api/documents/upload', upload.array('files', 15), async (req: Request
         gstin: clientGstin,
         reportingPeriod: mr.reportingMonth,
         originalFilename: f.originalname,
-        storagePath: f.path,
+        storagePath: driveUpload.storagePath,
         fileHash,
         mimeType: f.mimetype,
         sizeBytes: f.size,
@@ -804,9 +821,6 @@ app.post('/api/documents/upload', upload.array('files', 15), async (req: Request
         isDuplicate,
         duplicateOfId: isDuplicate ? existingFileWithHash[0].id : null,
       });
-
-      // Run document extraction
-      const extractedList = await extractDocumentContent(buffer, f.originalname, clientGstin, f.mimetype);
 
       for (const item of extractedList) {
         const docUnitId = `ext_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
@@ -1047,7 +1061,16 @@ app.post('/api/documents/upload', upload.array('files', 15), async (req: Request
   }
 });
 
-// Download original document file
+// Storage status check
+app.get('/api/storage/status', (_req: Request, res: Response) => {
+  res.json({
+    googleDriveConfigured: googleDriveStorage.isEnabled(),
+    driver: googleDriveStorage.isEnabled() ? 'google_drive' : 'local_storage',
+    folderConfigured: Boolean(process.env.GOOGLE_DRIVE_FOLDER_ID || process.env.GOOGLE_DRIVE_ROOT_FOLDER_ID),
+  });
+});
+
+// Download original document file (Direct browser download to PC)
 app.get('/api/documents/:id/download', async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
@@ -1058,17 +1081,135 @@ app.get('/api/documents/:id/download', async (req: Request, res: Response) => {
     }
 
     const fileRec = doc[0];
+
+    // Case 1: Stored in Google Drive
+    if (fileRec.storagePath && fileRec.storagePath.startsWith('gdrive://')) {
+      const driveFileId = fileRec.storagePath.replace('gdrive://', '');
+      res.setHeader('Content-Disposition', `attachment; filename="${encodeURIComponent(fileRec.originalFilename)}"`);
+      res.setHeader('Content-Type', fileRec.mimeType || 'application/octet-stream');
+
+      try {
+        const stream = await googleDriveStorage.getDownloadStream(driveFileId);
+        return (stream as any).pipe(res);
+      } catch (driveErr: any) {
+        console.error('Google Drive download error:', driveErr);
+        return res.status(502).json({ error: 'Failed to stream document from Google Drive: ' + driveErr.message });
+      }
+    }
+
+    // Case 2: Stored locally on server disk
     if (fs.existsSync(fileRec.storagePath)) {
-      res.setHeader('Content-Disposition', `attachment; filename="${fileRec.originalFilename}"`);
+      res.setHeader('Content-Disposition', `attachment; filename="${encodeURIComponent(fileRec.originalFilename)}"`);
+      res.setHeader('Content-Type', fileRec.mimeType || 'application/octet-stream');
       return res.sendFile(fileRec.storagePath);
     }
 
-    // If file in storage path does not exist on disk, return synthetic representation
-    res.setHeader('Content-Type', fileRec.mimeType);
-    res.setHeader('Content-Disposition', `attachment; filename="${fileRec.originalFilename}"`);
+    // If file in storage path does not exist on disk, return synthetic receipt
+    res.setHeader('Content-Type', fileRec.mimeType || 'text/plain');
+    res.setHeader('Content-Disposition', `attachment; filename="${encodeURIComponent(fileRec.originalFilename)}"`);
     res.send(`Professional Samadhan Archive\nDocument ID: ${fileRec.id}\nOriginal File: ${fileRec.originalFilename}\nSHA-256 Digest: ${fileRec.fileHash}\nStatus: Verified`);
   } catch (err: any) {
+    console.error('Document download failed:', err);
     res.status(500).json({ error: 'Download failed: ' + err.message });
+  }
+});
+
+// Preview document file (inline in browser tab)
+app.get('/api/documents/:id/preview', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const doc = await db.select().from(documentFiles).where(eq(documentFiles.id, id)).limit(1);
+
+    if (doc.length === 0) {
+      return res.status(404).json({ error: 'Document not found.' });
+    }
+
+    const fileRec = doc[0];
+
+    // Case 1: Google Drive
+    if (fileRec.storagePath && fileRec.storagePath.startsWith('gdrive://')) {
+      const driveFileId = fileRec.storagePath.replace('gdrive://', '');
+      res.setHeader('Content-Disposition', `inline; filename="${encodeURIComponent(fileRec.originalFilename)}"`);
+      res.setHeader('Content-Type', fileRec.mimeType || 'application/pdf');
+
+      try {
+        const stream = await googleDriveStorage.getDownloadStream(driveFileId);
+        return (stream as any).pipe(res);
+      } catch (driveErr: any) {
+        return res.status(502).json({ error: 'Failed to preview from Google Drive: ' + driveErr.message });
+      }
+    }
+
+    // Case 2: Local
+    if (fs.existsSync(fileRec.storagePath)) {
+      res.setHeader('Content-Disposition', `inline; filename="${encodeURIComponent(fileRec.originalFilename)}"`);
+      res.setHeader('Content-Type', fileRec.mimeType || 'application/pdf');
+      return res.sendFile(fileRec.storagePath);
+    }
+
+    res.status(404).json({ error: 'File content not available.' });
+  } catch (err: any) {
+    res.status(500).json({ error: 'Preview failed: ' + err.message });
+  }
+});
+
+// Bulk download all documents for a monthly request as a ZIP archive
+app.get('/api/monthly-requests/:id/download-zip', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const mrList = await db
+      .select({
+        request: monthlyRequests,
+        client: clients,
+      })
+      .from(monthlyRequests)
+      .innerJoin(clients, eq(monthlyRequests.clientId, clients.id))
+      .where(eq(monthlyRequests.id, id))
+      .limit(1);
+
+    if (mrList.length === 0) {
+      return res.status(404).json({ error: 'Monthly request not found.' });
+    }
+
+    const { request: mr, client } = mrList[0];
+    const files = await db
+      .select()
+      .from(documentFiles)
+      .where(eq(documentFiles.monthlyRequestId, id));
+
+    if (files.length === 0) {
+      return res.status(400).json({ error: 'No documents uploaded for this period yet.' });
+    }
+
+    const safeName = (client.businessName || client.contactPerson).replace(/[^a-zA-Z0-9_-]/g, '_');
+    const zipFilename = `${safeName}_${mr.reportingMonth}_documents.zip`;
+
+    res.setHeader('Content-Type', 'application/zip');
+    res.setHeader('Content-Disposition', `attachment; filename="${zipFilename}"`);
+
+    const archive = new archiver.ZipArchive({ zlib: { level: 9 } });
+    archive.pipe(res);
+
+    for (const f of files) {
+      if (f.storagePath && f.storagePath.startsWith('gdrive://')) {
+        const driveFileId = f.storagePath.replace('gdrive://', '');
+        try {
+          const stream = await googleDriveStorage.getDownloadStream(driveFileId);
+          archive.append(stream as any, { name: f.originalFilename });
+        } catch (e: any) {
+          console.warn(`Could not append Drive file ${f.originalFilename} to zip:`, e.message);
+        }
+      } else if (fs.existsSync(f.storagePath)) {
+        archive.file(f.storagePath, { name: f.originalFilename });
+      }
+    }
+
+    await archive.finalize();
+  } catch (err: any) {
+    console.error('ZIP generation error:', err);
+    if (!res.headersSent) {
+      res.status(500).json({ error: 'Failed to generate ZIP archive: ' + err.message });
+    }
   }
 });
 
