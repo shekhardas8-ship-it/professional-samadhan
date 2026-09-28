@@ -9,6 +9,7 @@ import {
   ValidationException,
   GeneratedWorkbook,
   UserRole,
+  ChecklistCategoryItem,
 } from '../types/index.ts';
 import {
   X,
@@ -25,6 +26,7 @@ import {
   Layers,
   ArrowRight,
   FileCode2,
+  PlusCircle,
 } from 'lucide-react';
 import { HtmlReportModal } from './HtmlReportModal.tsx';
 
@@ -43,7 +45,7 @@ export const StaffReviewModal: React.FC<StaffReviewModalProps> = ({
   onGenerateWorkbook,
   onRefreshParent,
 }) => {
-  const [activeTab, setActiveTab] = useState<'invoices' | 'bank' | 'files' | 'exceptions' | 'workbooks'>('invoices');
+  const [activeTab, setActiveTab] = useState<'checklist' | 'invoices' | 'bank' | 'files' | 'exceptions' | 'workbooks'>('checklist');
   const [loading, setLoading] = useState(true);
   const [details, setDetails] = useState<{
     files: DocumentFile[];
@@ -52,7 +54,14 @@ export const StaffReviewModal: React.FC<StaffReviewModalProps> = ({
     bankTransactions: BankTransaction[];
     exceptions: ValidationException[];
     workbooks: GeneratedWorkbook[];
+    checklist?: ChecklistCategoryItem[];
+    missingItems?: string[];
+    isFullySatisfied?: boolean;
   } | null>(null);
+
+  const [showFlagMissingDialog, setShowFlagMissingDialog] = useState(false);
+  const [flagMissingMessage, setFlagMissingMessage] = useState('');
+  const [flagMissingCategory, setFlagMissingCategory] = useState('custom');
 
   const [editingDocId, setEditingDocId] = useState<string | null>(null);
   const [editFormData, setEditFormData] = useState<Partial<ExtractedDocument>>({});
@@ -68,6 +77,33 @@ export const StaffReviewModal: React.FC<StaffReviewModalProps> = ({
     title: string;
     subtitle: string;
   } | null>(null);
+
+  const handleFlagMissingSubmit = async () => {
+    if (!flagMissingMessage.trim()) return;
+    try {
+      setIsSubmitting(true);
+      const res = await fetch(`/api/monthly-requests/${request.id}/flag-missing`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          message: flagMissingMessage.trim(),
+          category: flagMissingCategory,
+          severity: 'critical',
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Failed to flag missing document');
+      setMessage({ type: 'success', text: 'Document flagged as missing. Client portal and reminder will now require this file.' });
+      setShowFlagMissingDialog(false);
+      setFlagMissingMessage('');
+      await fetchDetails();
+      onRefreshParent();
+    } catch (err: any) {
+      setMessage({ type: 'error', text: err.message });
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
 
   const fetchDetails = async () => {
     try {
@@ -219,6 +255,17 @@ export const StaffReviewModal: React.FC<StaffReviewModalProps> = ({
         <div className="bg-slate-100 px-6 py-2 border-b border-slate-200 flex flex-wrap items-center justify-between gap-2">
           <div className="flex space-x-2">
             <button
+              onClick={() => setActiveTab('checklist')}
+              className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition flex items-center space-x-1.5 ${
+                activeTab === 'checklist' ? 'bg-blue-600 text-white shadow-sm' : 'text-slate-600 hover:bg-slate-200'
+              }`}
+            >
+              <CheckCircle2 className="w-3.5 h-3.5" />
+              <span>
+                Filing Checklist {details?.missingItems && details.missingItems.length > 0 ? `(${details.missingItems.length} Missing)` : '(Complete)'}
+              </span>
+            </button>
+            <button
               onClick={() => setActiveTab('invoices')}
               className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition flex items-center space-x-1.5 ${
                 activeTab === 'invoices' ? 'bg-blue-600 text-white shadow-sm' : 'text-slate-600 hover:bg-slate-200'
@@ -309,6 +356,111 @@ export const StaffReviewModal: React.FC<StaffReviewModalProps> = ({
             <div className="py-20 text-center text-slate-400">Loading document extraction and database records...</div>
           ) : (
             <>
+              {/* TAB 0: FILING CHECKLIST & MISSING DOCUMENTS */}
+              {activeTab === 'checklist' && (
+                <div className="space-y-5">
+                  <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 bg-white p-4 rounded-xl border border-slate-200 shadow-sm">
+                    <div>
+                      <h3 className="font-bold text-slate-900 text-sm">Monthly Document Statutory Checklist</h3>
+                      <p className="text-xs text-slate-500 mt-0.5">
+                        Client: <strong>{request.clientName}</strong> • Period: <strong>{request.reportingMonth}</strong>
+                      </p>
+                    </div>
+
+                    <button
+                      onClick={() => setShowFlagMissingDialog(true)}
+                      className="px-3.5 py-1.5 bg-rose-600 hover:bg-rose-500 text-white text-xs font-bold rounded-lg shadow-xs flex items-center space-x-1.5 transition self-start sm:self-auto"
+                    >
+                      <PlusCircle className="w-4 h-4" />
+                      <span>+ Flag Document as Missing / Request File</span>
+                    </button>
+                  </div>
+
+                  {details?.missingItems && details.missingItems.length > 0 ? (
+                    <div className="bg-rose-50 border border-rose-200 rounded-xl p-4 text-xs text-rose-900 space-y-2">
+                      <div className="font-bold flex items-center space-x-2 text-rose-800">
+                        <AlertTriangle className="w-4 h-4 text-rose-600 shrink-0" />
+                        <span>Action Required: {details.missingItems.length} Document(s) Still Missing from Client</span>
+                      </div>
+                      <ul className="list-disc list-inside space-y-1 text-rose-800 font-medium">
+                        {details.missingItems.map((item, idx) => (
+                          <li key={idx}>{item}</li>
+                        ))}
+                      </ul>
+                      <p className="text-[11px] text-rose-600 pt-1">
+                        Client portal actively alerts the client to upload these items. Automated reminders will cite these missing items.
+                      </p>
+                    </div>
+                  ) : (
+                    <div className="bg-emerald-50 border border-emerald-200 rounded-xl p-4 text-xs text-emerald-900 flex items-center space-x-2">
+                      <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                      <span className="font-semibold">All mandatory checklist items are complete! Ready to compile and confirm return.</span>
+                    </div>
+                  )}
+
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    {details?.checklist?.map(item => (
+                      <div
+                        key={item.id}
+                        className={`p-4 rounded-xl border text-xs shadow-xs space-y-2.5 ${
+                          item.status === 'uploaded'
+                            ? 'bg-emerald-50/50 border-emerald-200'
+                            : item.status === 'nil_declared'
+                            ? 'bg-slate-50 border-slate-200'
+                            : 'bg-rose-50/50 border-rose-200'
+                        }`}
+                      >
+                        <div className="flex items-start justify-between gap-2">
+                          <div>
+                            <div className="font-bold text-slate-900 flex items-center space-x-1.5">
+                              {item.status === 'uploaded' && <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />}
+                              {item.status === 'missing' && <AlertTriangle className="w-4 h-4 text-rose-600 shrink-0" />}
+                              {item.status === 'nil_declared' && <Check className="w-4 h-4 text-slate-400 shrink-0" />}
+                              <span>{item.label}</span>
+                            </div>
+                            <p className="text-[11px] text-slate-500 mt-0.5">{item.description}</p>
+                          </div>
+
+                          <span
+                            className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase shrink-0 ${
+                              item.status === 'uploaded'
+                                ? 'bg-emerald-100 text-emerald-800'
+                                : item.status === 'nil_declared'
+                                ? 'bg-slate-200 text-slate-700'
+                                : 'bg-rose-100 text-rose-800'
+                            }`}
+                          >
+                            {item.status === 'uploaded'
+                              ? `${item.uploadedCount} Extracted`
+                              : item.status === 'nil_declared'
+                              ? 'Nil Confirmed'
+                              : 'Missing'}
+                          </span>
+                        </div>
+
+                        {item.missingReason && (
+                          <div className="p-2 bg-rose-100/60 rounded text-[11px] text-rose-800 font-medium">
+                            ⚠️ {item.missingReason}
+                          </div>
+                        )}
+
+                        {item.nilNotes && (
+                          <div className="p-2 bg-slate-100 rounded text-[11px] text-slate-600 italic">
+                            Declaration: {item.nilNotes}
+                          </div>
+                        )}
+
+                        {item.uploadedFiles && item.uploadedFiles.length > 0 && (
+                          <div className="text-[11px] text-slate-600">
+                            <span className="text-slate-400">Sample files:</span> {item.uploadedFiles.join(', ')}
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
               {/* TAB 1: INVOICES & NOTES */}
               {activeTab === 'invoices' && (
                 <div className="space-y-4">
@@ -843,6 +995,75 @@ export const StaffReviewModal: React.FC<StaffReviewModalProps> = ({
                   className="px-4 py-1.5 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white text-xs font-bold rounded-lg shadow"
                 >
                   {isSubmitting ? 'Approving...' : 'Confirm Final Approval'}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Flag Document as Missing Dialog */}
+        {showFlagMissingDialog && (
+          <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4">
+            <div className="bg-white rounded-2xl shadow-xl max-w-md w-full p-6 space-y-4 border border-slate-200 animate-in fade-in zoom-in-95">
+              <div className="flex items-center justify-between border-b pb-3">
+                <div className="flex items-center space-x-2">
+                  <AlertTriangle className="w-5 h-5 text-rose-600" />
+                  <h3 className="font-bold text-slate-900 text-sm">Flag Missing Document / Request File</h3>
+                </div>
+                <button
+                  onClick={() => setShowFlagMissingDialog(false)}
+                  className="text-slate-400 hover:text-slate-600"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+
+              <div className="space-y-3">
+                <div>
+                  <label className="text-xs font-semibold text-slate-700">Document Type / Category</label>
+                  <select
+                    value={flagMissingCategory}
+                    onChange={e => setFlagMissingCategory(e.target.value)}
+                    className="w-full text-xs p-2 border border-slate-300 rounded-lg mt-1 focus:ring-2 focus:ring-rose-500"
+                  >
+                    <option value="bank_statements">Bank Statement (Missing dates / account)</option>
+                    <option value="purchase_invoices">Purchase Invoices (Vendor tax invoices)</option>
+                    <option value="sales_invoices">Sales Invoices (Missing invoice numbers)</option>
+                    <option value="debit_credit_notes">Debit / Credit Notes</option>
+                    <option value="custom">Other / Specific Audit Document</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="text-xs font-semibold text-slate-700">
+                    Specific Requirement or Missing Description <span className="text-rose-600">*</span>
+                  </label>
+                  <textarea
+                    rows={3}
+                    value={flagMissingMessage}
+                    onChange={e => setFlagMissingMessage(e.target.value)}
+                    placeholder="e.g. Missing ICICI Current Account bank statement from 15th to 31st August 2026."
+                    className="w-full text-xs p-2.5 border border-slate-300 rounded-lg mt-1 focus:ring-2 focus:ring-rose-500"
+                  />
+                  <p className="text-[11px] text-slate-400 mt-1">
+                    This note will be displayed prominently on the client's portal and included in the next automated WhatsApp reminder.
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex justify-end space-x-2 pt-3 border-t">
+                <button
+                  onClick={() => setShowFlagMissingDialog(false)}
+                  className="px-3 py-1.5 text-xs text-slate-600 hover:bg-slate-100 rounded-lg"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={handleFlagMissingSubmit}
+                  disabled={isSubmitting || !flagMissingMessage.trim()}
+                  className="px-4 py-1.5 bg-rose-600 hover:bg-rose-500 disabled:opacity-50 text-white text-xs font-bold rounded-lg shadow"
+                >
+                  {isSubmitting ? 'Flagging...' : 'Flag as Missing & Alert Client'}
                 </button>
               </div>
             </div>

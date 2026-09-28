@@ -5,6 +5,7 @@ import {
   FileText,
   CheckCircle2,
   AlertCircle,
+  AlertTriangle,
   FileSpreadsheet,
   Download,
   Building2,
@@ -59,8 +60,34 @@ export const ClientPortalView: React.FC<ClientPortalProps> = ({ initialToken, is
     ackMessage: string;
     filesUploaded: number;
     extractedCount: number;
+    missingItems?: string[];
+    isFullySatisfied?: boolean;
     dispatchResult?: any;
   } | null>(null);
+
+  const handleCategoryNilToggle = async (categoryId: string, status: 'nil' | 'pending') => {
+    if (!session) return;
+    try {
+      setLoading(true);
+      const res = await fetch(`/api/monthly-requests/${session.request.id}/declare-category`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          category: categoryId,
+          status,
+          declaredBy: session.client.contactPerson,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Failed to update category declaration');
+      await fetchSession(token);
+      setSuccessMsg(status === 'nil' ? `Marked "${categoryId.replace('_', ' ')}" as Nil / None this month.` : `Reset declaration for "${categoryId.replace('_', ' ')}".`);
+    } catch (err: any) {
+      setError(err.message);
+    } finally {
+      setLoading(false);
+    }
+  };
 
   const fetchSession = async (currentToken: string) => {
     try {
@@ -128,10 +155,16 @@ export const ClientPortalView: React.FC<ClientPortalProps> = ({ initialToken, is
         ackMessage: data.ackMessage,
         filesUploaded: data.filesUploaded,
         extractedCount: data.extractedCount,
+        missingItems: data.missingItems || [],
+        isFullySatisfied: data.isFullySatisfied,
         dispatchResult: data.dispatchResult,
       });
 
-      setSuccessMsg(`Successfully uploaded and scanned ${selectedFiles.length} document(s)! Digital Receipt ${data.ackReferenceId} generated.`);
+      if (data.missingItems && data.missingItems.length > 0) {
+        setSuccessMsg(`Uploaded ${selectedFiles.length} file(s) (${data.extractedCount} invoices extracted). Notice: ${data.missingItems.length} document(s) still required to complete filing.`);
+      } else {
+        setSuccessMsg(`Successfully uploaded and scanned ${selectedFiles.length} document(s)! All monthly checklist requirements are complete.`);
+      }
       setSelectedFiles([]);
       if (fileInputRef.current) fileInputRef.current.value = '';
       await fetchSession(token);
@@ -272,6 +305,29 @@ export const ClientPortalView: React.FC<ClientPortalProps> = ({ initialToken, is
             {uploadAckData.ackMessage}
           </div>
 
+          {/* Missing items warning if any still pending */}
+          {uploadAckData.missingItems && uploadAckData.missingItems.length > 0 ? (
+            <div className="bg-amber-950/70 border border-amber-500/60 rounded-xl p-3 text-xs text-amber-200 space-y-1.5">
+              <div className="font-bold flex items-center space-x-1.5 text-amber-300">
+                <AlertTriangle className="w-4 h-4 text-amber-400 shrink-0" />
+                <span>Notice: Additional Documents Still Required for {session?.request?.reportingMonth}</span>
+              </div>
+              <ul className="list-disc list-inside space-y-0.5 text-amber-100">
+                {uploadAckData.missingItems.map((item: string, i: number) => (
+                  <li key={i}>{item}</li>
+                ))}
+              </ul>
+              <p className="text-[11px] text-amber-300">
+                A WhatsApp notification has been dispatched to your phone listing these missing items.
+              </p>
+            </div>
+          ) : (
+            <div className="bg-emerald-950/60 border border-emerald-500/40 rounded-xl p-3 text-xs text-emerald-200 flex items-center space-x-2">
+              <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+              <span>All mandatory checklist items are complete! CA staff will now compile your returns.</span>
+            </div>
+          )}
+
           <div className="flex flex-wrap items-center justify-between gap-2 text-xs pt-1">
             <div className="text-emerald-300">
               Status: <strong>{uploadAckData.dispatchResult?.mode === 'automated_meta_api' ? 'WhatsApp Sent Automatically via Meta API' : 'Acknowledgement Logged & Prepared'}</strong>
@@ -330,39 +386,153 @@ export const ClientPortalView: React.FC<ClientPortalProps> = ({ initialToken, is
             )}
           </div>
 
+          {/* Missing Documents Alert Banner */}
+          {session.missingItems && session.missingItems.length > 0 ? (
+            <div className="bg-amber-50 border-2 border-amber-300 rounded-xl p-4 shadow-xs flex items-start space-x-3 text-amber-900 animate-in fade-in">
+              <AlertTriangle className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
+              <div className="flex-1 space-y-1">
+                <div className="font-bold text-sm flex items-center justify-between">
+                  <span>Filing Action Required: {session.missingItems.length} Document(s) Still Missing for {session.request.reportingMonth}</span>
+                  <span className="text-xs bg-amber-200 text-amber-800 px-2 py-0.5 rounded font-semibold">Missing Documents</span>
+                </div>
+                <p className="text-xs text-amber-800">
+                  Please upload the following required documents or confirm Nil below to complete your return:
+                </p>
+                <ul className="list-disc list-inside text-xs font-semibold text-amber-900 space-y-0.5 pt-1">
+                  {session.missingItems.map((item: string, i: number) => (
+                    <li key={i}>{item}</li>
+                  ))}
+                </ul>
+              </div>
+            </div>
+          ) : (
+            <div className="bg-emerald-50 border border-emerald-300 rounded-xl p-4 shadow-xs flex items-center space-x-3 text-emerald-900 animate-in fade-in">
+              <CheckCircle2 className="w-5 h-5 text-emerald-600 shrink-0" />
+              <div className="flex-1">
+                <div className="font-bold text-sm">All Monthly Documents Received & Complete!</div>
+                <p className="text-xs text-emerald-700 mt-0.5">
+                  Your sales invoices, purchase bills, and bank statements for {session.request.reportingMonth} are complete. CA audit team is preparing your working paper.
+                </p>
+              </div>
+            </div>
+          )}
+
           {/* Checklist & Document Status */}
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-5 space-y-3">
-              <h3 className="font-bold text-slate-800 text-sm flex items-center space-x-2">
-                <Layers className="w-4 h-4 text-blue-600" />
-                <span>Monthly Checklist</span>
-              </h3>
-              <ul className="text-xs space-y-2 text-slate-600">
-                <li className="flex items-center justify-between">
-                  <span>1. Sales Invoices</span>
-                  <span className="px-2 py-0.5 rounded text-[11px] bg-slate-100 font-medium">Expected</span>
-                </li>
-                <li className="flex items-center justify-between">
-                  <span>2. Purchase Invoices</span>
-                  <span className="px-2 py-0.5 rounded text-[11px] bg-slate-100 font-medium">Expected</span>
-                </li>
-                <li className="flex items-center justify-between">
-                  <span>3. Bank Statements</span>
-                  <span className="px-2 py-0.5 rounded text-[11px] bg-slate-100 font-medium">
-                    {session.client.expectedBankAccounts?.[0]?.bankName || 'Current A/c'}
+            <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-5 space-y-4">
+              <div className="flex items-center justify-between">
+                <h3 className="font-bold text-slate-800 text-sm flex items-center space-x-2">
+                  <Layers className="w-4 h-4 text-blue-600" />
+                  <span>Monthly Document Checklist</span>
+                </h3>
+                {session.missingItems?.length > 0 ? (
+                  <span className="px-2 py-0.5 rounded text-[11px] bg-rose-100 text-rose-800 font-bold border border-rose-200">
+                    {session.missingItems.length} Missing
                   </span>
-                </li>
-                <li className="flex items-center justify-between">
-                  <span>4. Debit & Credit Notes</span>
-                  <span className="px-2 py-0.5 rounded text-[11px] bg-slate-100 font-medium">If applicable</span>
-                </li>
-              </ul>
+                ) : (
+                  <span className="px-2 py-0.5 rounded text-[11px] bg-emerald-100 text-emerald-800 font-bold border border-emerald-200">
+                    All Complete
+                  </span>
+                )}
+              </div>
+
+              <div className="space-y-3">
+                {session.checklist && session.checklist.length > 0 ? (
+                  session.checklist.map((item: any) => (
+                    <div
+                      key={item.id}
+                      className={`p-3 rounded-lg border text-xs transition ${
+                        item.status === 'uploaded'
+                          ? 'bg-emerald-50/60 border-emerald-200'
+                          : item.status === 'nil_declared'
+                          ? 'bg-slate-50 border-slate-200'
+                          : 'bg-rose-50/50 border-rose-200'
+                      }`}
+                    >
+                      <div className="flex items-start justify-between gap-2">
+                        <div>
+                          <div className="font-bold text-slate-800 flex items-center space-x-1.5">
+                            {item.status === 'uploaded' && <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 shrink-0" />}
+                            {item.status === 'missing' && <AlertTriangle className="w-3.5 h-3.5 text-rose-600 shrink-0" />}
+                            {item.status === 'nil_declared' && <Clock className="w-3.5 h-3.5 text-slate-400 shrink-0" />}
+                            <span>{item.label}</span>
+                          </div>
+                          <p className="text-[11px] text-slate-500 mt-0.5">{item.description}</p>
+                          {item.missingReason && (
+                            <p className="text-[11px] text-rose-600 font-medium mt-1">⚠️ {item.missingReason}</p>
+                          )}
+                          {item.nilNotes && (
+                            <p className="text-[11px] text-slate-500 italic mt-1">Note: {item.nilNotes}</p>
+                          )}
+                        </div>
+
+                        <div className="text-right shrink-0">
+                          {item.status === 'uploaded' && (
+                            <span className="px-2 py-0.5 rounded text-[10px] bg-emerald-100 text-emerald-800 font-bold">
+                              {item.uploadedCount} Extracted
+                            </span>
+                          )}
+                          {item.status === 'missing' && (
+                            <span className="px-2 py-0.5 rounded text-[10px] bg-rose-100 text-rose-800 font-bold">
+                              Not Uploaded
+                            </span>
+                          )}
+                          {item.status === 'nil_declared' && (
+                            <span className="px-2 py-0.5 rounded text-[10px] bg-slate-200 text-slate-700 font-semibold">
+                              Nil / None
+                            </span>
+                          )}
+                        </div>
+                      </div>
+
+                      {/* Action buttons per checklist category */}
+                      <div className="mt-2 pt-2 border-t border-slate-200/60 flex items-center justify-between text-[11px]">
+                        {item.status === 'missing' ? (
+                          <>
+                            <button
+                              onClick={() => fileInputRef.current?.click()}
+                              className="font-bold text-blue-600 hover:text-blue-800 flex items-center space-x-1"
+                            >
+                              <UploadCloud className="w-3 h-3" />
+                              <span>Upload File</span>
+                            </button>
+                            <button
+                              onClick={() => handleCategoryNilToggle(item.id, 'nil')}
+                              className="text-slate-500 hover:text-slate-800"
+                              title="Confirm that your business had no transactions or bills for this category this month"
+                            >
+                              Mark as Nil / None
+                            </button>
+                          </>
+                        ) : item.status === 'nil_declared' ? (
+                          <>
+                            <span className="text-slate-400">Confirmed Nil</span>
+                            <button
+                              onClick={() => handleCategoryNilToggle(item.id, 'pending')}
+                              className="text-blue-600 hover:underline"
+                            >
+                              Undo / Upload File
+                            </button>
+                          </>
+                        ) : (
+                          <div className="text-slate-400 text-[10px]">
+                            Verified in current filing
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  ))
+                ) : (
+                  <div className="text-slate-400 text-center py-4">No checklist items configured.</div>
+                )}
+              </div>
+
               <div className="pt-2 border-t border-slate-100">
                 <button
                   onClick={() => setShowNilDeclaration(true)}
-                  className="w-full text-xs text-blue-600 hover:text-blue-800 font-medium text-center py-1 rounded hover:bg-blue-50 transition"
+                  className="w-full text-xs text-slate-600 hover:text-slate-800 font-medium text-center py-1 rounded hover:bg-slate-100 transition"
                 >
-                  Declare &quot;No Transactions / Nil Return&quot;
+                  Declare Entire Month Nil (&quot;Zero Business Activity&quot;)
                 </button>
               </div>
             </div>

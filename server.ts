@@ -23,6 +23,7 @@ import { eq, and, desc, sql } from 'drizzle-orm';
 import { requireAuth, requireClientUploadAuth, AuthRequest } from './src/middleware/auth.ts';
 import { extractDocumentContent, computeFileHash, isValidGstinFormat } from './src/services/extractor.ts';
 import { runValidationChecks } from './src/services/validator.ts';
+import { evaluateMonthlyChecklist } from './src/services/checklistService.ts';
 import { generateClientExcelWorkbook } from './src/services/excelGenerator.ts';
 import { generateClientHtmlReport } from './src/services/htmlReportGenerator.ts';
 import {
@@ -451,6 +452,22 @@ app.get('/api/monthly-requests/:id', requireAuth, async (req: AuthRequest, res: 
       .where(eq(generatedWorkbooks.monthlyRequestId, id))
       .orderBy(desc(generatedWorkbooks.version));
 
+    const checklistEvaluation = evaluateMonthlyChecklist({
+      client: {
+        requiredChecklist: item.client.requiredChecklist || [],
+        expectedBankAccounts: item.client.expectedBankAccounts || [],
+      },
+      request: {
+        reportingMonth: item.request.reportingMonth,
+        noTransactionsDeclared: item.request.noTransactionsDeclared,
+        categoryDeclarations: (item.request.categoryDeclarations as any) || {},
+      },
+      extractedDocs: extracted,
+      files,
+      bankTransactions: bankTxns,
+      manualExceptions: exceptions,
+    });
+
     res.json({
       request: item.request,
       client: item.client,
@@ -460,6 +477,9 @@ app.get('/api/monthly-requests/:id', requireAuth, async (req: AuthRequest, res: 
       bankTransactions: bankTxns,
       exceptions,
       workbooks,
+      checklist: checklistEvaluation.checklist,
+      missingItems: checklistEvaluation.missingItems,
+      isFullySatisfied: checklistEvaluation.isFullySatisfied,
     });
   } catch (err: any) {
     res.status(500).json({ error: 'Failed to fetch details: ' + err.message });
@@ -905,7 +925,15 @@ app.post('/api/documents/upload', upload.array('files', 15), async (req: Request
       bankTransactions: allBankTxns,
     });
 
-    // Save unresolved exceptions to DB
+    // Clear previous unresolved exceptions so we don't accumulate duplicates
+    await db
+      .delete(validationExceptions)
+      .where(and(
+        eq(validationExceptions.monthlyRequestId, monthlyRequestId),
+        eq(validationExceptions.resolved, false)
+      ));
+
+    // Save newly calculated unresolved exceptions to DB
     for (const chk of checkResults) {
       await db.insert(validationExceptions).values({
         id: `ex_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
@@ -921,10 +949,32 @@ app.post('/api/documents/upload', upload.array('files', 15), async (req: Request
       newExceptions.push(chk);
     }
 
-    // Update monthly request counts and status
-    const criticalExceptions = checkResults.filter(c => c.severity === 'critical');
-    const newStatus = criticalExceptions.length > 0 ? 'Needs Review' : 'Needs Review';
+    // Evaluate dynamic checklist and detect any missing files
+    const host = req.get('host') || 'localhost:3000';
+    const protocol = req.protocol === 'https' || req.get('x-forwarded-proto') === 'https' ? 'https' : 'http';
+    const baseUrl = process.env.APP_URL || `${protocol}://${host}`;
+    const secureUploadLink = `${baseUrl}/client-portal?token=${mr.secureUploadToken}`;
 
+    const checklistEvaluation = evaluateMonthlyChecklist({
+      client: {
+        requiredChecklist: client.requiredChecklist || [],
+        expectedBankAccounts: client.expectedBankAccounts || [],
+      },
+      request: {
+        reportingMonth: mr.reportingMonth,
+        noTransactionsDeclared: mr.noTransactionsDeclared,
+        categoryDeclarations: (mr.categoryDeclarations as any) || {},
+      },
+      extractedDocs: allDocs,
+      files: allFiles,
+      bankTransactions: allBankTxns,
+      manualExceptions: checkResults,
+    });
+
+    const hasMissingItems = checklistEvaluation.missingItems.length > 0;
+    const newStatus = hasMissingItems ? 'Missing Documents' : 'Needs Review';
+
+    // Update monthly request counts and status
     await db
       .update(monthlyRequests)
       .set({
@@ -936,7 +986,7 @@ app.post('/api/documents/upload', upload.array('files', 15), async (req: Request
       })
       .where(eq(monthlyRequests.id, monthlyRequestId));
 
-    // Automated Acknowledgement Generation & Notification
+    // Automated Acknowledgement Generation & Notification with missing documents list
     const ackRef = `ACK_${Date.now().toString(36).toUpperCase()}`;
     const fileSummaryText = files.map(f => `• ${f.originalname}`).join('\n');
 
@@ -947,6 +997,8 @@ app.post('/api/documents/upload', upload.array('files', 15), async (req: Request
       filesSummaryText: fileSummaryText,
       extractedCount: processedDocs.length,
       ackReferenceId: ackRef,
+      missingItems: checklistEvaluation.missingItems,
+      secureUploadLink,
     });
 
     const dispatchResult = await dispatchWhatsAppNotification({
@@ -970,6 +1022,8 @@ app.post('/api/documents/upload', upload.array('files', 15), async (req: Request
         ackReferenceId: ackRef,
         filesUploadedCount: files.length,
         extractedCount: processedDocs.length,
+        missingItems: checklistEvaluation.missingItems,
+        isFullySatisfied: checklistEvaluation.isFullySatisfied,
         dispatch: dispatchResult,
       },
     });
@@ -980,7 +1034,11 @@ app.post('/api/documents/upload', upload.array('files', 15), async (req: Request
       ackMessage: ackMessageText,
       filesUploaded: files.length,
       extractedCount: processedDocs.length,
+      isFullySatisfied: checklistEvaluation.isFullySatisfied,
+      missingItems: checklistEvaluation.missingItems,
+      checklist: checklistEvaluation.checklist,
       exceptionsFound: checkResults.length,
+      status: newStatus,
       dispatchResult,
     });
   } catch (err: any) {
@@ -1733,11 +1791,34 @@ app.get('/api/client-portal/session', async (req: Request, res: Response) => {
         .from(clients)
         .where(eq(clients.registeredPhone, client.registeredPhone));
 
+      const allDocs = await db.select().from(extractedDocuments).where(eq(extractedDocuments.monthlyRequestId, mr.id));
+      const allBankTxns = await db.select().from(bankTransactions).where(eq(bankTransactions.monthlyRequestId, mr.id));
+      const allExceptions = await db.select().from(validationExceptions).where(eq(validationExceptions.monthlyRequestId, mr.id));
+
+      const checklistEvaluation = evaluateMonthlyChecklist({
+        client: {
+          requiredChecklist: client.requiredChecklist || [],
+          expectedBankAccounts: client.expectedBankAccounts || [],
+        },
+        request: {
+          reportingMonth: mr.reportingMonth,
+          noTransactionsDeclared: mr.noTransactionsDeclared,
+          categoryDeclarations: (mr.categoryDeclarations as any) || {},
+        },
+        extractedDocs: allDocs,
+        files,
+        bankTransactions: allBankTxns,
+        manualExceptions: allExceptions,
+      });
+
       return res.json({
         request: mr,
         client,
         files,
         workbooks,
+        checklist: checklistEvaluation.checklist,
+        missingItems: checklistEvaluation.missingItems,
+        isFullySatisfied: checklistEvaluation.isFullySatisfied,
         sisterBusinesses: sisterBusinesses.map(b => ({
           id: b.id,
           businessName: b.businessName,
@@ -1758,7 +1839,109 @@ app.get('/api/client-portal/session', async (req: Request, res: Response) => {
   }
 });
 
-// Client Declaration: "No transactions" or "Not applicable"
+// Category-Level Nil Declaration (e.g. client confirms "No purchase invoices" or "No debit notes" this month)
+app.post('/api/monthly-requests/:id/declare-category', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const { category, status, notes, declaredBy } = req.body;
+    // status: 'nil' | 'pending'
+
+    const reqList = await db.select().from(monthlyRequests).where(eq(monthlyRequests.id, id)).limit(1);
+    if (reqList.length === 0) return res.status(404).json({ error: 'Request not found' });
+    const mr = reqList[0];
+    const clientList = await db.select().from(clients).where(eq(clients.id, mr.clientId)).limit(1);
+    if (clientList.length === 0) return res.status(404).json({ error: 'Client not found' });
+    const client = clientList[0];
+
+    const currentDecl = { ...((mr.categoryDeclarations as any) || {}) };
+    if (status === 'nil') {
+      currentDecl[category] = {
+        status: 'nil',
+        notes: notes || 'Nil confirmed by client',
+        declaredAt: new Date().toISOString(),
+        declaredBy: declaredBy || client.contactPerson,
+      };
+    } else {
+      delete currentDecl[category];
+    }
+
+    const allDocs = await db.select().from(extractedDocuments).where(eq(extractedDocuments.monthlyRequestId, id));
+    const allFiles = await db.select().from(documentFiles).where(eq(documentFiles.monthlyRequestId, id));
+    const allBankTxns = await db.select().from(bankTransactions).where(eq(bankTransactions.monthlyRequestId, id));
+    const allExceptions = await db.select().from(validationExceptions).where(eq(validationExceptions.monthlyRequestId, id));
+
+    const evalResult = evaluateMonthlyChecklist({
+      client: {
+        requiredChecklist: client.requiredChecklist || [],
+        expectedBankAccounts: client.expectedBankAccounts || [],
+      },
+      request: {
+        reportingMonth: mr.reportingMonth,
+        noTransactionsDeclared: mr.noTransactionsDeclared,
+        categoryDeclarations: currentDecl,
+      },
+      extractedDocs: allDocs,
+      files: allFiles,
+      bankTransactions: allBankTxns,
+      manualExceptions: allExceptions,
+    });
+
+    const newStatus = evalResult.missingItems.length > 0 ? 'Missing Documents' : (mr.status === 'Requested' ? 'Requested' : 'Needs Review');
+
+    await db
+      .update(monthlyRequests)
+      .set({
+        categoryDeclarations: currentDecl,
+        status: newStatus,
+        updatedAt: new Date(),
+      })
+      .where(eq(monthlyRequests.id, id));
+
+    res.json({
+      success: true,
+      categoryDeclarations: currentDecl,
+      checklist: evalResult.checklist,
+      missingItems: evalResult.missingItems,
+      isFullySatisfied: evalResult.isFullySatisfied,
+      status: newStatus,
+    });
+  } catch (err: any) {
+    res.status(500).json({ error: 'Failed to update category: ' + err.message });
+  }
+});
+
+// CA Staff flags a document or requirement as missing
+app.post('/api/monthly-requests/:id/flag-missing', requireAuth, async (req: AuthRequest, res: Response) => {
+  try {
+    const { id } = req.params;
+    const { message, severity, category } = req.body;
+    if (!message) return res.status(400).json({ error: 'Message is required' });
+
+    await db.insert(validationExceptions).values({
+      id: `ex_flag_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+      monthlyRequestId: id,
+      severity: severity || 'critical',
+      checkType: 'category_missing',
+      message: message.trim(),
+      details: { category: category || 'custom', flaggedBy: req.user?.displayName || 'CA Staff' },
+      resolved: false,
+    });
+
+    await db
+      .update(monthlyRequests)
+      .set({
+        status: 'Missing Documents',
+        updatedAt: new Date(),
+      })
+      .where(eq(monthlyRequests.id, id));
+
+    res.json({ success: true, message: 'Document marked as missing and flagged for client.' });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Client Declaration: "No transactions" or "Not applicable" (Global)
 app.post('/api/monthly-requests/:id/declaration', async (req: Request, res: Response) => {
   try {
     const { id } = req.params;

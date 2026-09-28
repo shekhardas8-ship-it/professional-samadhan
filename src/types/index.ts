@@ -60,11 +60,24 @@ export interface MonthlyRequest {
   totalInvoicesExtracted: number;
   unresolvedExceptionsCount: number;
   activeWorkbookVersion: number;
+  categoryDeclarations?: Record<string, { status: 'nil' | 'uploaded' | 'pending'; notes?: string; declaredAt?: string; declaredBy?: string }>;
   clientName?: string;
   clientGstin?: string;
   contactPerson?: string;
   registeredPhone?: string;
   assignedStaffName?: string;
+}
+
+export interface ChecklistCategoryItem {
+  id: string;
+  label: string;
+  description: string;
+  required: boolean;
+  status: 'uploaded' | 'missing' | 'nil_declared';
+  uploadedCount: number;
+  uploadedFiles: string[];
+  missingReason?: string;
+  nilNotes?: string;
 }
 
 export interface DocumentFile {

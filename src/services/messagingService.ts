@@ -73,20 +73,47 @@ export function generateUploadAcknowledgementMessage(params: {
   filesSummaryText: string;
   extractedCount: number;
   ackReferenceId: string;
+  missingItems?: string[];
+  secureUploadLink?: string;
 }): string {
-  return `Dear ${params.clientName},
+  const hasMissing = params.missingItems && params.missingItems.length > 0;
 
-Thank you! We have successfully received your document submission for ${params.businessName} (${params.reportingMonth}):
+  if (hasMissing) {
+    const missingListText = params.missingItems!.map((item, idx) => `${idx + 1}. ${item}`).join('\n');
+    return `Dear ${params.clientName},
 
-${params.filesSummaryText}
-
+Thank you! We received your document upload for ${params.businessName} (${params.reportingMonth}).
 Receipt Ref: ${params.ackReferenceId}
 Extracted Entries: ${params.extractedCount} item(s)
 
-Our GST audit team will review your files and compile your working paper shortly.
+${params.filesSummaryText}
+
+⚠️ ACTION REQUIRED — The following documents are still missing to complete your GST filing:
+${missingListText}
+
+Please upload the missing documents here:
+${params.secureUploadLink || 'https://professionalsamadhan.in/client-portal'}
+
+(If there were no transactions or no purchases for any item, please confirm Nil in the portal).
 
 Regards,
-Team Professional Samadhan`;
+Team Professional Samadhan
+Chartered Accountants`;
+  }
+
+  return `Dear ${params.clientName},
+
+Thank you! All required documents for ${params.businessName} (${params.reportingMonth}) have been successfully received and extracted!
+Receipt Ref: ${params.ackReferenceId}
+Extracted Entries: ${params.extractedCount} item(s)
+
+${params.filesSummaryText}
+
+Our GST audit team is now compiling your GST working paper and draft GSTR-1/3B calculations.
+
+Regards,
+Team Professional Samadhan
+Chartered Accountants`;
 }
 
 /**

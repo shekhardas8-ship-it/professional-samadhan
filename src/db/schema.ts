@@ -73,6 +73,12 @@ export const monthlyRequests = pgTable('monthly_requests', {
   declaredAt: timestamp('declared_at'),
   declaredBy: text('declared_by'),
   caReviewedDeclaration: boolean('ca_reviewed_declaration').default(false),
+  categoryDeclarations: jsonb('category_declarations').$type<Record<string, {
+    status: 'nil' | 'uploaded' | 'pending';
+    notes?: string;
+    declaredAt?: string;
+    declaredBy?: string;
+  }>>().default({}),
   // Summary counts
   totalFilesReceived: integer('total_files_received').notNull().default(0),
   totalInvoicesExtracted: integer('total_invoices_extracted').notNull().default(0),
