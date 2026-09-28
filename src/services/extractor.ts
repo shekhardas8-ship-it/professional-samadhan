@@ -106,7 +106,8 @@ export async function extractDocumentContent(
   clientGstin: string,
   mimeType: string,
   password?: string,
-  clientBusinessName?: string
+  clientBusinessName?: string,
+  targetCategory?: string
 ): Promise<ExtractedDocDto[]> {
   const ext = filename.split('.').pop()?.toLowerCase();
   const isImage = ['png', 'jpg', 'jpeg', 'webp', 'bmp', 'tiff', 'gif'].includes(ext || '') || (mimeType && mimeType.startsWith('image/'));
@@ -170,7 +171,7 @@ export async function extractDocumentContent(
     cleanText = sanitizePostgresText(buffer.toString('utf-8'));
   }
 
-  const detectedDoc = parseDocumentTextOrScan(cleanText, filename, clientGstin, scanMethod, clientBusinessName);
+  const detectedDoc = parseDocumentTextOrScan(cleanText, filename, clientGstin, scanMethod, clientBusinessName, targetCategory);
   return [detectedDoc];
 }
 
@@ -241,23 +242,56 @@ function parseDocumentTextOrScan(
   filename: string,
   clientGstin: string,
   scanMethod: string,
-  clientBusinessName?: string
+  clientBusinessName?: string,
+  targetCategory?: string
 ): ExtractedDocDto {
   const lowerText = text.toLowerCase();
   const lowerFilename = filename.toLowerCase();
   const combinedLower = lowerText + ' ' + lowerFilename;
 
+  // Invoice markers
+  const isInvoiceMarker =
+    lowerFilename.startsWith('inv') ||
+    lowerFilename.includes('invoice') ||
+    lowerFilename.includes('bill') ||
+    lowerFilename.includes('sales') ||
+    lowerFilename.includes('forwardinvoice') ||
+    lowerText.includes('tax invoice') ||
+    lowerText.includes('invoice no') ||
+    lowerText.includes('invoice number') ||
+    lowerText.includes('bill of supply') ||
+    lowerText.includes('gstin of recipient') ||
+    lowerText.includes('place of supply') ||
+    lowerText.includes('taxable value') ||
+    lowerText.includes('total invoice value') ||
+    lowerText.includes('original for recipient') ||
+    lowerText.includes('duplicate for transporter');
+
+  // Bank statement markers
+  const isExplicitBankStmtMarker =
+    lowerFilename.includes('statement') ||
+    lowerFilename.includes('stmt') ||
+    lowerFilename.includes('passbook') ||
+    lowerFilename.includes('bank_stmt') ||
+    lowerFilename.includes('acct statement') ||
+    lowerText.includes('account statement') ||
+    lowerText.includes('statement of account') ||
+    lowerText.includes('bank statement') ||
+    lowerText.includes('passbook') ||
+    (lowerText.includes('account number') && lowerText.includes('closing balance') && !isInvoiceMarker);
+
+  // Credit / Debit Note markers
+  const isCreditNote = combinedLower.includes('credit note') || combinedLower.includes('cr-note') || combinedLower.includes('cr note');
+  const isDebitNote = combinedLower.includes('debit note') || combinedLower.includes('dr-note') || combinedLower.includes('dr note');
+
   // ==========================================
-  // 1. BANK STATEMENT PARSING
+  // 1. BANK STATEMENT PARSING (Only if genuinely a bank statement, NOT an invoice with bank details!)
   // ==========================================
-  if (
-    combinedLower.includes('bank') ||
-    combinedLower.includes('statement') ||
-    combinedLower.includes('passbook') ||
-    combinedLower.includes('acct statement') ||
-    combinedLower.includes('account summary') ||
-    combinedLower.includes('stmt')
-  ) {
+  const shouldParseAsBankStatement =
+    targetCategory === 'bank_statements' ||
+    (isExplicitBankStmtMarker && !isInvoiceMarker && targetCategory !== 'sales_invoices' && targetCategory !== 'purchase_invoices');
+
+  if (shouldParseAsBankStatement) {
     const bankName = detectBankName(text, filename);
     const accNo = detectAccountNumber(text, filename);
     const transactions = extractBankTransactionsFromText(text, bankName, accNo);
@@ -283,10 +317,7 @@ function parseDocumentTextOrScan(
   // ==========================================
   // 2. CREDIT NOTE OR DEBIT NOTE
   // ==========================================
-  const isCreditNote = combinedLower.includes('credit note') || combinedLower.includes('cr-note') || combinedLower.includes('cr note');
-  const isDebitNote = combinedLower.includes('debit note') || combinedLower.includes('dr-note') || combinedLower.includes('dr note');
-
-  if (isCreditNote || isDebitNote) {
+  if (targetCategory === 'debit_credit_notes' || isCreditNote || isDebitNote) {
     const docType = isCreditNote ? 'credit_note' : 'debit_note';
     const docNumber = extractDocNumber(text, filename, isCreditNote ? 'CN' : 'DN');
     const docDate = extractDocDate(text);
@@ -332,25 +363,38 @@ function parseDocumentTextOrScan(
   const docDate = extractDocDate(text);
   const { taxable, cgst, sgst, igst, total } = extractInvoiceAmounts(text);
 
-  // Check if client is supplier or buyer:
-  // If text mentions 'buyer' or 'bill to' near client GSTIN or client GSTIN is second, it's purchase.
-  // If text mentions 'vendor', 'purchase', 'bill from', or client is not the first GSTIN, it's purchase.
+  // Check explicit indicators
   const isExplicitPurchase =
-    combinedLower.includes('purchase') ||
-    combinedLower.includes('vendor') ||
+    combinedLower.includes('purchase order') ||
+    combinedLower.includes('purchase bill') ||
+    combinedLower.includes('amazon purchase') ||
+    combinedLower.includes('vendor bill') ||
     combinedLower.includes('bill from') ||
-    combinedLower.includes('inward supply');
+    combinedLower.includes('inward supply') ||
+    lowerFilename.includes('purchase');
 
-  const clientGstinIndex = gstinList.indexOf(clientGstin);
-  let isSales = false;
+  let isSales = true; // Default in GST client intake is Outward Sales Invoice
 
-  if (clientGstinIndex === 0) {
-    isSales = !isExplicitPurchase;
-  } else if (clientGstinIndex > 0) {
+  if (targetCategory === 'sales_invoices') {
+    isSales = true;
+  } else if (targetCategory === 'purchase_invoices') {
+    isSales = false;
+  } else if (isExplicitPurchase) {
     isSales = false;
   } else {
-    // Client GSTIN not found directly in document text
-    isSales = !isExplicitPurchase && (combinedLower.includes('sales') || combinedLower.includes('outward'));
+    const clientGstinIndex = gstinList.indexOf(clientGstin);
+    if (clientGstinIndex === 0) {
+      isSales = true;
+    } else if (clientGstinIndex > 0) {
+      isSales = false;
+    } else {
+      // Inward vs outward supplies
+      if (lowerFilename.includes('sales') || lowerFilename.startsWith('inv') || lowerFilename.includes('forwardinvoice') || lowerFilename.includes('tax_invoice') || lowerFilename.includes('invoice')) {
+        isSales = true;
+      } else {
+        isSales = true;
+      }
+    }
   }
 
   const otherGstin = gstinList.find(g => g !== clientGstin) || '';
@@ -382,7 +426,7 @@ function parseDocumentTextOrScan(
     totalAmount: total,
     lineItems,
     rawText: sanitizePostgresText(text.slice(0, 1000)) || `Invoice ${docNumber} (${filename})`,
-    extractionConfidence: gstinList.length > 0 && total > 0 ? 95.0 : 82.0,
+    extractionConfidence: gstinList.length > 0 && total > 0 ? 95.0 : 85.0,
     scanMethod,
   };
 }

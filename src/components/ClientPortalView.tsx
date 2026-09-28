@@ -47,6 +47,7 @@ export const ClientPortalView: React.FC<ClientPortalProps> = ({ initialToken, is
   const [pdfPassword, setPdfPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [isUploadAreaOpen, setIsUploadAreaOpen] = useState(true);
+  const [targetCategory, setTargetCategory] = useState<'sales_invoices' | 'purchase_invoices' | 'bank_statements' | 'debit_credit_notes' | 'auto'>('sales_invoices');
   const fileInputRef = useRef<HTMLInputElement>(null);
   const uploadSectionRef = useRef<HTMLDivElement>(null);
 
@@ -154,6 +155,16 @@ export const ClientPortalView: React.FC<ClientPortalProps> = ({ initialToken, is
     }, 50);
   };
 
+  const handleUploadCategoryClick = (categoryId?: string) => {
+    if (categoryId && ['sales_invoices', 'purchase_invoices', 'bank_statements', 'debit_credit_notes'].includes(categoryId)) {
+      setTargetCategory(categoryId as any);
+    } else {
+      setTargetCategory('sales_invoices');
+    }
+    openUploadSection();
+    fileInputRef.current?.click();
+  };
+
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files.length > 0) {
       const arr = Array.from(e.target.files);
@@ -176,6 +187,7 @@ export const ClientPortalView: React.FC<ClientPortalProps> = ({ initialToken, is
       formData.append('monthlyRequestId', session.request.id);
       formData.append('uploaderName', session.client.contactPerson);
       formData.append('source', 'client_portal');
+      formData.append('targetCategory', targetCategory);
 
       if (pdfPassword.trim()) {
         formData.append('pdfPassword', pdfPassword.trim());
@@ -568,10 +580,7 @@ export const ClientPortalView: React.FC<ClientPortalProps> = ({ initialToken, is
                       {item.status === 'missing' ? (
                         <>
                           <button
-                            onClick={() => {
-                              openUploadSection();
-                              fileInputRef.current?.click();
-                            }}
+                            onClick={() => handleUploadCategoryClick(item.id)}
                             className="font-bold text-blue-700 hover:text-blue-900 flex items-center space-x-1 py-0.5 px-1.5 rounded hover:bg-blue-100/60 transition"
                           >
                             <UploadCloud className="w-3.5 h-3.5" />
@@ -602,10 +611,7 @@ export const ClientPortalView: React.FC<ClientPortalProps> = ({ initialToken, is
                             <span>Verified</span>
                           </span>
                           <button
-                            onClick={() => {
-                              openUploadSection();
-                              fileInputRef.current?.click();
-                            }}
+                            onClick={() => handleUploadCategoryClick(item.id)}
                             className="text-slate-500 hover:text-blue-600 text-[11px] hover:underline"
                           >
                             + Upload More
@@ -672,6 +678,55 @@ export const ClientPortalView: React.FC<ClientPortalProps> = ({ initialToken, is
               </div>
             ) : (
               <div className="space-y-4">
+                {/* Target Section Selector */}
+                <div className="flex flex-wrap items-center gap-1.5 p-2.5 bg-slate-50 rounded-xl border border-slate-200 text-xs">
+                  <span className="font-bold text-slate-700 text-xs mr-1">Upload To Section:</span>
+                  <button
+                    type="button"
+                    onClick={() => setTargetCategory('sales_invoices')}
+                    className={`px-3 py-1 rounded-lg font-bold text-xs transition cursor-pointer flex items-center space-x-1.5 ${
+                      targetCategory === 'sales_invoices'
+                        ? 'bg-blue-600 text-white shadow-xs'
+                        : 'bg-white text-slate-700 hover:bg-slate-100 border border-slate-200'
+                    }`}
+                  >
+                    <span>Sales Invoices / Outward (GSTR-1)</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setTargetCategory('purchase_invoices')}
+                    className={`px-3 py-1 rounded-lg font-bold text-xs transition cursor-pointer flex items-center space-x-1.5 ${
+                      targetCategory === 'purchase_invoices'
+                        ? 'bg-emerald-600 text-white shadow-xs'
+                        : 'bg-white text-slate-700 hover:bg-slate-100 border border-slate-200'
+                    }`}
+                  >
+                    <span>Purchase Bills / Inward (ITC)</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setTargetCategory('bank_statements')}
+                    className={`px-3 py-1 rounded-lg font-bold text-xs transition cursor-pointer flex items-center space-x-1.5 ${
+                      targetCategory === 'bank_statements'
+                        ? 'bg-purple-600 text-white shadow-xs'
+                        : 'bg-white text-slate-700 hover:bg-slate-100 border border-slate-200'
+                    }`}
+                  >
+                    <span>Bank Statements</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setTargetCategory('auto')}
+                    className={`px-2.5 py-1 rounded-lg font-medium text-xs transition cursor-pointer ${
+                      targetCategory === 'auto'
+                        ? 'bg-slate-800 text-white shadow-xs'
+                        : 'bg-white text-slate-600 hover:bg-slate-100 border border-slate-200'
+                    }`}
+                  >
+                    <span>Auto-Detect</span>
+                  </button>
+                </div>
+
                 {/* Compact Dropzone */}
                 <div
                   onClick={() => fileInputRef.current?.click()}

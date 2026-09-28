@@ -948,7 +948,7 @@ app.post('/api/documents/upload', upload.array('files', 150), async (req: Reques
       return res.status(400).json({ error: 'No files provided for upload.' });
     }
 
-    const { monthlyRequestId, uploaderName, source, clientGstinOverride, pdfPassword, bankStatementPassword } = req.body;
+    const { monthlyRequestId, uploaderName, source, clientGstinOverride, pdfPassword, bankStatementPassword, targetCategory } = req.body;
     const documentPassword = (pdfPassword || bankStatementPassword || '').trim();
 
     if (!monthlyRequestId) {
@@ -995,15 +995,27 @@ app.post('/api/documents/upload', upload.array('files', 150), async (req: Reques
       const isDuplicate = existingFileWithHash.length > 0;
       const fileId = `doc_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
 
-      // Run document extraction with optional bank/PDF password and actual client business name
+      // Run document extraction with targetCategory guidance and actual client business name
       const extractedList = await extractDocumentContent(
         buffer,
         f.originalname,
         clientGstin,
         f.mimetype,
         documentPassword,
-        client.businessName || client.contactPerson
+        client.businessName || client.contactPerson,
+        targetCategory
       );
+
+      // Enforce target category if explicitly declared by user
+      for (const item of extractedList) {
+        if (targetCategory === 'sales_invoices' && item.docType !== 'credit_note' && item.docType !== 'debit_note') {
+          item.docType = 'sales_invoice';
+        } else if (targetCategory === 'purchase_invoices' && item.docType !== 'credit_note' && item.docType !== 'debit_note') {
+          item.docType = 'purchase_invoice';
+        } else if (targetCategory === 'bank_statements') {
+          item.docType = 'bank_statement';
+        }
+      }
 
       // Upload to Google Drive (creates Client & Month folders, deletes local temp file if Drive is active)
       const driveUpload = await googleDriveStorage.uploadDocument({
@@ -1273,6 +1285,29 @@ app.post('/api/documents/upload', upload.array('files', 150), async (req: Reques
   } catch (err: any) {
     console.error('Upload processing error:', err);
     res.status(500).json({ error: 'Failed to process upload: ' + err.message });
+  }
+});
+
+// Change document classification type (Sales Invoice vs Purchase Invoice vs Bank Statement)
+app.put('/api/extracted-documents/:id/change-type', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const { docType } = req.body;
+    if (!docType) return res.status(400).json({ error: 'docType is required' });
+
+    const existing = await db.select().from(extractedDocuments).where(eq(extractedDocuments.id, id)).limit(1);
+    if (existing.length === 0) return res.status(404).json({ error: 'Document not found' });
+
+    await db.update(extractedDocuments).set({ docType }).where(eq(extractedDocuments.id, id));
+
+    // If changing away from bank_statement, clean up any bank_transactions created for this document
+    if (docType !== 'bank_statement') {
+      await db.delete(bankTransactions).where(eq(bankTransactions.documentUnitId, id));
+    }
+
+    res.json({ success: true, id, docType });
+  } catch (err: any) {
+    res.status(500).json({ error: 'Failed to change document type: ' + err.message });
   }
 });
 
