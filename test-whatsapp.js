@@ -28,11 +28,8 @@ async function testWhatsApp() {
       body: JSON.stringify({
         messaging_product: 'whatsapp',
         to: targetPhone,
-        type: 'template',
-        template: {
-          name: 'hello_world',
-          language: { code: 'en_US' },
-        },
+        type: 'text',
+        text: { body: 'Test from Professional Samadhan GST Platform' },
       }),
     });
 

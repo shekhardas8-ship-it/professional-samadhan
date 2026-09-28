@@ -206,6 +206,12 @@ export const ClientManagementModal: React.FC<ClientManagementModalProps> = ({
     setStatusMessage(null);
 
     try {
+      const cleanDigits = (singleForm.registeredPhone || '').replace(/\D/g, '');
+      const localDigits = cleanDigits.startsWith('91') && cleanDigits.length > 10 ? cleanDigits.slice(2) : cleanDigits;
+      if (localDigits.length !== 10) {
+        throw new Error('Invalid phone number: Please provide a complete 10-digit mobile number (e.g. +91 98200 11111).');
+      }
+
       const isEditing = Boolean(editingClientId);
       const url = isEditing ? `/api/clients/${editingClientId}` : '/api/clients';
       const method = isEditing ? 'PUT' : 'POST';
