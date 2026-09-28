@@ -22,6 +22,7 @@ import {
   HardDrive,
   Trash2,
   X,
+  Edit2,
 } from 'lucide-react';
 import { HtmlReportModal } from './HtmlReportModal.tsx';
 import { ClientManagementModal } from './ClientManagementModal.tsx';
@@ -52,6 +53,7 @@ export const CaDashboard: React.FC<CaDashboardProps> = ({
   const [selectedStatus, setSelectedStatus] = useState<string>('all');
   const [searchTerm, setSearchTerm] = useState<string>('');
   const [isClientModalOpen, setIsClientModalOpen] = useState(false);
+  const [clientToEdit, setClientToEdit] = useState<string | null>(null);
   const [selectedClientIds, setSelectedClientIds] = useState<string[]>([]);
   const [activeHtmlReport, setActiveHtmlReport] = useState<{
     isOpen: boolean;
@@ -179,12 +181,15 @@ export const CaDashboard: React.FC<CaDashboardProps> = ({
           </button>
 
           <button
-            onClick={() => setIsClientModalOpen(true)}
+            onClick={() => {
+              setClientToEdit(null);
+              setIsClientModalOpen(true);
+            }}
             className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white text-sm font-semibold rounded-lg shadow transition flex items-center space-x-2"
-            title="Add a new client or bulk import via CSV"
+            title="Manage, search, edit existing clients or register new companies"
           >
-            <UserPlus className="w-4 h-4" />
-            <span>+ Add / Bulk Import Clients</span>
+            <Users className="w-4 h-4" />
+            <span>Manage & Edit Clients</span>
           </button>
 
           <button
@@ -348,6 +353,18 @@ export const CaDashboard: React.FC<CaDashboardProps> = ({
                   {/* Right Action Buttons */}
                   <div className="flex flex-wrap items-center gap-2">
                     <button
+                      onClick={() => {
+                        setClientToEdit(req.clientId);
+                        setIsClientModalOpen(true);
+                      }}
+                      className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-semibold rounded-lg border border-slate-300 transition flex items-center space-x-1.5"
+                      title="Edit client business name, phone, GSTIN, or assigned staff"
+                    >
+                      <Edit2 className="w-3.5 h-3.5 text-blue-600" />
+                      <span>Edit</span>
+                    </button>
+
+                    <button
                       onClick={() => onOpenReview(req)}
                       className="px-3 py-1.5 bg-blue-50 hover:bg-blue-100 text-blue-700 text-xs font-semibold rounded-lg border border-blue-200 transition flex items-center space-x-1.5"
                     >
@@ -478,12 +495,18 @@ export const CaDashboard: React.FC<CaDashboardProps> = ({
       {/* Client Management & Bulk Operations Modal */}
       <ClientManagementModal
         isOpen={isClientModalOpen}
-        onClose={() => setIsClientModalOpen(false)}
+        onClose={() => {
+          setIsClientModalOpen(false);
+          setClientToEdit(null);
+        }}
         onClientAddedOrUpdated={() => {
           if (onRefresh) onRefresh();
           setSelectedClientIds([]);
+          setClientToEdit(null);
         }}
         selectedClientIds={selectedClientIds}
+        initialEditClientId={clientToEdit}
+        onClearEditClientId={() => setClientToEdit(null)}
       />
 
       {/* Server Storage Health & Zero-Bloat Purge Modal */}

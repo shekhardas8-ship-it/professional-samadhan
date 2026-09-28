@@ -186,6 +186,98 @@ app.post('/api/clients', requireAuth, async (req: AuthRequest, res: Response) =>
   }
 });
 
+// Update an existing client by ID
+app.put('/api/clients/:id', requireAuth, async (req: AuthRequest, res: Response) => {
+  try {
+    const { id } = req.params;
+    const {
+      businessName,
+      contactPerson,
+      gstin,
+      registeredPhone,
+      email,
+      assignedStaffId,
+      assignedStaffName,
+      active,
+      requiredChecklist,
+      expectedBankAccounts,
+      whatsappConsent,
+      reminderCadenceDays,
+      maxReminders,
+      remindersPaused,
+    } = req.body;
+
+    if (!businessName || !contactPerson || !gstin || !registeredPhone || !email) {
+      return res.status(400).json({ error: 'Missing mandatory client fields.' });
+    }
+
+    if (!isValidGstinFormat(gstin)) {
+      return res.status(400).json({ error: `Invalid GSTIN format "${gstin}". Must be 15 characters (e.g., 27AAACA1234A1Z5).` });
+    }
+
+    await db.update(clients).set({
+      businessName: businessName.trim(),
+      contactPerson: contactPerson.trim(),
+      gstin: gstin.trim().toUpperCase(),
+      registeredPhone: registeredPhone.trim(),
+      email: email.trim(),
+      assignedStaffId: assignedStaffId || 'staff_pooja_02',
+      assignedStaffName: assignedStaffName || 'Pooja Verma',
+      active: active !== undefined ? Boolean(active) : true,
+      requiredChecklist: requiredChecklist || undefined,
+      expectedBankAccounts: expectedBankAccounts || undefined,
+      whatsappConsent: whatsappConsent !== undefined ? Boolean(whatsappConsent) : true,
+      reminderCadenceDays: Number(reminderCadenceDays) || 3,
+      maxReminders: Number(maxReminders) || 3,
+      remindersPaused: remindersPaused !== undefined ? Boolean(remindersPaused) : false,
+      updatedAt: new Date(),
+    }).where(eq(clients.id, id));
+
+    const updated = await db.select().from(clients).where(eq(clients.id, id)).limit(1);
+    if (updated.length === 0) {
+      return res.status(404).json({ error: 'Client not found.' });
+    }
+    res.json(updated[0]);
+  } catch (err: any) {
+    res.status(500).json({ error: 'Failed to update client: ' + err.message });
+  }
+});
+
+// Get all CA staff and app users
+app.get('/api/users', requireAuth, async (_req: AuthRequest, res: Response) => {
+  try {
+    const allUsers = await db.select().from(users).orderBy(users.displayName);
+    res.json(allUsers);
+  } catch (err: any) {
+    res.status(500).json({ error: 'Failed to fetch users: ' + err.message });
+  }
+});
+
+// Update CA staff or app user
+app.put('/api/users/:id', requireAuth, async (req: AuthRequest, res: Response) => {
+  try {
+    const { id } = req.params;
+    const { displayName, email, phone, role, active } = req.body;
+
+    await db.update(users).set({
+      displayName: displayName?.trim(),
+      email: email?.trim(),
+      phone: phone?.trim(),
+      role: role || 'staff',
+      active: active !== undefined ? Boolean(active) : true,
+      updatedAt: new Date(),
+    }).where(eq(users.id, id));
+
+    const updated = await db.select().from(users).where(eq(users.id, id)).limit(1);
+    if (updated.length === 0) {
+      return res.status(404).json({ error: 'User not found.' });
+    }
+    res.json(updated[0]);
+  } catch (err: any) {
+    res.status(500).json({ error: 'Failed to update user: ' + err.message });
+  }
+});
+
 // Helper to auto-create monthly request for newly registered client
 async function autoCreateMonthlyRequestIfMissing(clientId: string, cadenceDays: number = 3) {
   try {
