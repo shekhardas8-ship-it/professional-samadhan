@@ -29,9 +29,11 @@ export const Header: React.FC<HeaderProps> = ({
           <div className="flex items-center justify-between h-16">
             {/* Brand Logo & Name */}
             <div className="flex items-center space-x-3">
-              <div className="w-10 h-10 rounded-lg bg-blue-600 flex items-center justify-center text-white shadow-inner font-bold text-xl tracking-wider">
-                PS
-              </div>
+              <img
+                src="/logo.jpg"
+                alt="Professional Samadhan Logo"
+                className="w-10 h-10 rounded-lg object-cover shadow border border-slate-700/60 shrink-0"
+              />
               <div>
                 <div className="flex items-center space-x-2">
                   <span className="font-bold text-lg text-white tracking-tight">Professional Samadhan</span>
@@ -60,9 +62,11 @@ export const Header: React.FC<HeaderProps> = ({
         <div className="flex items-center justify-between h-16">
           {/* Brand Logo & Name */}
           <div className="flex items-center space-x-3 cursor-pointer" onClick={() => onTabChange('dashboard')}>
-            <div className="w-10 h-10 rounded-lg bg-blue-600 flex items-center justify-center text-white shadow-inner font-bold text-xl tracking-wider">
-              PS
-            </div>
+            <img
+              src="/logo.jpg"
+              alt="Professional Samadhan Logo"
+              className="w-10 h-10 rounded-lg object-cover shadow border border-slate-700/60 shrink-0"
+            />
             <div>
               <div className="flex items-center space-x-2">
                 <span className="font-bold text-lg text-white tracking-tight">Professional Samadhan</span>

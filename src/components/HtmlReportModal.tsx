@@ -35,9 +35,11 @@ export const HtmlReportModal: React.FC<HtmlReportModalProps> = ({
         {/* Top Control Bar */}
         <div className="px-5 py-3.5 bg-slate-950 border-b border-slate-800 flex flex-wrap items-center justify-between gap-3 text-white">
           <div className="flex items-center space-x-3">
-            <div className="p-2 bg-blue-600/30 text-blue-400 rounded-lg border border-blue-500/30">
-              <FileCode2 className="w-5 h-5" />
-            </div>
+            <img
+              src="/logo.jpg"
+              alt="Professional Samadhan"
+              className="w-8 h-8 rounded-lg object-cover shadow border border-slate-700/60 shrink-0"
+            />
             <div>
               <div className="flex items-center space-x-2">
                 <h3 className="font-bold text-base text-slate-100">{title}</h3>

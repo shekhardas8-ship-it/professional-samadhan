@@ -182,14 +182,27 @@ export const CaDashboard: React.FC<CaDashboardProps> = ({
   return (
     <div className="space-y-6">
       {/* Top Banner & Quick Trigger Bar */}
-      <div className="bg-gradient-to-r from-slate-900 via-blue-950 to-slate-900 text-white rounded-xl p-6 shadow-md border border-slate-800 flex flex-col md:flex-row md:items-center md:justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-bold tracking-tight">GST Document Collection & Filing Pipeline</h1>
-          <p className="text-sm text-slate-300 mt-1">
-            Period: <strong>August 2026</strong> (Scheduled 1st of month at 9:00 AM IST. Automatic year rollover enabled).
-          </p>
+      <div className="bg-gradient-to-r from-slate-900 via-blue-950 to-slate-900 text-white rounded-xl p-6 shadow-md border border-slate-800 flex flex-col md:flex-row md:items-center md:justify-between gap-4 relative overflow-hidden">
+        {/* Subtle background watermark on banner */}
+        <div className="absolute right-0 bottom-0 pointer-events-none opacity-[0.05] select-none translate-x-8 translate-y-8">
+          <img src="/logo.jpg" alt="" className="w-64 h-64 object-contain filter grayscale contrast-125" />
         </div>
-        <div className="flex flex-wrap items-center gap-3">
+
+        <div className="flex items-center space-x-4 relative z-10">
+          <img
+            src="/logo.jpg"
+            alt="Professional Samadhan"
+            className="w-14 h-14 rounded-xl object-cover shadow-md border border-slate-700/80 shrink-0"
+          />
+          <div>
+            <span className="text-xs uppercase tracking-wider text-blue-300 font-semibold">Professional Samadhan • Chartered Accountants</span>
+            <h1 className="text-2xl font-bold tracking-tight mt-0.5">GST Document Collection & Filing Pipeline</h1>
+            <p className="text-sm text-slate-300 mt-1">
+              Period: <strong>August 2026</strong> (Scheduled 1st of month at 9:00 AM IST. Automatic year rollover enabled).
+            </p>
+          </div>
+        </div>
+        <div className="flex flex-wrap items-center gap-3 relative z-10">
           <button
             onClick={() => {
               setIsStorageModalOpen(true);

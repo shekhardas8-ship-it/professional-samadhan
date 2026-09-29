@@ -1,5 +1,6 @@
 // src/services/htmlReportGenerator.ts
 import { WorkbookGenerationData } from './excelGenerator.ts';
+import { LOGO_BASE64 } from '../assets/logoBase64.ts';
 
 /**
  * Generates a self-contained, standalone, beautifully styled HTML GST Working Paper
@@ -128,6 +129,26 @@ export function generateClientHtmlReport(data: WorkbookGenerationData): { html: 
       line-height: 1.5;
       font-size: 13px;
       -webkit-font-smoothing: antialiased;
+      position: relative;
+    }
+
+    /* Official Professional Samadhan Watermark */
+    body::before {
+      content: "";
+      position: fixed;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%) rotate(-12deg);
+      width: 520px;
+      height: 520px;
+      background-image: url('${LOGO_BASE64}');
+      background-size: contain;
+      background-repeat: no-repeat;
+      background-position: center;
+      opacity: 0.04;
+      filter: grayscale(100%);
+      pointer-events: none;
+      z-index: 0;
     }
 
     /* Fixed Top Control Bar */
@@ -651,7 +672,7 @@ export function generateClientHtmlReport(data: WorkbookGenerationData): { html: 
   <!-- Top Action & Navigation Bar -->
   <header class="top-bar">
     <div class="top-bar-branding">
-      <div class="brand-logo-badge">PS</div>
+      <img src="${LOGO_BASE64}" alt="Professional Samadhan Logo" style="width: 38px; height: 38px; border-radius: 8px; object-fit: cover; box-shadow: 0 1px 3px rgba(0,0,0,0.4); border: 1px solid rgba(255,255,255,0.25); flex-shrink: 0;" />
       <div>
         <div class="brand-title">Professional Samadhan • Chartered Accountants</div>
         <div class="brand-subtitle">Statutory GST Working Paper &amp; Audit Pack • Reporting Period: ${escapeHtml(request.reportingMonth)}</div>

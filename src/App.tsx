@@ -124,7 +124,21 @@ export default function App() {
   };
 
   return (
-    <div className="min-h-screen bg-slate-100 flex flex-col font-sans text-slate-800">
+    <div className="min-h-screen bg-slate-100 flex flex-col font-sans text-slate-800 relative overflow-x-hidden">
+      {/* Professional Samadhan Official Watermark */}
+      <div
+        className="fixed inset-0 pointer-events-none z-0 flex items-center justify-center overflow-hidden select-none"
+        aria-hidden="true"
+      >
+        <div className="relative flex items-center justify-center">
+          <img
+            src="/logo.jpg"
+            alt=""
+            className="w-[420px] sm:w-[600px] h-[420px] sm:h-[600px] object-contain opacity-[0.045] filter grayscale contrast-125 rotate-[-12deg]"
+          />
+        </div>
+      </div>
+
       {/* Navigation Header */}
       <Header
         currentRole={currentRole}
@@ -146,7 +160,7 @@ export default function App() {
       />
 
       {/* Main View Area */}
-      <main className="flex-1 max-w-7xl w-full mx-auto p-4 sm:p-6 lg:p-8">
+      <main className="flex-1 max-w-7xl w-full mx-auto p-4 sm:p-6 lg:p-8 relative z-10">
         {isClientOnlyMode ? (
           <ClientPortalView initialToken={activePortalToken} isStandaloneClient={true} />
         ) : (
@@ -198,7 +212,7 @@ export default function App() {
       )}
 
       {/* Footer */}
-      <footer className="bg-slate-900 border-t border-slate-800 py-6 text-center text-xs text-slate-400">
+      <footer className="bg-slate-900 border-t border-slate-800 py-6 text-center text-xs text-slate-400 relative z-10">
         <div className="max-w-7xl mx-auto px-4 flex flex-col sm:flex-row items-center justify-between gap-2">
           <div>
             <strong>Professional Samadhan Chartered Accountants</strong> -{' '}
