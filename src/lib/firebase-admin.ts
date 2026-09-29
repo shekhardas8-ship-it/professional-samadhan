@@ -1,12 +1,12 @@
 // src/lib/firebase-admin.ts
-import { initializeApp, getApps } from 'firebase-admin/app';
+import { initializeApp, getApps, getApp } from 'firebase-admin/app';
 import { getAuth } from 'firebase-admin/auth';
 import firebaseConfig from '../../firebase-applet-config.json';
 
-if (!getApps().length) {
+if (!getApps().length && firebaseConfig?.projectId) {
   initializeApp({
     projectId: firebaseConfig.projectId,
   });
 }
 
-export const adminAuth = getAuth();
+export const adminAuth = getApps().length ? getAuth() : null;

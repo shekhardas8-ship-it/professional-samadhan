@@ -32,7 +32,7 @@ export const requireAuth = async (
   const staffUserIdHeader = req.headers['x-user-id'] as string;
 
   // 1. If Firebase ID token is supplied
-  if (authHeader && authHeader.startsWith('Bearer ')) {
+  if (authHeader && authHeader.startsWith('Bearer ') && adminAuth) {
     const token = authHeader.split('Bearer ')[1];
     try {
       const decoded: DecodedIdToken = await adminAuth.verifyIdToken(token);
