@@ -11,5 +11,4 @@ local_storage/uploads/*
 local_storage/workbooks/*
 *.zip
 *.tar.gz
-firebase-applet-config.json
-!firebase-applet-config.example.json
+

@@ -1,12 +1,27 @@
 // src/lib/firebase-admin.ts
-import { initializeApp, getApps, getApp } from 'firebase-admin/app';
+import { initializeApp, getApps } from 'firebase-admin/app';
 import { getAuth } from 'firebase-admin/auth';
-import firebaseConfig from '../../firebase-applet-config.json';
+import fs from 'fs';
+import path from 'path';
+
+let firebaseConfig: any = null;
+try {
+  const configPath = path.resolve(process.cwd(), 'firebase-applet-config.json');
+  if (fs.existsSync(configPath)) {
+    firebaseConfig = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+  }
+} catch {
+  firebaseConfig = null;
+}
 
 if (!getApps().length && firebaseConfig?.projectId) {
-  initializeApp({
-    projectId: firebaseConfig.projectId,
-  });
+  try {
+    initializeApp({
+      projectId: firebaseConfig.projectId,
+    });
+  } catch (err) {
+    console.warn('[FirebaseAdmin] Failed to initialize:', err);
+  }
 }
 
 export const adminAuth = getApps().length ? getAuth() : null;
