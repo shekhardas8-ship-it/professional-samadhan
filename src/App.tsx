@@ -14,10 +14,16 @@ import { SetupGuideView } from './components/SetupGuideView.tsx';
 import { ClientManagementModal } from './components/ClientManagementModal.tsx';
 
 export default function App() {
-  // Check if opened via unique client portal link with token
+  // Check if opened via unique client portal link with token or direct client path
   const urlParams = typeof window !== 'undefined' ? new URLSearchParams(window.location.search) : new URLSearchParams();
-  const tokenFromUrl = urlParams.get('token');
-  const isClientOnlyMode = !!tokenFromUrl || (typeof window !== 'undefined' && window.location.pathname.startsWith('/client-portal'));
+  const tokenFromUrl = urlParams.get('token') || urlParams.get('client') || urlParams.get('clientId');
+  const isDirectClientRoute = typeof window !== 'undefined' && (
+    window.location.pathname.startsWith('/client-portal') ||
+    window.location.pathname.startsWith('/client') ||
+    window.location.pathname.startsWith('/portal') ||
+    window.location.hash.includes('client')
+  );
+  const isClientOnlyMode = !!tokenFromUrl || isDirectClientRoute;
 
   // Authentication State
   const [authenticatedUser, setAuthenticatedUser] = useState<AuthUser | null>(() => {
@@ -177,9 +183,20 @@ export default function App() {
     setActiveTab('client-portal');
   };
 
-  // If not authenticated and not accessing via direct client upload token, show Login Screen
-  if (!authenticatedUser && !isClientOnlyMode) {
-    return <LoginPage onLoginSuccess={handleLoginSuccess} />;
+  // If not authenticated and not accessing via direct client portal, show Login Screen
+  if (!authenticatedUser && !isClientOnlyMode && activeTab !== 'client-portal') {
+    return (
+      <LoginPage
+        onLoginSuccess={handleLoginSuccess}
+        onDirectClientAccess={() => {
+          if (typeof window !== 'undefined') {
+            window.history.pushState({}, '', '/client-portal');
+          }
+          setCurrentRole('client');
+          setActiveTab('client-portal');
+        }}
+      />
+    );
   }
 
   return (

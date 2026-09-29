@@ -18,10 +18,11 @@ import { PaletteSwitcher } from './PaletteSwitcher.tsx';
 
 interface LoginPageProps {
   onLoginSuccess: (user: AuthUser) => void;
+  onDirectClientAccess?: () => void;
 }
 
-export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess }) => {
-  const [selectedRole, setSelectedRole] = useState<UserRole>('ca_admin');
+export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess, onDirectClientAccess }) => {
+  const [selectedRole, setSelectedRole] = useState<'ca_admin' | 'staff'>('ca_admin');
   const [identifier, setIdentifier] = useState('ca@professionalsamadhan.in');
   const [password, setPassword] = useState('Samadhan@2026');
   const [showPassword, setShowPassword] = useState(false);
@@ -29,18 +30,15 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess }) => {
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   // Switch role tab helper
-  const handleRoleSelect = (role: UserRole) => {
+  const handleRoleSelect = (role: 'ca_admin' | 'staff') => {
     setSelectedRole(role);
     setErrorMessage(null);
     if (role === 'ca_admin') {
       setIdentifier('ca@professionalsamadhan.in');
       setPassword('Samadhan@2026');
-    } else if (role === 'staff') {
+    } else {
       setIdentifier('pooja@professionalsamadhan.in');
       setPassword('Staff@2026');
-    } else {
-      setIdentifier('27ABCDE1234F1Z0'); // samadhan_CA client GSTIN
-      setPassword('');
     }
   };
 
@@ -125,45 +123,32 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess }) => {
           </p>
         </div>
 
-        {/* Persona Selector Tabs */}
-        <div className="grid grid-cols-3 gap-1 bg-slate-950 p-1.5 rounded-xl border border-slate-800 mb-6">
+        {/* Persona Selector Tabs: CA Partner and Staff only */}
+        <div className="grid grid-cols-2 gap-1.5 bg-slate-950 p-1.5 rounded-xl border border-slate-800 mb-6">
           <button
             type="button"
             onClick={() => handleRoleSelect('ca_admin')}
-            className={`py-2 px-1 text-xs font-semibold rounded-lg transition-all flex flex-col sm:flex-row items-center justify-center gap-1 ${
+            className={`py-2 px-3 text-xs font-semibold rounded-lg transition-all flex items-center justify-center gap-2 ${
               selectedRole === 'ca_admin'
                 ? 'bg-[var(--theme-primary)] text-white shadow-sm'
                 : 'text-slate-400 hover:text-white'
             }`}
           >
-            <ShieldCheck className="w-3.5 h-3.5" />
-            <span>CA Partner</span>
+            <ShieldCheck className="w-4 h-4" />
+            <span>CA Partner (Suraj Dutta)</span>
           </button>
 
           <button
             type="button"
             onClick={() => handleRoleSelect('staff')}
-            className={`py-2 px-1 text-xs font-semibold rounded-lg transition-all flex flex-col sm:flex-row items-center justify-center gap-1 ${
+            className={`py-2 px-3 text-xs font-semibold rounded-lg transition-all flex items-center justify-center gap-2 ${
               selectedRole === 'staff'
                 ? 'bg-amber-600 text-white shadow-sm'
                 : 'text-slate-400 hover:text-white'
             }`}
           >
-            <UserCheck className="w-3.5 h-3.5" />
-            <span>CA Staff</span>
-          </button>
-
-          <button
-            type="button"
-            onClick={() => handleRoleSelect('client')}
-            className={`py-2 px-1 text-xs font-semibold rounded-lg transition-all flex flex-col sm:flex-row items-center justify-center gap-1 ${
-              selectedRole === 'client'
-                ? 'bg-emerald-600 text-white shadow-sm'
-                : 'text-slate-400 hover:text-white'
-            }`}
-          >
-            <Building2 className="w-3.5 h-3.5" />
-            <span>Client</span>
+            <UserCheck className="w-4 h-4" />
+            <span>CA Staff (Pooja Verma)</span>
           </button>
         </div>
 
@@ -179,57 +164,49 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess }) => {
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>
             <label className="block text-xs font-medium text-slate-300 mb-1.5">
-              {selectedRole === 'client'
-                ? 'Business GSTIN or Registered WhatsApp Number'
-                : 'Professional Email / Username'}
+              Professional Email / Username
             </label>
             <div className="relative">
               <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-slate-500">
-                {selectedRole === 'client' ? <Building2 className="w-4 h-4" /> : <Mail className="w-4 h-4" />}
+                <Mail className="w-4 h-4" />
               </div>
               <input
-                type={selectedRole === 'client' ? 'text' : 'email'}
+                type="email"
                 required
                 value={identifier}
                 onChange={e => setIdentifier(e.target.value)}
-                placeholder={
-                  selectedRole === 'client'
-                    ? 'e.g. 27AAACA1234A1Z5 or 9820112345'
-                    : 'name@professionalsamadhan.in'
-                }
+                placeholder="name@professionalsamadhan.in"
                 className="w-full pl-9 pr-3 py-2.5 bg-slate-950/70 border border-slate-700/80 rounded-xl text-sm text-white placeholder-slate-500 focus:outline-none focus:border-teal-500 focus:ring-1 focus:ring-teal-500 transition"
               />
             </div>
           </div>
 
-          {selectedRole !== 'client' && (
-            <div>
-              <div className="flex items-center justify-between mb-1.5">
-                <label className="block text-xs font-medium text-slate-300">Password</label>
-                <span className="text-[11px] text-slate-500">Default: Samadhan@2026</span>
-              </div>
-              <div className="relative">
-                <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-slate-500">
-                  <Lock className="w-4 h-4" />
-                </div>
-                <input
-                  type={showPassword ? 'text' : 'password'}
-                  required
-                  value={password}
-                  onChange={e => setPassword(e.target.value)}
-                  placeholder="Enter your security password"
-                  className="w-full pl-9 pr-10 py-2.5 bg-slate-950/70 border border-slate-700/80 rounded-xl text-sm text-white placeholder-slate-500 focus:outline-none focus:border-teal-500 focus:ring-1 focus:ring-teal-500 transition"
-                />
-                <button
-                  type="button"
-                  onClick={() => setShowPassword(!showPassword)}
-                  className="absolute inset-y-0 right-0 pr-3 flex items-center text-slate-400 hover:text-white"
-                >
-                  {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                </button>
-              </div>
+          <div>
+            <div className="flex items-center justify-between mb-1.5">
+              <label className="block text-xs font-medium text-slate-300">Password</label>
+              <span className="text-[11px] text-slate-500">Default: Samadhan@2026</span>
             </div>
-          )}
+            <div className="relative">
+              <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-slate-500">
+                <Lock className="w-4 h-4" />
+              </div>
+              <input
+                type={showPassword ? 'text' : 'password'}
+                required
+                value={password}
+                onChange={e => setPassword(e.target.value)}
+                placeholder="Enter your security password"
+                className="w-full pl-9 pr-10 py-2.5 bg-slate-950/70 border border-slate-700/80 rounded-xl text-sm text-white placeholder-slate-500 focus:outline-none focus:border-teal-500 focus:ring-1 focus:ring-teal-500 transition"
+              />
+              <button
+                type="button"
+                onClick={() => setShowPassword(!showPassword)}
+                className="absolute inset-y-0 right-0 pr-3 flex items-center text-slate-400 hover:text-white"
+              >
+                {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+              </button>
+            </div>
+          </div>
 
           {/* Quick Demo Pre-fill helper */}
           <div className="bg-slate-950/50 p-2.5 rounded-xl border border-slate-800/80 text-[11px] text-slate-400 flex items-center justify-between">
@@ -237,10 +214,8 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess }) => {
               <CheckCircle2 className="w-3.5 h-3.5 text-teal-400" />
               <span>
                 {selectedRole === 'ca_admin'
-                  ? 'CA Suraj Dutta (Partner)'
-                  : selectedRole === 'staff'
-                  ? 'Pooja Verma (Associate)'
-                  : 'samadhan_CA (Client)'}
+                  ? 'CA Suraj Dutta (Senior Partner)'
+                  : 'Pooja Verma (Associate)'}
               </span>
             </span>
             <button
@@ -249,12 +224,9 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess }) => {
                 if (selectedRole === 'ca_admin') {
                   setIdentifier('ca@professionalsamadhan.in');
                   setPassword('Samadhan@2026');
-                } else if (selectedRole === 'staff') {
+                } else {
                   setIdentifier('pooja@professionalsamadhan.in');
                   setPassword('Staff@2026');
-                } else {
-                  setIdentifier('27ABCDE1234F1Z0');
-                  setPassword('');
                 }
               }}
               className="text-teal-400 hover:text-teal-300 font-semibold"
@@ -273,16 +245,34 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess }) => {
               <span>Verifying Authentic Session...</span>
             ) : (
               <>
-                <span>
-                  {selectedRole === 'client'
-                    ? 'Enter Client Document Portal'
-                    : 'Sign In to CA Practice System'}
-                </span>
+                <span>Sign In to CA Practice System</span>
                 <ArrowRight className="w-4 h-4" />
               </>
             )}
           </button>
         </form>
+
+        {/* Direct Client Access Section (No Login Required) */}
+        <div className="mt-5 pt-4 border-t border-slate-800 text-center">
+          <p className="text-xs text-slate-400 mb-2.5">
+            Are you a business client looking to upload invoices & review GST filings?
+          </p>
+          <button
+            type="button"
+            onClick={() => {
+              if (onDirectClientAccess) {
+                onDirectClientAccess();
+              } else {
+                window.location.href = '/client-portal';
+              }
+            }}
+            className="w-full py-2.5 px-4 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 hover:border-emerald-500/50 rounded-xl text-xs font-semibold flex items-center justify-center space-x-2 transition shadow-sm"
+          >
+            <Building2 className="w-4 h-4 text-emerald-400" />
+            <span>Direct Client Portal (No Login Required)</span>
+            <ArrowRight className="w-3.5 h-3.5 text-emerald-400" />
+          </button>
+        </div>
 
         {/* Footer info */}
         <div className="mt-6 pt-4 border-t border-slate-800 text-center text-xs text-slate-500">

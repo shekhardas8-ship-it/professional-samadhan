@@ -203,7 +203,7 @@ export const ClientsHubView: React.FC<ClientsHubViewProps> = ({
                 </button>
 
                 <button
-                  onClick={() => onOpenClientPortal(`token_${client.id}`)}
+                  onClick={() => onOpenClientPortal(client.id)}
                   className="px-3 py-1.5 bg-teal-50 hover:bg-teal-100 text-teal-800 rounded-lg text-xs font-semibold flex items-center space-x-1 border border-teal-200/60 transition"
                   title="Open simulated Client Upload Portal for this client"
                 >

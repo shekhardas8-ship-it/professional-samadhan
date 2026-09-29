@@ -35,7 +35,8 @@ interface ClientPortalProps {
 }
 
 export const ClientPortalView: React.FC<ClientPortalProps> = ({ initialToken, isStandaloneClient = false }) => {
-  const [token, setToken] = useState<string>(initialToken || (isStandaloneClient ? '' : 'token_apex_aug2026_demo_77a'));
+  const [token, setToken] = useState<string>(initialToken || '');
+  const [availableClients, setAvailableClients] = useState<any[]>([]);
   const [session, setSession] = useState<any>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -108,13 +109,17 @@ export const ClientPortalView: React.FC<ClientPortalProps> = ({ initialToken, is
     try {
       setLoading(true);
       setError(null);
-      const res = await fetch(`/api/client-portal/session?token=${currentToken}`);
+      const queryParam = currentToken ? `?token=${encodeURIComponent(currentToken)}` : '';
+      const res = await fetch(`/api/client-portal/session${queryParam}`);
       if (!res.ok) {
         const data = await res.json();
         throw new Error(data.error || 'Failed to authenticate secure portal link.');
       }
       const data = await res.json();
       setSession(data);
+      if (data.client?.id && !token) {
+        setToken(data.client.id);
+      }
       if (data.client?.contactPerson) {
         setDeclaredByName(data.client.contactPerson);
         setConfirmationSignatory(data.client.contactPerson);
@@ -127,11 +132,25 @@ export const ClientPortalView: React.FC<ClientPortalProps> = ({ initialToken, is
     }
   };
 
+  // Fetch available real clients for switching
   useEffect(() => {
-    if (token) {
-      fetchSession(token);
+    fetch('/api/clients')
+      .then(res => res.json())
+      .then(data => {
+        if (Array.isArray(data)) {
+          setAvailableClients(data);
+        }
+      })
+      .catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    const activeVal = initialToken || token || '';
+    if (initialToken) {
+      setToken(initialToken);
     }
-  }, [token]);
+    fetchSession(activeVal);
+  }, [initialToken]);
 
   const removeSelectedFile = (indexToRemove: number) => {
     setSelectedFiles(prev => prev.filter((_, idx) => idx !== indexToRemove));
@@ -336,18 +355,28 @@ export const ClientPortalView: React.FC<ClientPortalProps> = ({ initialToken, is
             </span>
           </div>
         ) : (
-          /* Token Picker for internal testing/demo purposes */
+          /* Business Picker for testing and portal navigation */
           <div className="flex items-center space-x-2">
-            <span className="text-xs text-slate-500 font-medium">Switch Business Token:</span>
+            <span className="text-xs text-slate-500 font-medium">Switch Business Client:</span>
             <select
-              value={token}
-              onChange={e => setToken(e.target.value)}
+              value={session?.client?.id || token}
+              onChange={e => {
+                setToken(e.target.value);
+                fetchSession(e.target.value);
+              }}
               className="text-xs border border-slate-300 rounded-lg p-1.5 bg-slate-50 font-medium text-slate-800"
             >
-              <option value="token_apex_aug2026_demo_77a">Apex Engineering Works (27AAACA1234A1Z5)</option>
-              <option value="token_bluebell_aug2026_demo_88b">Bluebell Textiles Pvt Ltd (24AABCB5678B1Z2)</option>
-              <option value="token_zenith1_aug2026_demo_99c">Zenith Healthcare Supplies (27AABCZ9988C1Z4)</option>
-              <option value="token_zenith2_aug2026_demo_11d">Zenith Diagnostics Lab (27AABCZ9988D1Z3 - Sister concern)</option>
+              {availableClients.length > 0 ? (
+                availableClients.map(c => (
+                  <option key={c.id} value={c.id}>
+                    {c.businessName} ({c.gstin})
+                  </option>
+                ))
+              ) : (
+                <option value={session?.client?.id || ''}>
+                  {session?.client?.businessName || 'Active Client'} ({session?.client?.gstin || 'GSTIN'})
+                </option>
+              )}
             </select>
           </div>
         )}
