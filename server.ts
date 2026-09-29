@@ -44,6 +44,63 @@ import { seedInitialData } from './src/db/seed.ts';
 const app = express();
 const PORT = process.env.PORT || 3000;
 
+// Security Hardening: Disable information disclosure headers
+app.disable('x-powered-by');
+
+// Enterprise Security Headers (Clickjacking, MIME Sniffing, XSS, HSTS)
+app.use((_req, res, next) => {
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('X-Frame-Options', 'SAMEORIGIN');
+  res.setHeader('X-XSS-Protection', '1; mode=block');
+  res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
+  if (process.env.NODE_ENV === 'production') {
+    res.setHeader('Strict-Transport-Security', 'max-age=31536000; includeSubDomains');
+  }
+  next();
+});
+
+// In-Memory Sliding Window Rate Limiter (Protects against DDoS & Brute Force attacks)
+const rateLimitBuckets = new Map<string, { count: number; resetTime: number }>();
+function checkRateLimit(key: string, limit: number, windowMs: number): boolean {
+  const now = Date.now();
+  const bucket = rateLimitBuckets.get(key);
+  if (!bucket || now > bucket.resetTime) {
+    rateLimitBuckets.set(key, { count: 1, resetTime: now + windowMs });
+    return true;
+  }
+  if (bucket.count >= limit) {
+    return false;
+  }
+  bucket.count++;
+  return true;
+}
+
+// Memory cleanup every 5 minutes
+setInterval(() => {
+  const now = Date.now();
+  for (const [k, v] of rateLimitBuckets.entries()) {
+    if (now > v.resetTime) rateLimitBuckets.delete(k);
+  }
+}, 300000);
+
+// Global API Rate Limiter: max 300 requests/minute per IP
+app.use('/api', (req, res, next) => {
+  const clientIp = (req.headers['x-forwarded-for'] as string || req.socket.remoteAddress || 'unknown').split(',')[0].trim();
+  if (!checkRateLimit(`api_${clientIp}`, 300, 60000)) {
+    return res.status(429).json({ error: 'Too many requests. Please wait a moment and try again.' });
+  }
+  next();
+});
+
+// Strict Login Rate Limiter: max 10 attempts/minute per IP to prevent credential brute-forcing
+const loginRateLimiter = (req: Request, res: Response, next: express.NextFunction) => {
+  const clientIp = (req.headers['x-forwarded-for'] as string || req.socket.remoteAddress || 'unknown').split(',')[0].trim();
+  if (!checkRateLimit(`login_${clientIp}`, 10, 60000)) {
+    return res.status(429).json({ error: 'Too many login attempts. Please wait 1 minute before trying again.' });
+  }
+  next();
+};
+
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 
@@ -54,11 +111,12 @@ const WORKBOOK_DIR = path.join(STORAGE_ROOT, 'workbooks');
 fs.mkdirSync(UPLOAD_DIR, { recursive: true });
 fs.mkdirSync(WORKBOOK_DIR, { recursive: true });
 
-// Multer storage for handling PDF, JPG, PNG, XLSX, CSV
+// Multer storage with strict filename sanitization and path traversal prevention
 const storage = multer.diskStorage({
   destination: (_req, _file, cb) => cb(null, UPLOAD_DIR),
   filename: (_req, file, cb) => {
     const uniqueSuffix = `${Date.now()}_${Math.random().toString(36).substring(2, 8)}`;
+    // Strip everything except alphanumeric, dots, and hyphens to block path traversal
     const sanitized = file.originalname.replace(/[^a-zA-Z0-9.-]/g, '_');
     cb(null, `${uniqueSuffix}_${sanitized}`);
   },
@@ -69,6 +127,19 @@ const upload = multer({
   limits: { fileSize: 25 * 1024 * 1024 }, // 25MB max
   fileFilter: (_req, file, cb) => {
     const allowedExts = ['.pdf', '.jpg', '.jpeg', '.png', '.xlsx', '.csv'];
+    const dangerousExts = ['.exe', '.bat', '.cmd', '.sh', '.php', '.phtml', '.js', '.vbs', '.msi', '.scr', '.bin'];
+    const originalNameLower = file.originalname.toLowerCase();
+
+    // Block path traversal and null-byte injection
+    if (originalNameLower.includes('..') || originalNameLower.includes('\0') || originalNameLower.includes('%00')) {
+      return cb(new Error('Invalid filename. Path traversal sequences are blocked.'));
+    }
+
+    // Block dangerous executable extensions disguised as media
+    if (dangerousExts.some(badExt => originalNameLower.includes(badExt))) {
+      return cb(new Error('Forbidden file type or dangerous extension detected.'));
+    }
+
     const ext = path.extname(file.originalname).toLowerCase();
     if (allowedExts.includes(ext)) {
       cb(null, true);
@@ -95,8 +166,8 @@ const upload = multer({
 // 0. AUTHENTICATION & LOGIN APIs
 // ==========================================
 
-// Login endpoint for CA Partner, Staff, and Clients
-app.post('/api/auth/login', async (req: Request, res: Response) => {
+// Login endpoint for CA Partner, Staff, and Clients (Rate limited against brute-force)
+app.post('/api/auth/login', loginRateLimiter, async (req: Request, res: Response) => {
   try {
     const { identifier, password, role } = req.body;
 
