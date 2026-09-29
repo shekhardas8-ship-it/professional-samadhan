@@ -1,25 +1,41 @@
 // src/components/Header.tsx
 import React from 'react';
-import { UserRole } from '../types/index.ts';
-import { Building2, ShieldCheck, UserCheck, Smartphone, RefreshCw, BookOpen } from 'lucide-react';
+import { UserRole, AuthUser } from '../types/index.ts';
+import {
+  Building2,
+  ShieldCheck,
+  UserCheck,
+  Smartphone,
+  RefreshCw,
+  BookOpen,
+  LogOut,
+  LayoutDashboard,
+  Users,
+  FileSpreadsheet,
+  MessageSquare,
+} from 'lucide-react';
 import { PaletteSwitcher } from './PaletteSwitcher.tsx';
 
 interface HeaderProps {
   currentRole: UserRole;
+  currentUser?: AuthUser | null;
   onRoleChange: (role: UserRole) => void;
   activeTab: string;
   onTabChange: (tab: string) => void;
   onRefresh: () => void;
+  onLogout?: () => void;
   isLoading: boolean;
   isClientOnlyMode?: boolean;
 }
 
 export const Header: React.FC<HeaderProps> = ({
   currentRole,
+  currentUser,
   onRoleChange,
   activeTab,
   onTabChange,
   onRefresh,
+  onLogout,
   isLoading,
   isClientOnlyMode = false,
 }) => {
@@ -46,7 +62,7 @@ export const Header: React.FC<HeaderProps> = ({
               </div>
             </div>
 
-            {/* Right side controls: Palette switcher & security badge */}
+            {/* Right side controls: Palette switcher, security badge, and sign out if applicable */}
             <div className="flex items-center space-x-3">
               <PaletteSwitcher />
               <div className="flex items-center space-x-2 bg-black/20 px-3 py-1.5 rounded-lg border border-white/10 text-xs text-teal-300 font-medium">
@@ -54,22 +70,33 @@ export const Header: React.FC<HeaderProps> = ({
                 <span className="hidden sm:inline">256-Bit Encrypted Statutory Session</span>
                 <span className="sm:hidden">Secure Upload</span>
               </div>
+              {onLogout && (
+                <button
+                  onClick={onLogout}
+                  className="px-2.5 py-1.5 bg-rose-950/80 hover:bg-rose-900 text-rose-200 border border-rose-700/60 rounded-lg text-xs font-semibold flex items-center space-x-1 transition"
+                  title="Sign Out of Client Portal"
+                >
+                  <LogOut className="w-3.5 h-3.5" />
+                  <span className="hidden sm:inline">Exit</span>
+                </button>
+              )}
             </div>
           </div>
         </div>
       </header>
     );
   }
+
   return (
     <header className="theme-header text-white border-b sticky top-0 z-40 shadow-md">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="flex items-center justify-between h-16">
           {/* Brand Logo & Name */}
-          <div className="flex items-center space-x-3 cursor-pointer" onClick={() => onTabChange('dashboard')}>
+          <div className="flex items-center space-x-3 cursor-pointer" onClick={() => onTabChange('cockpit')}>
             <img
               src="/logo.jpg"
               alt="Professional Samadhan Logo"
-              className="w-10 h-10 rounded-lg object-cover shadow border border-slate-700/60 shrink-0"
+              className="w-10 h-10 rounded-lg object-cover shadow border border-white/20 shrink-0"
             />
             <div>
               <div className="flex items-center space-x-2">
@@ -78,45 +105,64 @@ export const Header: React.FC<HeaderProps> = ({
                   CA Firm
                 </span>
               </div>
-              <p className="text-xs text-slate-300">GST Compliance & Document Intake System</p>
+              <p className="text-xs text-slate-300">GST Compliance & Practice Management</p>
             </div>
           </div>
 
-          {/* Navigation Tabs */}
+          {/* Navigation Tabs - Focused Chartered Accountant Modules */}
           <nav className="hidden md:flex space-x-1">
             <button
-              onClick={() => onTabChange('dashboard')}
-              style={{ backgroundColor: activeTab === 'dashboard' ? 'var(--theme-primary)' : 'transparent' }}
-              className={`px-3 py-2 rounded-md text-sm font-medium transition ${
-                activeTab === 'dashboard'
-                  ? 'text-white shadow-sm'
+              onClick={() => onTabChange('cockpit')}
+              style={{ backgroundColor: activeTab === 'cockpit' ? 'var(--theme-primary)' : 'transparent' }}
+              className={`px-3 py-2 rounded-md text-sm font-medium transition flex items-center space-x-1.5 ${
+                activeTab === 'cockpit'
+                  ? 'text-white shadow-sm font-bold'
                   : 'text-slate-300 hover:bg-white/10 hover:text-white'
               }`}
             >
-              CA Pipeline
+              <LayoutDashboard className="w-4 h-4" />
+              <span>CA Cockpit</span>
             </button>
+
             <button
-              onClick={() => onTabChange('client-portal')}
-              style={{ backgroundColor: activeTab === 'client-portal' ? 'var(--theme-primary)' : 'transparent' }}
-              className={`px-3 py-2 rounded-md text-sm font-medium transition ${
-                activeTab === 'client-portal'
-                  ? 'text-white shadow-sm'
+              onClick={() => onTabChange('clients')}
+              style={{ backgroundColor: activeTab === 'clients' ? 'var(--theme-primary)' : 'transparent' }}
+              className={`px-3 py-2 rounded-md text-sm font-medium transition flex items-center space-x-1.5 ${
+                activeTab === 'clients'
+                  ? 'text-white shadow-sm font-bold'
                   : 'text-slate-300 hover:bg-white/10 hover:text-white'
               }`}
             >
-              Client Portal
+              <Users className="w-4 h-4" />
+              <span>Clients</span>
             </button>
+
+            <button
+              onClick={() => onTabChange('gst-pipeline')}
+              style={{ backgroundColor: activeTab === 'gst-pipeline' ? 'var(--theme-primary)' : 'transparent' }}
+              className={`px-3 py-2 rounded-md text-sm font-medium transition flex items-center space-x-1.5 ${
+                activeTab === 'gst-pipeline'
+                  ? 'text-white shadow-sm font-bold'
+                  : 'text-slate-300 hover:bg-white/10 hover:text-white'
+              }`}
+            >
+              <FileSpreadsheet className="w-4 h-4" />
+              <span>GST Pipeline</span>
+            </button>
+
             <button
               onClick={() => onTabChange('audit-logs')}
               style={{ backgroundColor: activeTab === 'audit-logs' ? 'var(--theme-primary)' : 'transparent' }}
-              className={`px-3 py-2 rounded-md text-sm font-medium transition ${
+              className={`px-3 py-2 rounded-md text-sm font-medium transition flex items-center space-x-1.5 ${
                 activeTab === 'audit-logs'
-                  ? 'text-white shadow-sm'
+                  ? 'text-white shadow-sm font-bold'
                   : 'text-slate-300 hover:bg-white/10 hover:text-white'
               }`}
             >
-              WhatsApp & Audit Logs
+              <MessageSquare className="w-4 h-4" />
+              <span>WhatsApp & Logs</span>
             </button>
+
             <button
               onClick={() => onTabChange('guide')}
               style={{ backgroundColor: activeTab === 'guide' ? 'var(--theme-primary)' : 'transparent' }}
@@ -127,20 +173,21 @@ export const Header: React.FC<HeaderProps> = ({
               }`}
             >
               <BookOpen className="w-4 h-4 mr-1" />
-              Setup & Architecture
+              <span>Docs</span>
             </button>
           </nav>
 
-          {/* Palette Switcher, Role Switcher & Refresh */}
-          <div className="flex items-center space-x-3">
+          {/* Palette Switcher, User Persona & Sign Out */}
+          <div className="flex items-center space-x-2 sm:space-x-3">
             <PaletteSwitcher />
 
-            <div className="flex items-center bg-black/30 p-1 rounded-lg border border-white/10">
-              <span className="text-xs text-slate-400 px-2 font-medium hidden sm:inline">Role:</span>
+            {/* Role indicator / fast toggle */}
+            <div className="hidden sm:flex items-center bg-black/30 p-1 rounded-lg border border-white/10">
+              <span className="text-[11px] text-slate-400 px-1.5 font-medium">Role:</span>
               <button
                 onClick={() => onRoleChange('ca_admin')}
                 style={{ backgroundColor: currentRole === 'ca_admin' ? 'var(--theme-primary)' : 'transparent' }}
-                className={`px-2.5 py-1 text-xs font-medium rounded transition flex items-center space-x-1 ${
+                className={`px-2 py-0.5 text-xs font-semibold rounded transition flex items-center space-x-1 ${
                   currentRole === 'ca_admin'
                     ? 'text-white shadow'
                     : 'text-slate-300 hover:text-white'
@@ -148,11 +195,11 @@ export const Header: React.FC<HeaderProps> = ({
                 title="CA Administrator - Full control, statutory approvals"
               >
                 <ShieldCheck className="w-3.5 h-3.5" />
-                <span>CA Admin</span>
+                <span>Admin</span>
               </button>
               <button
                 onClick={() => onRoleChange('staff')}
-                className={`px-2.5 py-1 text-xs font-medium rounded transition flex items-center space-x-1 ${
+                className={`px-2 py-0.5 text-xs font-semibold rounded transition flex items-center space-x-1 ${
                   currentRole === 'staff'
                     ? 'bg-amber-600 text-white shadow'
                     : 'text-slate-300 hover:text-white'
@@ -161,21 +208,6 @@ export const Header: React.FC<HeaderProps> = ({
               >
                 <UserCheck className="w-3.5 h-3.5" />
                 <span>Staff</span>
-              </button>
-              <button
-                onClick={() => {
-                  onRoleChange('client');
-                  onTabChange('client-portal');
-                }}
-                className={`px-2.5 py-1 text-xs font-medium rounded transition flex items-center space-x-1 ${
-                  currentRole === 'client'
-                    ? 'bg-emerald-600 text-white shadow'
-                    : 'text-slate-300 hover:text-white'
-                }`}
-                title="Client Portal Mode"
-              >
-                <Smartphone className="w-3.5 h-3.5" />
-                <span>Client</span>
               </button>
             </div>
 
@@ -187,6 +219,18 @@ export const Header: React.FC<HeaderProps> = ({
             >
               <RefreshCw className={`w-4 h-4 ${isLoading ? 'animate-spin text-teal-400' : ''}`} />
             </button>
+
+            {/* Logout button */}
+            {onLogout && (
+              <button
+                onClick={onLogout}
+                className="px-2.5 py-1.5 bg-rose-950/70 hover:bg-rose-900 text-rose-200 border border-rose-800/60 rounded-lg text-xs font-semibold flex items-center space-x-1.5 transition shadow-xs"
+                title="Log Out of CA Practice System"
+              >
+                <LogOut className="w-3.5 h-3.5" />
+                <span className="hidden sm:inline">Logout</span>
+              </button>
+            )}
           </div>
         </div>
       </div>
@@ -197,11 +241,13 @@ export const Header: React.FC<HeaderProps> = ({
           <span className="w-2 h-2 rounded-full bg-teal-400 animate-pulse"></span>
           <span>Logged in as:</span>
           <span className="font-semibold text-slate-200">
-            {currentRole === 'ca_admin'
-              ? 'CA Rajesh Sharma (FCA) - Partner'
-              : currentRole === 'staff'
-              ? 'Pooja Verma (Senior Associate) - Assigned 2 Clients'
-              : 'Client Upload Portal (Secure Token Access)'}
+            {currentUser?.displayName || (
+              currentRole === 'ca_admin'
+                ? 'CA Rajesh Sharma (FCA) - Partner'
+                : currentRole === 'staff'
+                ? 'Pooja Verma (Senior Associate) - Assigned 2 Clients'
+                : 'Client Upload Portal (Secure Token Access)'
+            )}
           </span>
         </div>
         <div className="hidden sm:flex items-center space-x-4 text-[11px]">

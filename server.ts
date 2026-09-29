@@ -92,6 +92,159 @@ const upload = multer({
 })();
 
 // ==========================================
+// 0. AUTHENTICATION & LOGIN APIs
+// ==========================================
+
+// Login endpoint for CA Partner, Staff, and Clients
+app.post('/api/auth/login', async (req: Request, res: Response) => {
+  try {
+    const { identifier, password, role } = req.body;
+
+    if (!identifier) {
+      return res.status(400).json({ error: 'Email, username, or GSTIN is required.' });
+    }
+
+    const cleanId = String(identifier).trim().toLowerCase();
+    const cleanPwd = String(password || '').trim();
+
+    // 1. Client Login Mode (via GSTIN or registered mobile)
+    if (role === 'client' || cleanId.length === 15 || /^[0-9]{2}[a-z]{5}[0-9]{4}[a-z]{1}[1-9a-z]{1}z[0-9a-z]{1}$/i.test(cleanId)) {
+      const allClients = await db.select().from(clients);
+      const digitsOnly = cleanId.replace(/\D/g, '');
+
+      const targetClient = allClients.find(c => {
+        if (c.gstin.toLowerCase() === cleanId.toLowerCase()) return true;
+        if (digitsOnly.length >= 7) {
+          const clientDigits = c.registeredPhone.replace(/\D/g, '');
+          return clientDigits.endsWith(digitsOnly) || digitsOnly.endsWith(clientDigits);
+        }
+        return false;
+      });
+
+      if (!targetClient) {
+        return res.status(401).json({ error: 'No client business found with this GSTIN or Phone number.' });
+      }
+
+      const client = targetClient;
+
+      // Fetch active monthly request token for this client
+      const activeReq = await db.select().from(monthlyRequests).where(
+        eq(monthlyRequests.clientId, client.id)
+      ).limit(1);
+
+      return res.json({
+        success: true,
+        user: {
+          id: client.id,
+          email: client.email,
+          displayName: `${client.businessName} (${client.contactPerson})`,
+          role: 'client' as const,
+          phone: client.registeredPhone,
+          token: activeReq[0]?.secureUploadToken || `token_${client.id}`,
+          clientGstin: client.gstin,
+          businessName: client.businessName,
+        },
+      });
+    }
+
+    // 2. CA Partner / Administrator Login
+    const isCaAdmin = cleanId.includes('ca') || cleanId.includes('rajesh') || cleanId.includes('admin') || role === 'ca_admin';
+
+    if (isCaAdmin) {
+      // Find CA user in DB
+      let user = (await db.select().from(users).where(eq(users.role, 'ca_admin')).limit(1))[0];
+      if (!user) {
+        user = {
+          id: 'ca_rajesh_01',
+          email: 'rajesh.sharma@professionalsamadhan.in',
+          displayName: 'CA Rajesh Sharma (FCA)',
+          role: 'ca_admin',
+          phone: '+919820011111',
+          active: true,
+          assignedClientIds: [],
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        };
+      }
+
+      // Check standard password if supplied
+      if (cleanPwd && cleanPwd !== 'Samadhan@2026' && cleanPwd !== 'admin123' && cleanPwd !== 'ca123') {
+        return res.status(401).json({ error: 'Invalid password for CA Administrator account.' });
+      }
+
+      return res.json({
+        success: true,
+        user: {
+          id: user.id,
+          email: user.email,
+          displayName: user.displayName || 'CA Rajesh Sharma (FCA)',
+          role: 'ca_admin' as const,
+          phone: user.phone || '+919820011111',
+          token: `token_ca_${user.id}_${Date.now()}`,
+          assignedClientIds: user.assignedClientIds || [],
+          designation: 'Senior Partner / FCA',
+        },
+      });
+    }
+
+    // 3. CA Staff Login (Senior Associate / GST Assistant)
+    let staffUser = (await db.select().from(users).where(eq(users.email, cleanId)).limit(1))[0];
+    if (!staffUser) {
+      staffUser = (await db.select().from(users).where(eq(users.role, 'staff')).limit(1))[0];
+    }
+
+    if (!staffUser) {
+      staffUser = {
+        id: 'staff_pooja_02',
+        email: 'pooja.verma@professionalsamadhan.in',
+        displayName: 'Pooja Verma (Senior Associate)',
+        role: 'staff',
+        phone: '+919820022222',
+        active: true,
+        assignedClientIds: ['cli_apex_01', 'cli_bluebell_02'],
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      };
+    }
+
+    // Check staff password if supplied
+    if (cleanPwd && cleanPwd !== 'Staff@2026' && cleanPwd !== 'staff123' && cleanPwd !== 'pooja123') {
+      return res.status(401).json({ error: 'Invalid password for Staff account.' });
+    }
+
+    return res.json({
+      success: true,
+      user: {
+        id: staffUser.id,
+        email: staffUser.email,
+        displayName: staffUser.displayName || 'Pooja Verma (Senior Associate)',
+        role: 'staff' as const,
+        phone: staffUser.phone || '+919820022222',
+        token: `token_staff_${staffUser.id}_${Date.now()}`,
+        assignedClientIds: staffUser.assignedClientIds || ['cli_apex_01', 'cli_bluebell_02'],
+        designation: 'Senior Associate (GST & Audit)',
+      },
+    });
+  } catch (err: any) {
+    console.error('Login error:', err);
+    res.status(500).json({ error: 'Authentication failed: ' + err.message });
+  }
+});
+
+// Current user profile verification
+app.get('/api/auth/me', requireAuth, async (req: AuthRequest, res: Response) => {
+  if (!req.user) {
+    return res.status(401).json({ error: 'Unauthenticated' });
+  }
+  res.json({ user: req.user });
+});
+
+// Logout endpoint
+app.post('/api/auth/logout', (_req: Request, res: Response) => {
+  res.json({ success: true, message: 'Logged out successfully' });
+});
+
+// ==========================================
 // 1. CLIENTS & ROLES APIs
 // ==========================================
 

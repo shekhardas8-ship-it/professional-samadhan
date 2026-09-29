@@ -1,13 +1,17 @@
 // src/App.tsx
 import React, { useState, useEffect } from 'react';
-import { UserRole, MonthlyRequest } from './types/index.ts';
+import { UserRole, MonthlyRequest, AuthUser } from './types/index.ts';
 import { Header } from './components/Header.tsx';
+import { LoginPage } from './components/LoginPage.tsx';
+import { CaExecutiveCockpit } from './components/CaExecutiveCockpit.tsx';
+import { ClientsHubView } from './components/ClientsHubView.tsx';
 import { CaDashboard } from './components/CaDashboard.tsx';
 import { StaffReviewModal } from './components/StaffReviewModal.tsx';
 import { ClientPortalView } from './components/ClientPortalView.tsx';
 import { WhatsAppSenderModal } from './components/WhatsAppSenderModal.tsx';
 import { AuditLogsView } from './components/AuditLogsView.tsx';
 import { SetupGuideView } from './components/SetupGuideView.tsx';
+import { ClientManagementModal } from './components/ClientManagementModal.tsx';
 
 export default function App() {
   // Check if opened via unique client portal link with token
@@ -15,8 +19,34 @@ export default function App() {
   const tokenFromUrl = urlParams.get('token');
   const isClientOnlyMode = !!tokenFromUrl || (typeof window !== 'undefined' && window.location.pathname.startsWith('/client-portal'));
 
-  const [currentRole, setCurrentRole] = useState<UserRole>(isClientOnlyMode ? 'client' : 'ca_admin');
-  const [activeTab, setActiveTab] = useState<string>(isClientOnlyMode ? 'client-portal' : 'dashboard');
+  // Authentication State
+  const [authenticatedUser, setAuthenticatedUser] = useState<AuthUser | null>(() => {
+    if (typeof window === 'undefined') return null;
+    const stored = localStorage.getItem('ps_auth_user');
+    if (stored) {
+      try {
+        return JSON.parse(stored);
+      } catch {
+        return null;
+      }
+    }
+    return null;
+  });
+
+  const [currentRole, setCurrentRole] = useState<UserRole>(
+    isClientOnlyMode
+      ? 'client'
+      : authenticatedUser?.role || 'ca_admin'
+  );
+
+  const [activeTab, setActiveTab] = useState<string>(
+    isClientOnlyMode
+      ? 'client-portal'
+      : authenticatedUser?.role === 'client'
+      ? 'client-portal'
+      : 'cockpit'
+  );
+
   const [requests, setRequests] = useState<MonthlyRequest[]>([]);
   const [loading, setLoading] = useState(false);
   const [actionLoading, setActionLoading] = useState(false);
@@ -27,7 +57,10 @@ export default function App() {
     request: MonthlyRequest;
     actionType: 'initial' | 'reminder';
   } | null>(null);
-  const [activePortalToken, setActivePortalToken] = useState<string | undefined>(tokenFromUrl || undefined);
+  const [isClientModalOpen, setIsClientModalOpen] = useState(false);
+  const [activePortalToken, setActivePortalToken] = useState<string | undefined>(
+    tokenFromUrl || authenticatedUser?.token || undefined
+  );
 
   const fetchMonthlyRequests = async () => {
     // Never fetch CA pipeline if in client mode
@@ -38,7 +71,7 @@ export default function App() {
       const res = await fetch('/api/monthly-requests', {
         headers: {
           'x-user-role': currentRole,
-          'x-user-id': currentRole === 'staff' ? 'staff_pooja_02' : 'ca_rajesh_01',
+          'x-user-id': authenticatedUser?.id || (currentRole === 'staff' ? 'staff_pooja_02' : 'ca_rajesh_01'),
         },
       });
       if (res.ok) {
@@ -53,10 +86,31 @@ export default function App() {
   };
 
   useEffect(() => {
-    if (!isClientOnlyMode && currentRole !== 'client') {
+    if (authenticatedUser && !isClientOnlyMode && currentRole !== 'client') {
       fetchMonthlyRequests();
     }
-  }, [currentRole, isClientOnlyMode]);
+  }, [currentRole, authenticatedUser, isClientOnlyMode]);
+
+  const handleLoginSuccess = (user: AuthUser) => {
+    setAuthenticatedUser(user);
+    setCurrentRole(user.role);
+    if (user.role === 'client') {
+      setActivePortalToken(user.token);
+      setActiveTab('client-portal');
+    } else {
+      setActiveTab('cockpit'); // Always take CA/Staff to the clean Executive Cockpit
+    }
+  };
+
+  const handleLogout = async () => {
+    try {
+      await fetch('/api/auth/logout', { method: 'POST' });
+    } catch {}
+    localStorage.removeItem('ps_auth_user');
+    setAuthenticatedUser(null);
+    setCurrentRole('ca_admin');
+    setActiveTab('cockpit');
+  };
 
   const handleTriggerSchedule = async () => {
     try {
@@ -123,6 +177,11 @@ export default function App() {
     setActiveTab('client-portal');
   };
 
+  // If not authenticated and not accessing via direct client upload token, show Login Screen
+  if (!authenticatedUser && !isClientOnlyMode) {
+    return <LoginPage onLoginSuccess={handleLoginSuccess} />;
+  }
+
   return (
     <div className="min-h-screen bg-slate-100 flex flex-col font-sans text-slate-800 relative overflow-x-hidden">
       {/* Professional Samadhan Official Watermark */}
@@ -142,11 +201,14 @@ export default function App() {
       {/* Navigation Header */}
       <Header
         currentRole={currentRole}
+        currentUser={authenticatedUser}
         onRoleChange={role => {
           if (isClientOnlyMode) return;
           setCurrentRole(role);
           if (role === 'client') {
             setActiveTab('client-portal');
+          } else if (activeTab === 'client-portal') {
+            setActiveTab('cockpit');
           }
         }}
         activeTab={activeTab}
@@ -155,6 +217,7 @@ export default function App() {
           setActiveTab(tab);
         }}
         onRefresh={fetchMonthlyRequests}
+        onLogout={handleLogout}
         isLoading={loading}
         isClientOnlyMode={isClientOnlyMode}
       />
@@ -165,7 +228,28 @@ export default function App() {
           <ClientPortalView initialToken={activePortalToken} isStandaloneClient={true} />
         ) : (
           <>
-            {activeTab === 'dashboard' && (
+            {/* Front Page / Chartered Accountant Executive Cockpit */}
+            {activeTab === 'cockpit' && (
+              <CaExecutiveCockpit
+                requests={requests}
+                onNavigateTab={tab => setActiveTab(tab)}
+                onTriggerSchedule={handleTriggerSchedule}
+                onOpenNewClientModal={() => setIsClientModalOpen(true)}
+                onRefreshParent={fetchMonthlyRequests}
+                isActionLoading={actionLoading}
+              />
+            )}
+
+            {/* Dedicated Clients Hub & KYC Directory */}
+            {activeTab === 'clients' && (
+              <ClientsHubView
+                onOpenClientPortal={handleOpenClientPortal}
+                onRefreshParent={fetchMonthlyRequests}
+              />
+            )}
+
+            {/* Detailed GST Filing Pipeline */}
+            {activeTab === 'gst-pipeline' && (
               <CaDashboard
                 requests={requests}
                 onOpenReview={req => setSelectedRequestForReview(req)}
@@ -189,6 +273,15 @@ export default function App() {
           </>
         )}
       </main>
+
+      {/* Onboard / Edit Client Modal */}
+      {isClientModalOpen && (
+        <ClientManagementModal
+          isOpen={isClientModalOpen}
+          onClose={() => setIsClientModalOpen(false)}
+          onClientAddedOrUpdated={fetchMonthlyRequests}
+        />
+      )}
 
       {/* Staff Review Modal (Admin/Staff only) */}
       {!isClientOnlyMode && selectedRequestForReview && (
@@ -220,7 +313,7 @@ export default function App() {
           </div>
           <div className="flex items-center space-x-4 text-slate-500">
             <span>{isClientOnlyMode ? '256-Bit Encrypted Client Session' : 'Statutory Audit Working Paper Engine'}</span>
-            <span>Version 2.4.0</span>
+            <span>Version 2.5.0</span>
           </div>
         </div>
       </footer>

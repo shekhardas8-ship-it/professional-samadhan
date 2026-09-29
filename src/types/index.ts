@@ -220,3 +220,14 @@ export interface AuditNotification {
   details?: Record<string, any>;
   createdAt: string;
 }
+
+export interface AuthUser {
+  id: string;
+  email: string;
+  displayName: string;
+  role: UserRole;
+  phone?: string;
+  token?: string;
+  assignedClientIds?: string[];
+  lastLogin?: string;
+}
