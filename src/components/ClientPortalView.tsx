@@ -440,9 +440,9 @@ export const ClientPortalView: React.FC<ClientPortalProps> = ({ initialToken, is
       {session && !loading && (
         <>
           {/* Business Profile & Multi-Business Notice */}
-          <div className="bg-gradient-to-r from-slate-900 to-blue-950 text-white rounded-2xl p-6 shadow-md border border-slate-800 space-y-4 relative overflow-hidden">
+          <div className="theme-banner text-white rounded-2xl p-6 shadow-xl border space-y-4 relative overflow-hidden">
             {/* Subtle card watermark */}
-            <div className="absolute right-0 bottom-0 pointer-events-none opacity-[0.05] select-none translate-x-6 translate-y-6">
+            <div className="absolute right-0 bottom-0 pointer-events-none opacity-[0.06] select-none translate-x-6 translate-y-6">
               <img src="/logo.jpg" alt="" className="w-60 h-60 object-contain filter grayscale contrast-125" />
             </div>
 
@@ -451,10 +451,10 @@ export const ClientPortalView: React.FC<ClientPortalProps> = ({ initialToken, is
                 <img
                   src="/logo.jpg"
                   alt="Professional Samadhan"
-                  className="w-14 h-14 rounded-xl object-cover shadow-md border border-slate-700/80 shrink-0"
+                  className="w-14 h-14 rounded-xl object-cover shadow-md border border-white/20 shrink-0"
                 />
                 <div>
-                  <span className="text-xs uppercase tracking-wider text-blue-300 font-semibold">Professional Samadhan • Client GST Portal</span>
+                  <span className="text-xs uppercase tracking-wider theme-accent-text font-semibold">Professional Samadhan • Client GST Portal</span>
                   <h1 className="text-2xl font-bold tracking-tight mt-0.5">{session.client.businessName}</h1>
                   <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-slate-300 mt-1 font-mono">
                     <span>GSTIN: <strong>{session.client.gstin}</strong></span>

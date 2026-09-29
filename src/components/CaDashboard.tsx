@@ -182,9 +182,9 @@ export const CaDashboard: React.FC<CaDashboardProps> = ({
   return (
     <div className="space-y-6">
       {/* Top Banner & Quick Trigger Bar */}
-      <div className="bg-gradient-to-r from-slate-900 via-blue-950 to-slate-900 text-white rounded-xl p-6 shadow-md border border-slate-800 flex flex-col md:flex-row md:items-center md:justify-between gap-4 relative overflow-hidden">
+      <div className="theme-banner text-white rounded-2xl p-6 shadow-xl border flex flex-col md:flex-row md:items-center md:justify-between gap-4 relative overflow-hidden">
         {/* Subtle background watermark on banner */}
-        <div className="absolute right-0 bottom-0 pointer-events-none opacity-[0.05] select-none translate-x-8 translate-y-8">
+        <div className="absolute right-0 bottom-0 pointer-events-none opacity-[0.06] select-none translate-x-8 translate-y-8">
           <img src="/logo.jpg" alt="" className="w-64 h-64 object-contain filter grayscale contrast-125" />
         </div>
 
@@ -192,10 +192,10 @@ export const CaDashboard: React.FC<CaDashboardProps> = ({
           <img
             src="/logo.jpg"
             alt="Professional Samadhan"
-            className="w-14 h-14 rounded-xl object-cover shadow-md border border-slate-700/80 shrink-0"
+            className="w-14 h-14 rounded-xl object-cover shadow-md border border-white/20 shrink-0"
           />
           <div>
-            <span className="text-xs uppercase tracking-wider text-blue-300 font-semibold">Professional Samadhan • Chartered Accountants</span>
+            <span className="text-xs uppercase tracking-wider theme-accent-text font-semibold">Professional Samadhan • Chartered Accountants</span>
             <h1 className="text-2xl font-bold tracking-tight mt-0.5">GST Document Collection & Filing Pipeline</h1>
             <p className="text-sm text-slate-300 mt-1">
               Period: <strong>August 2026</strong> (Scheduled 1st of month at 9:00 AM IST. Automatic year rollover enabled).
@@ -208,7 +208,7 @@ export const CaDashboard: React.FC<CaDashboardProps> = ({
               setIsStorageModalOpen(true);
               fetchStorageInfo();
             }}
-            className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 text-sm font-semibold rounded-lg border border-slate-700 shadow transition flex items-center space-x-2"
+            className="px-4 py-2 bg-black/30 hover:bg-black/40 text-slate-200 text-sm font-semibold rounded-lg border border-white/10 shadow transition flex items-center space-x-2"
             title="Inspect server disk usage and free up space"
           >
             <HardDrive className="w-4 h-4 text-amber-400" />
@@ -230,7 +230,7 @@ export const CaDashboard: React.FC<CaDashboardProps> = ({
           <button
             onClick={onTriggerSchedule}
             disabled={isActionLoading}
-            className="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white text-sm font-semibold rounded-lg shadow transition flex items-center space-x-2"
+            className="px-4 py-2 theme-btn-primary text-white text-sm font-semibold rounded-lg shadow transition flex items-center space-x-2"
             title="Create requests for previous month for all active clients"
           >
             <Play className="w-4 h-4" />

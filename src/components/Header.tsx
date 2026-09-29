@@ -2,6 +2,7 @@
 import React from 'react';
 import { UserRole } from '../types/index.ts';
 import { Building2, ShieldCheck, UserCheck, Smartphone, RefreshCw, BookOpen } from 'lucide-react';
+import { PaletteSwitcher } from './PaletteSwitcher.tsx';
 
 interface HeaderProps {
   currentRole: UserRole;
@@ -24,7 +25,7 @@ export const Header: React.FC<HeaderProps> = ({
 }) => {
   if (isClientOnlyMode) {
     return (
-      <header className="bg-slate-900 text-white border-b border-slate-800 sticky top-0 z-40 shadow-md">
+      <header className="theme-header text-white border-b sticky top-0 z-40 shadow-md">
         <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex items-center justify-between h-16">
             {/* Brand Logo & Name */}
@@ -32,24 +33,27 @@ export const Header: React.FC<HeaderProps> = ({
               <img
                 src="/logo.jpg"
                 alt="Professional Samadhan Logo"
-                className="w-10 h-10 rounded-lg object-cover shadow border border-slate-700/60 shrink-0"
+                className="w-10 h-10 rounded-lg object-cover shadow border border-white/20 shrink-0"
               />
               <div>
                 <div className="flex items-center space-x-2">
                   <span className="font-bold text-lg text-white tracking-tight">Professional Samadhan</span>
-                  <span className="text-[10px] uppercase font-semibold px-2 py-0.5 rounded bg-emerald-900/80 text-emerald-300 border border-emerald-700/50">
+                  <span className="text-[10px] uppercase font-semibold px-2 py-0.5 rounded theme-badge border">
                     Client Portal
                   </span>
                 </div>
-                <p className="text-xs text-slate-400">Statutory GST Document Upload & Review</p>
+                <p className="text-xs text-slate-300">Statutory GST Document Upload & Review</p>
               </div>
             </div>
 
-            {/* Right side security badge */}
-            <div className="flex items-center space-x-2 bg-slate-800/80 px-3 py-1.5 rounded-lg border border-slate-700/60 text-xs text-emerald-400 font-medium">
-              <ShieldCheck className="w-4 h-4 text-emerald-400" />
-              <span className="hidden sm:inline">256-Bit Encrypted Statutory Session</span>
-              <span className="sm:hidden">Secure Upload</span>
+            {/* Right side controls: Palette switcher & security badge */}
+            <div className="flex items-center space-x-3">
+              <PaletteSwitcher />
+              <div className="flex items-center space-x-2 bg-black/20 px-3 py-1.5 rounded-lg border border-white/10 text-xs text-teal-300 font-medium">
+                <ShieldCheck className="w-4 h-4 text-teal-400" />
+                <span className="hidden sm:inline">256-Bit Encrypted Statutory Session</span>
+                <span className="sm:hidden">Secure Upload</span>
+              </div>
             </div>
           </div>
         </div>
@@ -57,7 +61,7 @@ export const Header: React.FC<HeaderProps> = ({
     );
   }
   return (
-    <header className="bg-slate-900 text-white border-b border-slate-800 sticky top-0 z-40 shadow-md">
+    <header className="theme-header text-white border-b sticky top-0 z-40 shadow-md">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="flex items-center justify-between h-16">
           {/* Brand Logo & Name */}
@@ -70,11 +74,11 @@ export const Header: React.FC<HeaderProps> = ({
             <div>
               <div className="flex items-center space-x-2">
                 <span className="font-bold text-lg text-white tracking-tight">Professional Samadhan</span>
-                <span className="text-[10px] uppercase font-semibold px-2 py-0.5 rounded bg-blue-900/80 text-blue-300 border border-blue-700/50">
+                <span className="text-[10px] uppercase font-semibold px-2 py-0.5 rounded theme-badge border">
                   CA Firm
                 </span>
               </div>
-              <p className="text-xs text-slate-400">GST Compliance & Document Intake System</p>
+              <p className="text-xs text-slate-300">GST Compliance & Document Intake System</p>
             </div>
           </div>
 
@@ -82,40 +86,44 @@ export const Header: React.FC<HeaderProps> = ({
           <nav className="hidden md:flex space-x-1">
             <button
               onClick={() => onTabChange('dashboard')}
+              style={{ backgroundColor: activeTab === 'dashboard' ? 'var(--theme-primary)' : 'transparent' }}
               className={`px-3 py-2 rounded-md text-sm font-medium transition ${
                 activeTab === 'dashboard'
-                  ? 'bg-blue-600 text-white'
-                  : 'text-slate-300 hover:bg-slate-800 hover:text-white'
+                  ? 'text-white shadow-sm'
+                  : 'text-slate-300 hover:bg-white/10 hover:text-white'
               }`}
             >
               CA Pipeline
             </button>
             <button
               onClick={() => onTabChange('client-portal')}
+              style={{ backgroundColor: activeTab === 'client-portal' ? 'var(--theme-primary)' : 'transparent' }}
               className={`px-3 py-2 rounded-md text-sm font-medium transition ${
                 activeTab === 'client-portal'
-                  ? 'bg-emerald-600 text-white'
-                  : 'text-slate-300 hover:bg-slate-800 hover:text-white'
+                  ? 'text-white shadow-sm'
+                  : 'text-slate-300 hover:bg-white/10 hover:text-white'
               }`}
             >
               Client Portal
             </button>
             <button
               onClick={() => onTabChange('audit-logs')}
+              style={{ backgroundColor: activeTab === 'audit-logs' ? 'var(--theme-primary)' : 'transparent' }}
               className={`px-3 py-2 rounded-md text-sm font-medium transition ${
                 activeTab === 'audit-logs'
-                  ? 'bg-blue-600 text-white'
-                  : 'text-slate-300 hover:bg-slate-800 hover:text-white'
+                  ? 'text-white shadow-sm'
+                  : 'text-slate-300 hover:bg-white/10 hover:text-white'
               }`}
             >
               WhatsApp & Audit Logs
             </button>
             <button
               onClick={() => onTabChange('guide')}
+              style={{ backgroundColor: activeTab === 'guide' ? 'var(--theme-primary)' : 'transparent' }}
               className={`px-3 py-2 rounded-md text-sm font-medium transition flex items-center space-x-1 ${
                 activeTab === 'guide'
-                  ? 'bg-blue-600 text-white'
-                  : 'text-slate-300 hover:bg-slate-800 hover:text-white'
+                  ? 'text-white shadow-sm'
+                  : 'text-slate-300 hover:bg-white/10 hover:text-white'
               }`}
             >
               <BookOpen className="w-4 h-4 mr-1" />
@@ -123,15 +131,18 @@ export const Header: React.FC<HeaderProps> = ({
             </button>
           </nav>
 
-          {/* Role Switcher & Refresh */}
+          {/* Palette Switcher, Role Switcher & Refresh */}
           <div className="flex items-center space-x-3">
-            <div className="flex items-center bg-slate-800 p-1 rounded-lg border border-slate-700">
+            <PaletteSwitcher />
+
+            <div className="flex items-center bg-black/30 p-1 rounded-lg border border-white/10">
               <span className="text-xs text-slate-400 px-2 font-medium hidden sm:inline">Role:</span>
               <button
                 onClick={() => onRoleChange('ca_admin')}
+                style={{ backgroundColor: currentRole === 'ca_admin' ? 'var(--theme-primary)' : 'transparent' }}
                 className={`px-2.5 py-1 text-xs font-medium rounded transition flex items-center space-x-1 ${
                   currentRole === 'ca_admin'
-                    ? 'bg-blue-600 text-white shadow'
+                    ? 'text-white shadow'
                     : 'text-slate-300 hover:text-white'
                 }`}
                 title="CA Administrator - Full control, statutory approvals"
@@ -171,19 +182,19 @@ export const Header: React.FC<HeaderProps> = ({
             <button
               onClick={onRefresh}
               disabled={isLoading}
-              className="p-2 text-slate-300 hover:text-white hover:bg-slate-800 rounded-lg transition"
+              className="p-2 text-slate-300 hover:text-white hover:bg-white/10 rounded-lg transition"
               title="Refresh Data"
             >
-              <RefreshCw className={`w-4 h-4 ${isLoading ? 'animate-spin text-blue-400' : ''}`} />
+              <RefreshCw className={`w-4 h-4 ${isLoading ? 'animate-spin text-teal-400' : ''}`} />
             </button>
           </div>
         </div>
       </div>
 
       {/* Sub-bar showing active persona */}
-      <div className="bg-slate-950 px-4 py-1 text-xs text-slate-400 border-t border-slate-800/80 flex items-center justify-between">
+      <div className="theme-subheader px-4 py-1 text-xs text-slate-400 border-t flex items-center justify-between">
         <div className="flex items-center space-x-2">
-          <span className="w-2 h-2 rounded-full bg-emerald-500"></span>
+          <span className="w-2 h-2 rounded-full bg-teal-400 animate-pulse"></span>
           <span>Logged in as:</span>
           <span className="font-semibold text-slate-200">
             {currentRole === 'ca_admin'
