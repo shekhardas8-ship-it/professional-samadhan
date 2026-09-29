@@ -71,7 +71,7 @@ export const CaExecutiveCockpit: React.FC<CaExecutiveCockpitProps> = ({
                 </span>
               </div>
               <h1 className="text-2xl sm:text-3xl font-extrabold tracking-tight mt-1 text-white">
-                CA Rajesh Sharma (FCA)
+                CA Suraj Dutta (FCA)
               </h1>
               <p className="text-xs sm:text-sm text-slate-300 mt-1 flex items-center gap-2">
                 <Calendar className="w-3.5 h-3.5 text-teal-300" />

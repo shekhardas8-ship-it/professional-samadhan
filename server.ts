@@ -148,7 +148,7 @@ app.post('/api/auth/login', async (req: Request, res: Response) => {
     }
 
     // 2. CA Partner / Administrator Login
-    const isCaAdmin = cleanId.includes('ca') || cleanId.includes('rajesh') || cleanId.includes('admin') || role === 'ca_admin';
+    const isCaAdmin = cleanId.includes('ca') || cleanId.includes('suraj') || cleanId.includes('rajesh') || cleanId.includes('admin') || role === 'ca_admin';
 
     if (isCaAdmin) {
       // Find CA user in DB
@@ -156,8 +156,8 @@ app.post('/api/auth/login', async (req: Request, res: Response) => {
       if (!user) {
         user = {
           id: 'ca_rajesh_01',
-          email: 'rajesh.sharma@professionalsamadhan.in',
-          displayName: 'CA Rajesh Sharma (FCA)',
+          email: 'suraj.dutta@professionalsamadhan.in',
+          displayName: 'CA Suraj Dutta (FCA)',
           role: 'ca_admin',
           phone: '+919820011111',
           active: true,
@@ -177,7 +177,7 @@ app.post('/api/auth/login', async (req: Request, res: Response) => {
         user: {
           id: user.id,
           email: user.email,
-          displayName: user.displayName || 'CA Rajesh Sharma (FCA)',
+          displayName: user.displayName || 'CA Suraj Dutta (FCA)',
           role: 'ca_admin' as const,
           phone: user.phone || '+919820011111',
           token: `token_ca_${user.id}_${Date.now()}`,
@@ -2744,7 +2744,7 @@ app.post('/api/workbooks/:id/ca-approve', requireAuth, async (req: AuthRequest, 
       .set({
         status: 'ca_approved',
         caApprovedAt: new Date(),
-        caApprovedBy: req.user.displayName || 'CA Rajesh Sharma (FCA)',
+        caApprovedBy: req.user.displayName || 'CA Suraj Dutta (FCA)',
         caApprovalNotes,
         caOverrideReason: caOverrideReason || null,
       })

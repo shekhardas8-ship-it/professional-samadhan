@@ -69,9 +69,9 @@ export const requireAuth = async (
 
     req.user = {
       uid: staffUserIdHeader || 'staff-default',
-      email: userRec[0]?.email || (staffRoleHeader === 'ca_admin' ? 'rajesh.sharma@professionalsamadhan.in' : 'pooja.verma@professionalsamadhan.in'),
+      email: userRec[0]?.email || (staffRoleHeader === 'ca_admin' ? 'suraj.dutta@professionalsamadhan.in' : 'pooja.verma@professionalsamadhan.in'),
       role: staffRoleHeader,
-      displayName: userRec[0]?.displayName || (staffRoleHeader === 'ca_admin' ? 'CA Rajesh Sharma (FCA)' : 'Pooja Verma (Senior Associate)'),
+      displayName: userRec[0]?.displayName || (staffRoleHeader === 'ca_admin' ? 'CA Suraj Dutta (FCA)' : 'Pooja Verma (Senior Associate)'),
       assignedClientIds: userRec[0]?.assignedClientIds || ['cli_bluebell_02', 'cli_apex_01'],
     };
     return next();
@@ -80,9 +80,9 @@ export const requireAuth = async (
   // Fallback default CA user for preview convenience if no header
   req.user = {
     uid: 'ca_rajesh_01',
-    email: 'rajesh.sharma@professionalsamadhan.in',
+    email: 'suraj.dutta@professionalsamadhan.in',
     role: 'ca_admin',
-    displayName: 'CA Rajesh Sharma (FCA)',
+    displayName: 'CA Suraj Dutta (FCA)',
     assignedClientIds: [],
   };
   next();

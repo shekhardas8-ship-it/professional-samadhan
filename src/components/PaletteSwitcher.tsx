@@ -35,36 +35,34 @@ export const PaletteSwitcher: React.FC = () => {
   return (
     <div className="relative inline-block text-left" ref={containerRef}>
       {/* Trigger Button - PaletteMaker Pill Aesthetic */}
-      <div className="flex items-center space-x-1.5 bg-slate-800/90 hover:bg-slate-700/90 text-white px-2.5 py-1.5 rounded-full border border-slate-700/80 transition-all shadow-sm group">
+      <div className="flex items-center space-x-1.5 bg-black/40 hover:bg-black/60 text-white px-2.5 py-1 rounded-xl border border-white/10 transition-all shadow-sm group">
         <button
           onClick={() => setIsOpen(!isOpen)}
-          className="flex items-center space-x-2 outline-none"
-          title="Select UI Color Palette (PaletteMaker Inspired)"
+          className="flex items-center space-x-1.5 outline-none"
+          title={`Active Palette: ${currentPalette.name} (Click to change)`}
         >
-          <div className="w-5 h-5 rounded-full flex items-center justify-center bg-slate-900 border border-slate-700">
-            <Palette className="w-3 h-3 text-teal-400 group-hover:rotate-45 transition-transform" />
-          </div>
-
-          <span className="text-xs font-semibold tracking-tight hidden lg:inline">
-            {currentPalette.name}
-          </span>
+          <Palette className="w-3.5 h-3.5 text-teal-400 group-hover:rotate-45 transition-transform" />
 
           {/* Color preview dots */}
-          <div className="flex items-center -space-x-1.5 px-0.5">
-            {currentPalette.colors.slice(0, 4).map((c, i) => (
+          <div className="flex items-center -space-x-1 px-0.5">
+            {currentPalette.colors.slice(0, 3).map((c, i) => (
               <span
                 key={i}
-                className="w-3 h-3 rounded-full border border-slate-900 shadow-sm shrink-0"
+                className="w-2.5 h-2.5 rounded-full border border-slate-900 shadow-xs shrink-0"
                 style={{ backgroundColor: c }}
               />
             ))}
           </div>
+
+          <span className="text-[11px] font-semibold tracking-tight text-slate-300 hidden xl:inline">
+            {currentPalette.name}
+          </span>
         </button>
 
         {/* Quick Shuffle button like PaletteMaker */}
         <button
           onClick={handleShuffle}
-          className="p-1 text-slate-400 hover:text-white rounded-full hover:bg-slate-600/60 transition"
+          className="p-1 text-slate-400 hover:text-white rounded-md hover:bg-white/10 transition"
           title="Shuffle / Next Palette"
         >
           <Shuffle className="w-3 h-3" />

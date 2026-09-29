@@ -751,7 +751,7 @@ export const ClientManagementModal: React.FC<ClientManagementModalProps> = ({
                       <>
                         <option value="staff_pooja_02">Pooja Verma (Senior Associate)</option>
                         <option value="staff_amit_03">Amit Patel (GST Assistant)</option>
-                        <option value="ca_rajesh_01">CA Rajesh Sharma (FCA)</option>
+                        <option value="ca_rajesh_01">CA Suraj Dutta (FCA)</option>
                       </>
                     )}
                   </select>
@@ -1139,7 +1139,7 @@ export const ClientManagementModal: React.FC<ClientManagementModalProps> = ({
                           <>
                             <option value="staff_pooja_02">Pooja Verma (Senior Associate)</option>
                             <option value="staff_amit_03">Amit Patel (GST Assistant)</option>
-                            <option value="ca_rajesh_01">CA Rajesh Sharma (FCA)</option>
+                            <option value="ca_rajesh_01">CA Suraj Dutta (FCA)</option>
                           </>
                         )}
                       </select>

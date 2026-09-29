@@ -237,7 +237,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess }) => {
               <CheckCircle2 className="w-3.5 h-3.5 text-teal-400" />
               <span>
                 {selectedRole === 'ca_admin'
-                  ? 'CA Rajesh Sharma (Partner)'
+                  ? 'CA Suraj Dutta (Partner)'
                   : selectedRole === 'staff'
                   ? 'Pooja Verma (Associate)'
                   : 'samadhan_CA (Client)'}
