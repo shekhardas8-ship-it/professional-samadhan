@@ -149,16 +149,19 @@ const upload = multer({
   },
 });
 
-// Seed DB on startup if empty
+import { ensureTablesExist } from './src/db/autoMigrate.ts';
+
+// Auto-migrate tables and seed DB on startup
 (async () => {
   try {
+    await ensureTablesExist();
     const existingClients = await db.select().from(clients).limit(1);
     if (existingClients.length === 0) {
       console.log('Database empty, auto-seeding sample clients and requests...');
       await seedInitialData();
     }
   } catch (err: any) {
-    console.error('Initial DB seed check error:', err.message);
+    console.error('Initial DB setup error:', err.message);
   }
 })();
 
