@@ -10,24 +10,26 @@ declare global {
 
 export const createPool = () => {
   if (!global._postgresPool) {
-    if (process.env.DATABASE_URL) {
-      global._postgresPool = new Pool({
-        connectionString: process.env.DATABASE_URL,
-        ssl: { rejectUnauthorized: false },
-        max: 10,
-        connectionTimeoutMillis: 15000,
-      });
-    } else {
-      global._postgresPool = new Pool({
-        host: process.env.SQL_HOST || '127.0.0.1',
-        port: parseInt(process.env.SQL_PORT || '5432', 10),
-        user: process.env.SQL_USER || 'postgres',
-        password: String(process.env.SQL_PASSWORD || 'postgres'),
-        database: process.env.SQL_DB_NAME || 'postgres',
-        max: 10,
-        connectionTimeoutMillis: 15000,
-      });
+    const rawUrl = (process.env.DATABASE_URL || '').trim();
+    let connStr = rawUrl;
+
+    // Fallback if DATABASE_URL was cut off or missing in Render environment
+    if (!connStr || !connStr.includes('@')) {
+      console.warn('[PostgreSQL] Incomplete or missing DATABASE_URL. Applying default Neon Cloud connection string.');
+      connStr = 'postgresql://neondb_owner:npg_Y3LESyxthM4J@ep-super-cloud-b33brsmd-pooler.c-4.ap-southeast-1.aws.neon.tech/neondb?sslmode=require&channel_binding=require';
+    } else if (!connStr.startsWith('postgresql://') && !connStr.startsWith('postgres://')) {
+      connStr = `postgresql://${connStr}`;
     }
+
+    const hostDisplay = connStr.split('@')[1]?.split('/')[0] || 'remote-db';
+    console.log(`[PostgreSQL] Initializing connection to cloud database (${hostDisplay})...`);
+
+    global._postgresPool = new Pool({
+      connectionString: connStr,
+      ssl: { rejectUnauthorized: false },
+      max: 10,
+      connectionTimeoutMillis: 15000,
+    });
 
     global._postgresPool.on('error', (err) => {
       console.error('Unexpected error on idle SQL pool client:', err);
