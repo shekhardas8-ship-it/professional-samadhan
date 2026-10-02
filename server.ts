@@ -3543,6 +3543,11 @@ app.post('/api/whatsapp/device-send-test', async (req: Request, res: Response) =
 // Serve synthetic files directly
 app.use('/synthetic_samples', express.static(path.resolve(process.cwd(), 'synthetic_samples')));
 
+// Serve Veer's Gym static export
+app.use('/veers-gym', express.static(path.resolve(process.cwd(), 'veers-gym-export')));
+app.use('/gym', express.static(path.resolve(process.cwd(), 'veers-gym-export')));
+
+
 // Vite middlewares for frontend SPA
 async function startServer() {
   const isProduction = process.env.NODE_ENV === 'production';
