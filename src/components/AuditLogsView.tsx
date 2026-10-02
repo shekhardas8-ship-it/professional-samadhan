@@ -11,9 +11,14 @@ import {
   ExternalLink,
   Smartphone,
   RefreshCw,
+  ArrowLeft,
 } from 'lucide-react';
 
-export const AuditLogsView: React.FC = () => {
+interface AuditLogsViewProps {
+  onBack?: () => void;
+}
+
+export const AuditLogsView: React.FC<AuditLogsViewProps> = ({ onBack }) => {
   const [logs, setLogs] = useState<AuditNotification[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
@@ -54,6 +59,15 @@ export const AuditLogsView: React.FC = () => {
       {/* Top Banner */}
       <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
+          {onBack && (
+            <button
+              onClick={onBack}
+              className="mb-3 px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-bold transition flex items-center gap-1.5 w-fit border border-slate-300 shadow-xs"
+            >
+              <ArrowLeft className="w-4 h-4" />
+              <span>Back to Cockpit</span>
+            </button>
+          )}
           <h2 className="text-xl font-bold text-slate-900">Communication & Audit Trail Register</h2>
           <p className="text-xs text-slate-500 mt-1">
             Statutory log of all prepared WhatsApp links, automated messages, delivery receipts, and confirmation events.

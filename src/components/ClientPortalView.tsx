@@ -26,15 +26,52 @@ import {
   X,
   FileCheck,
   FolderPlus,
+  ArrowLeft,
+  Sparkles,
 } from 'lucide-react';
 import { HtmlReportModal } from './HtmlReportModal.tsx';
+import InteractiveListPreview, { InteractiveListItem } from './ui/interactive-list-preview.tsx';
+
+const CA_PRACTICE_SERVICES: InteractiveListItem[] = [
+  {
+    client: "GST COMPLIANCE",
+    platform: "GSTR-1 / 3B / 9 / 9C",
+    services: "Automated Reconciliation, 2B Ingestion, Input Tax Credit Optimization, Annual Audit",
+    img: "https://images.unsplash.com/photo-1554224155-6726b3ff858f?q=80&w=800&auto=format&fit=crop",
+  },
+  {
+    client: "INCOME TAX & TDS",
+    platform: "ITR 1-7 & 24Q / 26Q",
+    services: "Corporate & Individual Filing, Advance Tax Computation, Form 16 Generation, Lower Deduction",
+    img: "https://images.unsplash.com/photo-1450133064473-71024230f91b?q=80&w=800&auto=format&fit=crop",
+  },
+  {
+    client: "SCRUTINY & NOTICES",
+    platform: "LEGAL & TAX DEFENSE",
+    services: "Faceless Assessment Handling, GST SCN Representation, Demand Resolution, Appellate Advisory",
+    img: "https://images.unsplash.com/photo-1589829545856-d10d557cf95f?q=80&w=800&auto=format&fit=crop",
+  },
+  {
+    client: "ROC & CORPORATE",
+    platform: "MCA 21 SUITE",
+    services: "Company Incorporation, Annual Filings (AOC-4 / MGT-7), Director KYC, Board Resolutions",
+    img: "https://images.unsplash.com/photo-1486406146926-c627a92ad1ab?q=80&w=800&auto=format&fit=crop",
+  },
+  {
+    client: "MIS & FINANCIALS",
+    platform: "CLOSING & ANALYTICS",
+    services: "Monthly P&L Finalization, Working Capital Analysis, CMA Data Preparation for Bank Credit",
+    img: "https://images.unsplash.com/photo-1460925895917-afdab827c52f?q=80&w=800&auto=format&fit=crop",
+  },
+];
 
 interface ClientPortalProps {
   initialToken?: string;
   isStandaloneClient?: boolean;
+  onBack?: () => void;
 }
 
-export const ClientPortalView: React.FC<ClientPortalProps> = ({ initialToken, isStandaloneClient = false }) => {
+export const ClientPortalView: React.FC<ClientPortalProps> = ({ initialToken, isStandaloneClient = false, onBack }) => {
   const [token, setToken] = useState<string>(initialToken || '');
   const [availableClients, setAvailableClients] = useState<any[]>([]);
   const [session, setSession] = useState<any>(null);
@@ -63,6 +100,7 @@ export const ClientPortalView: React.FC<ClientPortalProps> = ({ initialToken, is
   const [confirmationSignatory, setConfirmationSignatory] = useState('');
   const [correctionComments, setCorrectionComments] = useState('');
   const [isSubmittingApproval, setIsSubmittingApproval] = useState(false);
+  const [showServicesModal, setShowServicesModal] = useState(false);
   const [activeHtmlReport, setActiveHtmlReport] = useState<{
     isOpen: boolean;
     reportUrl: string;
@@ -70,6 +108,14 @@ export const ClientPortalView: React.FC<ClientPortalProps> = ({ initialToken, is
     title: string;
     subtitle: string;
   } | null>(null);
+
+  const [rejectedFilesList, setRejectedFilesList] = useState<Array<{
+    filename: string;
+    reason: string;
+    foundGstin?: string;
+    expectedGstin?: string;
+    docNumber?: string;
+  }>>([]);
 
   const [uploadAckData, setUploadAckData] = useState<{
     ackReferenceId: string;
@@ -253,6 +299,12 @@ export const ClientPortalView: React.FC<ClientPortalProps> = ({ initialToken, is
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Upload failed');
 
+      if (data.rejectedCount && data.rejectedCount > 0) {
+        setRejectedFilesList(data.rejectedFiles || []);
+      } else {
+        setRejectedFilesList([]);
+      }
+
       setUploadAckData({
         ackReferenceId: data.ackReferenceId,
         ackMessage: data.ackMessage,
@@ -263,7 +315,15 @@ export const ClientPortalView: React.FC<ClientPortalProps> = ({ initialToken, is
         dispatchResult: data.dispatchResult,
       });
 
-      if (data.duplicateCount && data.duplicateCount > 0) {
+      if (data.rejectedCount && data.rejectedCount > 0 && data.extractedCount === 0) {
+        setError(
+          `❌ Upload Rejected: ${data.rejectedCount} file(s) had mismatched GST numbers and were rejected. Under GST rules, all bills must match client GSTIN (${session?.client?.gstin}).`
+        );
+      } else if (data.rejectedCount && data.rejectedCount > 0) {
+        setError(
+          `⚠️ Notice: ${data.rejectedCount} file(s) were REJECTED due to mismatched GST number. ${data.extractedCount} valid invoice(s) were accepted.`
+        );
+      } else if (data.duplicateCount && data.duplicateCount > 0) {
         const newCount = data.filesUploaded - data.duplicateCount;
         setSuccessMsg(
           `Processed ${newCount} new document(s) (${data.extractedCount} invoices extracted). Notice: ${data.duplicateCount} duplicate file(s) were safely skipped to protect against duplicate GST calculations.`
@@ -336,6 +396,20 @@ export const ClientPortalView: React.FC<ClientPortalProps> = ({ initialToken, is
 
   return (
     <div className="max-w-5xl mx-auto space-y-6 pb-12">
+      {/* Top Navigation / Back Button (if embedded) */}
+      {onBack && (
+        <div className="flex items-center justify-between">
+          <button
+            onClick={onBack}
+            className="px-3.5 py-1.5 bg-white hover:bg-slate-50 text-slate-700 text-xs font-semibold rounded-lg border border-slate-300 shadow-2xs inline-flex items-center space-x-1.5 transition"
+          >
+            <ArrowLeft className="w-3.5 h-3.5" />
+            <span>← Back to Executive Cockpit</span>
+          </button>
+          <span className="text-xs font-semibold text-slate-500">Live Client Submission View</span>
+        </div>
+      )}
+
       {/* Top Banner / Secure Link Switcher */}
       <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
         <div className="flex items-center space-x-2 text-xs text-slate-600">
@@ -348,38 +422,49 @@ export const ClientPortalView: React.FC<ClientPortalProps> = ({ initialToken, is
             <span>Restricted Client Portal (Protected via Scoped Upload Token)</span>
           )}
         </div>
-        {isStandaloneClient ? (
-          <div className="flex items-center space-x-2 text-xs text-slate-500">
-            <span className="bg-emerald-50 text-emerald-700 px-2.5 py-1 rounded-md font-mono text-[11px] font-semibold border border-emerald-200">
-              GSTIN: {session?.client?.gstin || '...'}
-            </span>
-          </div>
-        ) : (
-          /* Business Picker for testing and portal navigation */
-          <div className="flex items-center space-x-2">
-            <span className="text-xs text-slate-500 font-medium">Switch Business Client:</span>
-            <select
-              value={session?.client?.id || token}
-              onChange={e => {
-                setToken(e.target.value);
-                fetchSession(e.target.value);
-              }}
-              className="text-xs border border-slate-300 rounded-lg p-1.5 bg-slate-50 font-medium text-slate-800"
-            >
-              {availableClients.length > 0 ? (
-                availableClients.map(c => (
-                  <option key={c.id} value={c.id}>
-                    {c.businessName} ({c.gstin})
+        <div className="flex items-center space-x-2">
+          <button
+            onClick={() => setShowServicesModal(true)}
+            className="flex items-center space-x-1.5 px-3 py-1.5 bg-gradient-to-r from-indigo-600 to-violet-600 hover:from-indigo-500 hover:to-violet-500 text-white rounded-lg text-xs font-semibold shadow-sm transition active:scale-95"
+            title="Explore our CA Practice Services & Advisory Offerings"
+          >
+            <Sparkles className="w-3.5 h-3.5 text-amber-300 animate-pulse" />
+            <span>Practice Services Suite</span>
+          </button>
+
+          {isStandaloneClient ? (
+            <div className="flex items-center space-x-2 text-xs text-slate-500">
+              <span className="bg-emerald-50 text-emerald-700 px-2.5 py-1 rounded-md font-mono text-[11px] font-semibold border border-emerald-200">
+                GSTIN: {session?.client?.gstin || '...'}
+              </span>
+            </div>
+          ) : (
+            /* Business Picker for testing and portal navigation */
+            <div className="flex items-center space-x-2">
+              <span className="text-xs text-slate-500 font-medium">Switch Business:</span>
+              <select
+                value={session?.client?.id || token}
+                onChange={e => {
+                  setToken(e.target.value);
+                  fetchSession(e.target.value);
+                }}
+                className="text-xs border border-slate-300 rounded-lg p-1.5 bg-slate-50 font-medium text-slate-800"
+              >
+                {availableClients.length > 0 ? (
+                  availableClients.map(c => (
+                    <option key={c.id} value={c.id}>
+                      {c.businessName} ({c.gstin})
+                    </option>
+                  ))
+                ) : (
+                  <option value={session?.client?.id || ''}>
+                    {session?.client?.businessName || 'Active Client'} ({session?.client?.gstin || 'GSTIN'})
                   </option>
-                ))
-              ) : (
-                <option value={session?.client?.id || ''}>
-                  {session?.client?.businessName || 'Active Client'} ({session?.client?.gstin || 'GSTIN'})
-                </option>
-              )}
-            </select>
-          </div>
-        )}
+                )}
+              </select>
+            </div>
+          )}
+        </div>
       </div>
 
       {loading && (
@@ -404,6 +489,62 @@ export const ClientPortalView: React.FC<ClientPortalProps> = ({ initialToken, is
               {uploadAckData.ackReferenceId}
             </span>
           )}
+        </div>
+      )}
+
+      {/* High-Visibility Alert: Upload Rejected Files (GST Mismatch) */}
+      {rejectedFilesList.length > 0 && (
+        <div className="bg-rose-50 border-2 border-rose-400 rounded-2xl p-5 shadow-md space-y-3 animate-in fade-in">
+          <div className="flex items-start justify-between">
+            <div className="flex items-center space-x-2 text-rose-900">
+              <AlertCircle className="w-6 h-6 text-rose-600 shrink-0" />
+              <div>
+                <h4 className="font-bold text-base">
+                  ❌ Upload Rejected: {rejectedFilesList.length} File(s) Failed GSTIN Verification
+                </h4>
+                <p className="text-xs text-rose-700 mt-0.5">
+                  Under GST statutory rules, invoices must be issued to or by your registered entity (<strong>{session?.client?.gstin}</strong>). Mismatched files were rejected and not added to your return.
+                </p>
+              </div>
+            </div>
+            <button
+              onClick={() => setRejectedFilesList([])}
+              className="text-xs font-semibold px-2.5 py-1 bg-rose-200/80 hover:bg-rose-300 text-rose-900 rounded-lg transition"
+            >
+              Dismiss
+            </button>
+          </div>
+
+          <div className="grid grid-cols-1 gap-2 pt-1">
+            {rejectedFilesList.map((rej, idx) => (
+              <div
+                key={idx}
+                className="p-3 bg-white rounded-xl border-2 border-rose-300 text-xs flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 shadow-2xs"
+              >
+                <div>
+                  <div className="font-bold text-slate-900 flex items-center space-x-2">
+                    <span className="text-rose-600">❌</span>
+                    <span>{rej.filename}</span>
+                    {rej.docNumber && <span className="text-[11px] text-slate-500 font-mono">#{rej.docNumber}</span>}
+                  </div>
+                  <div className="text-[11px] text-rose-700 mt-0.5 font-medium">{rej.reason}</div>
+                </div>
+
+                <div className="flex items-center space-x-2 shrink-0">
+                  {rej.foundGstin && (
+                    <span className="px-2.5 py-1 bg-rose-100 text-rose-900 border border-rose-300 font-mono text-[11px] font-bold rounded-md">
+                      Found GST: {rej.foundGstin}
+                    </span>
+                  )}
+                  {rej.expectedGstin && (
+                    <span className="px-2.5 py-1 bg-emerald-100 text-emerald-900 border border-emerald-300 font-mono text-[11px] font-bold rounded-md">
+                      Client GST: {rej.expectedGstin}
+                    </span>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
         </div>
       )}
 
@@ -1080,10 +1221,25 @@ export const ClientPortalView: React.FC<ClientPortalProps> = ({ initialToken, is
                   <tbody className="divide-y divide-slate-100">
                     {session.files.map((file: any) => {
                       const isDup = file.isDuplicate || file.status === 'duplicate_skipped' || file.status === 'duplicate_flagged';
+                      const isRejected = file.status === 'rejected_gstin_mismatch';
                       return (
-                        <tr key={file.id} className={isDup ? 'bg-amber-50/40' : ''}>
+                        <tr
+                          key={file.id}
+                          className={
+                            isRejected
+                              ? 'bg-rose-50/70 border-rose-200'
+                              : isDup
+                              ? 'bg-amber-50/40'
+                              : ''
+                          }
+                        >
                           <td className="py-2 font-medium text-slate-800">
                             <div>{file.originalFilename}</div>
+                            {isRejected && (
+                              <span className="text-[10px] text-rose-700 block font-semibold">
+                                ❌ REJECTED: Bill GSTIN does not match client profile GSTIN ({session?.client?.gstin}). File was rejected from GST return.
+                              </span>
+                            )}
                             {isDup && (
                               <span className="text-[10px] text-amber-700 block font-normal">
                                 ⚠️ Skipped duplicate (prevents double-counting in GST)
@@ -1095,14 +1251,16 @@ export const ClientPortalView: React.FC<ClientPortalProps> = ({ initialToken, is
                           <td className="py-2">
                             <span
                               className={`px-2 py-0.5 text-[10px] font-semibold rounded uppercase ${
-                                isDup
+                                isRejected
+                                  ? 'bg-rose-100 text-rose-900 border border-rose-300 font-bold'
+                                  : isDup
                                   ? 'bg-amber-100 text-amber-800 border border-amber-300'
                                   : file.status === 'processed'
                                   ? 'bg-emerald-100 text-emerald-800'
                                   : 'bg-slate-100 text-slate-700'
                               }`}
                             >
-                              {isDup ? 'Duplicate (Skipped)' : file.status}
+                              {isRejected ? 'Rejected (GST Mismatch)' : isDup ? 'Duplicate (Skipped)' : file.status}
                             </span>
                           </td>
                         <td className="py-2 text-right">
@@ -1260,6 +1418,53 @@ export const ClientPortalView: React.FC<ClientPortalProps> = ({ initialToken, is
             </div>
           )}
         </>
+      )}
+
+      {/* Modal: CA Practice Services Suite */}
+      {showServicesModal && (
+        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-3 md:p-6 animate-in fade-in duration-200">
+          <div className="bg-neutral-900 border border-neutral-800 rounded-2xl shadow-2xl max-w-5xl w-full overflow-hidden flex flex-col max-h-[90vh]">
+            <div className="flex items-center justify-between px-6 py-4 border-b border-neutral-800 bg-neutral-950/70">
+              <div className="flex items-center space-x-3">
+                <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-indigo-600 to-violet-600 flex items-center justify-center shadow-lg shadow-indigo-500/20">
+                  <Sparkles className="w-5 h-5 text-amber-300" />
+                </div>
+                <div>
+                  <h3 className="text-base font-bold text-white tracking-wide">CA Practice & Advisory Services</h3>
+                  <p className="text-xs text-neutral-400">Hover over services to preview our compliance, audit & filing capabilities</p>
+                </div>
+              </div>
+              <button
+                onClick={() => setShowServicesModal(false)}
+                className="p-2 text-neutral-400 hover:text-white hover:bg-neutral-800 rounded-xl transition"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="overflow-y-auto p-4 md:p-6">
+              <div className="rounded-xl overflow-hidden border border-neutral-800 shadow-inner">
+                <InteractiveListPreview
+                  items={CA_PRACTICE_SERVICES}
+                  bgColor="#141414"
+                  duration={0.5}
+                  smoothness={0.3}
+                  className="py-4"
+                />
+              </div>
+            </div>
+
+            <div className="px-6 py-3.5 border-t border-neutral-800 bg-neutral-950/80 flex flex-col sm:flex-row items-center justify-between gap-3 text-xs text-neutral-400">
+              <span>Need custom compliance support or tax defense? Contact your assigned CA partner.</span>
+              <button
+                onClick={() => setShowServicesModal(false)}
+                className="px-5 py-2 bg-neutral-800 hover:bg-neutral-700 text-white rounded-xl font-semibold transition"
+              >
+                Close Showcase
+              </button>
+            </div>
+          </div>
+        </div>
       )}
 
       {/* HTML Report Preview & Export Modal */}

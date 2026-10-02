@@ -24,6 +24,7 @@ interface HeaderProps {
   onTabChange: (tab: string) => void;
   onRefresh: () => void;
   onLogout?: () => void;
+  onOpenWhatsAppDevice?: () => void;
   isLoading: boolean;
   isClientOnlyMode?: boolean;
 }
@@ -36,6 +37,7 @@ export const Header: React.FC<HeaderProps> = ({
   onTabChange,
   onRefresh,
   onLogout,
+  onOpenWhatsAppDevice,
   isLoading,
   isClientOnlyMode = false,
 }) => {
@@ -118,21 +120,21 @@ export const Header: React.FC<HeaderProps> = ({
             </div>
           </div>
 
-          {/* 2. Center Navigation Tabs (Sleek, Compact Pill Design) */}
-          <nav className="hidden md:flex items-center gap-1 shrink-0">
+          {/* 2. Center Navigation Tabs (Directly matching Section Diagram) */}
+          <nav className="hidden xl:flex items-center gap-1 shrink-0">
             <button
               onClick={() => onTabChange('cockpit')}
               style={{
                 backgroundColor: activeTab === 'cockpit' ? 'var(--theme-primary)' : 'transparent',
               }}
-              className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all flex items-center gap-1.5 whitespace-nowrap ${
+              className={`px-2.5 py-1.5 rounded-lg text-xs font-semibold transition-all flex items-center gap-1 whitespace-nowrap ${
                 activeTab === 'cockpit'
                   ? 'text-white shadow-sm ring-1 ring-white/20 font-bold'
                   : 'text-slate-300 hover:bg-white/10 hover:text-white'
               }`}
             >
               <LayoutDashboard className="w-3.5 h-3.5" />
-              <span>CA Cockpit</span>
+              <span>Cockpit</span>
             </button>
 
             <button
@@ -140,14 +142,14 @@ export const Header: React.FC<HeaderProps> = ({
               style={{
                 backgroundColor: activeTab === 'clients' ? 'var(--theme-primary)' : 'transparent',
               }}
-              className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all flex items-center gap-1.5 whitespace-nowrap ${
+              className={`px-2.5 py-1.5 rounded-lg text-xs font-semibold transition-all flex items-center gap-1 whitespace-nowrap ${
                 activeTab === 'clients'
                   ? 'text-white shadow-sm ring-1 ring-white/20 font-bold'
                   : 'text-slate-300 hover:bg-white/10 hover:text-white'
               }`}
             >
               <Users className="w-3.5 h-3.5" />
-              <span>Clients</span>
+              <span>Client Directory & KYC</span>
             </button>
 
             <button
@@ -155,44 +157,70 @@ export const Header: React.FC<HeaderProps> = ({
               style={{
                 backgroundColor: activeTab === 'gst-pipeline' ? 'var(--theme-primary)' : 'transparent',
               }}
-              className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all flex items-center gap-1.5 whitespace-nowrap ${
+              className={`px-2.5 py-1.5 rounded-lg text-xs font-semibold transition-all flex items-center gap-1 whitespace-nowrap ${
                 activeTab === 'gst-pipeline'
                   ? 'text-white shadow-sm ring-1 ring-white/20 font-bold'
                   : 'text-slate-300 hover:bg-white/10 hover:text-white'
               }`}
             >
               <FileSpreadsheet className="w-3.5 h-3.5" />
-              <span>GST Pipeline</span>
+              <span>Routine work (GST etc)</span>
             </button>
 
             <button
-              onClick={() => onTabChange('audit-logs')}
+              onClick={() => onTabChange('adhoc-requests')}
               style={{
-                backgroundColor: activeTab === 'audit-logs' ? 'var(--theme-primary)' : 'transparent',
-              }}
-              className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all flex items-center gap-1.5 whitespace-nowrap ${
-                activeTab === 'audit-logs'
-                  ? 'text-white shadow-sm ring-1 ring-white/20 font-bold'
-                  : 'text-slate-300 hover:bg-white/10 hover:text-white'
-              }`}
-            >
-              <MessageSquare className="w-3.5 h-3.5" />
-              <span>WhatsApp & Logs</span>
-            </button>
-
-            <button
-              onClick={() => onTabChange('guide')}
-              style={{
-                backgroundColor: activeTab === 'guide' ? 'var(--theme-primary)' : 'transparent',
+                backgroundColor: activeTab === 'adhoc-requests' ? 'var(--theme-primary)' : 'transparent',
               }}
               className={`px-2.5 py-1.5 rounded-lg text-xs font-semibold transition-all flex items-center gap-1 whitespace-nowrap ${
-                activeTab === 'guide'
+                activeTab === 'adhoc-requests'
                   ? 'text-white shadow-sm ring-1 ring-white/20 font-bold'
                   : 'text-slate-300 hover:bg-white/10 hover:text-white'
               }`}
             >
-              <BookOpen className="w-3.5 h-3.5" />
-              <span>Docs</span>
+              <span>Adhoc Request</span>
+            </button>
+
+            <button
+              onClick={() => onTabChange('compliance-calendar')}
+              style={{
+                backgroundColor: activeTab === 'compliance-calendar' ? 'var(--theme-primary)' : 'transparent',
+              }}
+              className={`px-2.5 py-1.5 rounded-lg text-xs font-semibold transition-all flex items-center gap-1 whitespace-nowrap ${
+                activeTab === 'compliance-calendar'
+                  ? 'text-white shadow-sm ring-1 ring-white/20 font-bold'
+                  : 'text-slate-300 hover:bg-white/10 hover:text-white'
+              }`}
+            >
+              <span>Compliance Calendar</span>
+            </button>
+
+            <button
+              onClick={() => onTabChange('pending-task')}
+              style={{
+                backgroundColor: (activeTab === 'pending-tax' || activeTab === 'pending-task') ? 'var(--theme-primary)' : 'transparent',
+              }}
+              className={`px-2.5 py-1.5 rounded-lg text-xs font-semibold transition-all flex items-center gap-1 whitespace-nowrap ${
+                (activeTab === 'pending-tax' || activeTab === 'pending-task')
+                  ? 'text-white shadow-sm ring-1 ring-white/20 font-bold'
+                  : 'text-slate-300 hover:bg-white/10 hover:text-white'
+              }`}
+            >
+              <span>Next 7 days Pending task</span>
+            </button>
+
+            <button
+              onClick={() => onTabChange('billing-finance')}
+              style={{
+                backgroundColor: activeTab === 'billing-finance' ? 'var(--theme-primary)' : 'transparent',
+              }}
+              className={`px-2.5 py-1.5 rounded-lg text-xs font-semibold transition-all flex items-center gap-1 whitespace-nowrap ${
+                activeTab === 'billing-finance'
+                  ? 'text-white shadow-sm ring-1 ring-white/20 font-bold'
+                  : 'text-slate-300 hover:bg-white/10 hover:text-white'
+              }`}
+            >
+              <span>Billing & Finance</span>
             </button>
           </nav>
 
@@ -227,6 +255,18 @@ export const Header: React.FC<HeaderProps> = ({
                 <span>Staff</span>
               </button>
             </div>
+
+            {/* WhatsApp Device Link Button */}
+            {onOpenWhatsAppDevice && (
+              <button
+                onClick={onOpenWhatsAppDevice}
+                className="px-2.5 py-1.5 bg-emerald-600/30 hover:bg-emerald-600/50 text-emerald-300 border border-emerald-500/40 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition shadow-2xs"
+                title="Link WhatsApp (+91 98738 75138) for Free Automated Notifications"
+              >
+                <Smartphone className="w-3.5 h-3.5 text-emerald-400" />
+                <span className="hidden sm:inline">WhatsApp Bot</span>
+              </button>
+            )}
 
             {/* Refresh Button */}
             <button

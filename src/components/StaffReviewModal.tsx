@@ -578,6 +578,13 @@ export const StaffReviewModal: React.FC<StaffReviewModalProps> = ({
                               <span className="text-[11px] text-slate-400 bg-slate-100 px-2 py-0.5 rounded">
                                 Conf: {doc.extractionConfidence}%
                               </span>
+                              {((doc.docType === 'sales_invoice' && doc.supplierGstin && request.clientGstin && doc.supplierGstin.trim().toUpperCase() !== request.clientGstin.trim().toUpperCase()) ||
+                                (doc.docType === 'purchase_invoice' && doc.buyerGstin && request.clientGstin && doc.buyerGstin.trim().toUpperCase() !== request.clientGstin.trim().toUpperCase())) && (
+                                <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-amber-100 text-amber-900 border border-amber-300 flex items-center gap-1 shadow-2xs" title={`Invoice GST does not match client profile GST (${request.clientGstin}). File accepted and marked for CA verification.`}>
+                                  <AlertTriangle className="w-3 h-3 text-amber-600 shrink-0" />
+                                  <span>Not Matching Client GST</span>
+                                </span>
+                              )}
                             </div>
 
                             <div className="flex items-center space-x-2">
@@ -934,10 +941,25 @@ export const StaffReviewModal: React.FC<StaffReviewModalProps> = ({
                       <tbody className="divide-y divide-slate-100">
                         {details?.files.map(f => {
                           const isDup = f.isDuplicate || f.status === 'duplicate_skipped' || f.status === 'duplicate_flagged';
+                          const isRejected = f.status === 'rejected_gstin_mismatch';
                           return (
-                            <tr key={f.id} className={isDup ? 'bg-amber-50/40 hover:bg-amber-50/60' : 'hover:bg-slate-50'}>
+                            <tr
+                              key={f.id}
+                              className={
+                                isRejected
+                                  ? 'bg-rose-50/60 hover:bg-rose-50/80 border-rose-200'
+                                  : isDup
+                                  ? 'bg-amber-50/40 hover:bg-amber-50/60'
+                                  : 'hover:bg-slate-50'
+                              }
+                            >
                               <td className="p-3 text-slate-800 font-medium">
                                 <div>{f.originalFilename}</div>
+                                {isRejected && (
+                                  <div className="text-[10px] text-rose-700 font-semibold">
+                                    ❌ REJECTED: Bill GST number does not match client profile GSTIN ({request.clientGstin})
+                                  </div>
+                                )}
                                 {isDup && (
                                   <div className="text-[10px] text-amber-700 font-normal">
                                     ⚠️ Duplicate file skipped (not double-counted)
@@ -949,14 +971,16 @@ export const StaffReviewModal: React.FC<StaffReviewModalProps> = ({
                               <td className="p-3">
                                 <span
                                   className={`px-2 py-0.5 text-[10px] font-semibold rounded uppercase ${
-                                    isDup
+                                    isRejected
+                                      ? 'bg-rose-100 text-rose-900 border border-rose-300 font-bold'
+                                      : isDup
                                       ? 'bg-amber-100 text-amber-800 border border-amber-300'
                                       : f.status === 'processed'
                                       ? 'bg-emerald-100 text-emerald-800'
                                       : 'bg-slate-100 text-slate-700'
                                   }`}
                                 >
-                                  {isDup ? 'Duplicate (Skipped)' : f.status}
+                                  {isRejected ? 'Rejected (GST Mismatch)' : isDup ? 'Duplicate (Skipped)' : f.status}
                                 </span>
                               </td>
                               <td className="p-3 font-mono text-slate-400 text-[10px] truncate max-w-xs">{f.fileHash}</td>

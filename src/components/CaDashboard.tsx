@@ -23,11 +23,13 @@ import {
   Trash2,
   X,
   Edit2,
+  ArrowLeft,
 } from 'lucide-react';
 import { HtmlReportModal } from './HtmlReportModal.tsx';
 import { ClientManagementModal } from './ClientManagementModal.tsx';
 
 interface CaDashboardProps {
+  onBack?: () => void;
   requests: MonthlyRequest[];
   onOpenReview: (request: MonthlyRequest) => void;
   onOpenWhatsApp: (request: MonthlyRequest, actionType: 'initial' | 'reminder') => void;
@@ -40,6 +42,7 @@ interface CaDashboardProps {
 }
 
 export const CaDashboard: React.FC<CaDashboardProps> = ({
+  onBack,
   requests,
   onOpenReview,
   onOpenWhatsApp,
@@ -195,6 +198,15 @@ export const CaDashboard: React.FC<CaDashboardProps> = ({
             className="w-14 h-14 rounded-xl object-cover shadow-md border border-white/20 shrink-0"
           />
           <div>
+            {onBack && (
+              <button
+                onClick={onBack}
+                className="mb-2 px-3 py-1 bg-white/15 hover:bg-white/25 text-white rounded-lg text-xs font-bold transition flex items-center gap-1 w-fit border border-white/20 shadow-xs"
+              >
+                <ArrowLeft className="w-3.5 h-3.5" />
+                <span>Back to Cockpit</span>
+              </button>
+            )}
             <span className="text-xs uppercase tracking-wider theme-accent-text font-semibold">Professional Samadhan • Chartered Accountants</span>
             <h1 className="text-2xl font-bold tracking-tight mt-0.5">GST Document Collection & Filing Pipeline</h1>
             <p className="text-sm text-slate-300 mt-1">

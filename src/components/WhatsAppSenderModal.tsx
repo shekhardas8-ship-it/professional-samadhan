@@ -154,10 +154,10 @@ Team Professional Samadhan`;
               }`}
             >
               <div className="font-bold flex items-center justify-between">
-                <span>Mode B: Meta Cloud API</span>
-                <span className="text-[9px] px-1.5 py-0.5 bg-blue-100 text-blue-800 font-bold rounded">Automated Bot</span>
+                <span>Mode B: Automated WhatsApp Bot</span>
+                <span className="text-[9px] px-1.5 py-0.5 bg-emerald-100 text-emerald-800 font-bold rounded">Direct Push</span>
               </div>
-              <div className="text-[11px] text-slate-500 mt-0.5">Automated API. Delivers if client messaged in last 24h or template is approved.</div>
+              <div className="text-[11px] text-slate-500 mt-0.5">Automated push from linked number (+91 98738 75138). Delivers to client instantly with 0 fees.</div>
             </button>
           </div>
         </div>

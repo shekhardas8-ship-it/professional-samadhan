@@ -4,7 +4,7 @@ import 'dotenv/config';
 async function testWhatsApp() {
   const token = process.env.META_WHATSAPP_TOKEN;
   const phoneId = process.env.META_PHONE_NUMBER_ID;
-  const targetPhone = '919560958255'; // Shekhar Das
+  const targetPhone = '919873875138'; // +91 98738 75138
 
   console.log('--- Testing Meta WhatsApp Cloud API ---');
   console.log('Phone Number ID:', phoneId);
@@ -44,7 +44,7 @@ async function testWhatsApp() {
       console.log('\n❌ Meta API returned error:');
       if (data.error?.code === 131030) {
         console.log('Reason: Recipient number is not in the allowed list.');
-        console.log('Fix: In Meta Developer Portal -> WhatsApp -> API Setup -> "To" dropdown -> Click "Manage phone number list" -> Add +919560958255 and enter the OTP.');
+        console.log('Fix: In Meta Developer Portal -> WhatsApp -> API Setup -> "To" dropdown -> Click "Manage phone number list" -> Add +919873875138 and enter the OTP.');
       }
     }
   } catch (err) {

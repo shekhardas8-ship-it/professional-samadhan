@@ -15,15 +15,18 @@ import {
   AlertTriangle,
   RefreshCw,
   FolderOpen,
+  ArrowLeft,
 } from 'lucide-react';
 import { ClientManagementModal } from './ClientManagementModal.tsx';
 
 interface ClientsHubViewProps {
+  onBack?: () => void;
   onOpenClientPortal: (token: string) => void;
   onRefreshParent?: () => void;
 }
 
 export const ClientsHubView: React.FC<ClientsHubViewProps> = ({
+  onBack,
   onOpenClientPortal,
   onRefreshParent,
 }) => {
@@ -77,6 +80,15 @@ export const ClientsHubView: React.FC<ClientsHubViewProps> = ({
       {/* Top Banner */}
       <div className="theme-banner text-white rounded-3xl p-6 sm:p-8 shadow-xl border flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
+          {onBack && (
+            <button
+              onClick={onBack}
+              className="mb-3 px-3 py-1.5 bg-white/15 hover:bg-white/25 text-white rounded-xl text-xs font-bold transition flex items-center gap-1.5 w-fit border border-white/20 shadow-xs"
+            >
+              <ArrowLeft className="w-4 h-4" />
+              <span>Back to Cockpit</span>
+            </button>
+          )}
           <div className="flex items-center space-x-2">
             <span className="text-xs uppercase tracking-wider theme-accent-text font-bold">
               Practice Management

@@ -77,6 +77,14 @@ export function runValidationChecks(params: {
         documentFileId: f.id,
       });
     }
+    if (f.status === 'rejected_gstin_mismatch') {
+      exceptions.push({
+        severity: 'critical',
+        checkType: 'gstin_mismatch_rejected',
+        message: `❌ File "${f.originalFilename}" REJECTED: GSTIN on document does not match client profile GSTIN (${client.gstin}). Please re-upload with correct GSTIN.`,
+        documentFileId: f.id,
+      });
+    }
     if (f.isDuplicate || f.status === 'duplicate_skipped' || f.status === 'duplicate_flagged') {
       exceptions.push({
         severity: 'warning',
@@ -184,30 +192,51 @@ export function runValidationChecks(params: {
         exceptions.push({
           severity: 'warning',
           checkType: 'gstin_mismatch',
-          message: `Supplier GSTIN "${doc.supplierGstin}" on doc ${doc.docNumber} does not match standard 15-character statutory format.`,
+          message: `Supplier GSTIN "${doc.supplierGstin}" on doc ${doc.docNumber || 'Unknown'} does not match standard 15-character statutory format. (Accepted with flag).`,
           documentUnitId: doc.id,
           documentFileId: doc.documentFileId,
+          details: { isGstinMismatch: true, expectedGstin: client.gstin, foundGstin: doc.supplierGstin },
         });
       }
       if (doc.buyerGstin && !isValidGstinFormat(doc.buyerGstin)) {
         exceptions.push({
           severity: 'warning',
           checkType: 'gstin_mismatch',
-          message: `Buyer GSTIN "${doc.buyerGstin}" on doc ${doc.docNumber} does not match standard 15-character statutory format.`,
+          message: `Buyer GSTIN "${doc.buyerGstin}" on doc ${doc.docNumber || 'Unknown'} does not match standard 15-character statutory format. (Accepted with flag).`,
           documentUnitId: doc.id,
           documentFileId: doc.documentFileId,
+          details: { isGstinMismatch: true, expectedGstin: client.gstin, foundGstin: doc.buyerGstin },
         });
       }
 
       // Check Sales invoice supplier GSTIN matches client GSTIN
-      if (doc.docType === 'sales_invoice' && doc.supplierGstin && doc.supplierGstin.toUpperCase() !== client.gstin.toUpperCase()) {
-        exceptions.push({
-          severity: 'critical',
-          checkType: 'gstin_mismatch',
-          message: `Sales invoice ${doc.docNumber} supplier GSTIN (${doc.supplierGstin}) does not match Client GSTIN (${client.gstin}). Verify if classified correctly.`,
-          documentUnitId: doc.id,
-          documentFileId: doc.documentFileId,
-        });
+      if (doc.docType === 'sales_invoice') {
+        const supGstin = (doc.supplierGstin || '').trim().toUpperCase();
+        if (supGstin && supGstin !== client.gstin.trim().toUpperCase()) {
+          exceptions.push({
+            severity: 'critical',
+            checkType: 'gstin_mismatch',
+            message: `⚠️ Sales Bill #${doc.docNumber || 'Unknown'} Supplier GST (${doc.supplierGstin}) does not match Client Profile GST (${client.gstin}). File accepted & marked as NOT MATCHING CLIENT GST for CA verification.`,
+            documentUnitId: doc.id,
+            documentFileId: doc.documentFileId,
+            details: { isGstinMismatch: true, expectedGstin: client.gstin, foundGstin: doc.supplierGstin, mismatchType: 'sales_supplier_mismatch' },
+          });
+        }
+      }
+
+      // Check Purchase invoice buyer GSTIN matches client GSTIN
+      if (doc.docType === 'purchase_invoice') {
+        const buyGstin = (doc.buyerGstin || '').trim().toUpperCase();
+        if (buyGstin && buyGstin !== client.gstin.trim().toUpperCase()) {
+          exceptions.push({
+            severity: 'warning',
+            checkType: 'gstin_mismatch',
+            message: `⚠️ Purchase Bill #${doc.docNumber || 'Unknown'} Buyer GST (${doc.buyerGstin}) does not match Client Profile GST (${client.gstin}). File accepted & marked as NOT MATCHING CLIENT GST for CA verification.`,
+            documentUnitId: doc.id,
+            documentFileId: doc.documentFileId,
+            details: { isGstinMismatch: true, expectedGstin: client.gstin, foundGstin: doc.buyerGstin, mismatchType: 'purchase_buyer_mismatch' },
+          });
+        }
       }
 
       // Check line items sum vs header taxable

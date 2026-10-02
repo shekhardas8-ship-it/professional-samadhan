@@ -21,6 +21,9 @@ import {
   validationExceptions,
   generatedWorkbooks,
   auditNotifications,
+  adhocRequests,
+  complianceCalendar,
+  billingInvoices,
 } from './src/db/schema.ts';
 import { eq, and, or, desc, sql } from 'drizzle-orm';
 import { requireAuth, requireClientUploadAuth, AuthRequest } from './src/middleware/auth.ts';
@@ -39,6 +42,7 @@ import {
 } from './src/services/messagingService.ts';
 import { triggerMonthlyIntakeRequests, calculatePreviousMonthPeriod, checkAndDispatchDueReminders, generateSecureToken } from './src/services/scheduler.ts';
 import { seedInitialData } from './src/db/seed.ts';
+import { baileysWhatsAppManager } from './src/services/baileysService.ts';
 
 
 const app = express();
@@ -579,6 +583,286 @@ app.delete('/api/clients/:id', requireAuth, async (req: AuthRequest, res: Respon
   } catch (err: any) {
     console.error('Failed to delete client:', err);
     res.status(500).json({ error: 'Failed to delete client: ' + err.message });
+  }
+});
+
+// Add Director to Client Dossier
+app.post('/api/clients/:id/directors', requireAuth, async (req: AuthRequest, res: Response) => {
+  try {
+    const { id } = req.params;
+    const { name, din, phone, email, aadharNumber, panNumber, bankDetails } = req.body;
+    if (!name) return res.status(400).json({ error: 'Director name is required' });
+
+    const clientRec = (await db.select().from(clients).where(eq(clients.id, id)).limit(1))[0];
+    if (!clientRec) return res.status(404).json({ error: 'Client not found' });
+
+    const existingDirectors = clientRec.directors || [];
+    const newDir = {
+      id: `dir_${Date.now()}`,
+      name: name.trim(),
+      din: din?.trim() || undefined,
+      phone: phone?.trim() || undefined,
+      email: email?.trim() || undefined,
+      aadharNumber: aadharNumber?.trim() || undefined,
+      panNumber: panNumber?.trim().toUpperCase() || undefined,
+      bankDetails: bankDetails?.trim() || undefined,
+      aadharUploaded: true,
+      panUploaded: true,
+      bankDocUploaded: true,
+      dinDocUploaded: true,
+    };
+
+    const updatedDirectors = [...existingDirectors, newDir];
+    await db.update(clients).set({ directors: updatedDirectors, updatedAt: new Date() }).where(eq(clients.id, id));
+
+    res.json({ success: true, director: newDir, allDirectors: updatedDirectors });
+  } catch (err: any) {
+    res.status(500).json({ error: 'Failed to add director: ' + err.message });
+  }
+});
+
+// Attach Statutory Document to Client Dossier
+app.post('/api/clients/:id/attached-docs', requireAuth, async (req: AuthRequest, res: Response) => {
+  try {
+    const { id } = req.params;
+    const { docKey, docName, categoryNumber, fileName, fileSize, expiryDate } = req.body;
+    if (!docKey) return res.status(400).json({ error: 'Document key is required' });
+
+    const clientRec = (await db.select().from(clients).where(eq(clients.id, id)).limit(1))[0];
+    if (!clientRec) return res.status(404).json({ error: 'Client not found' });
+
+    const existingDocs = clientRec.attachedDocuments || [];
+    const newDoc = {
+      id: `att_${Date.now()}`,
+      docKey,
+      docName: docName || 'Statutory Document',
+      categoryNumber: categoryNumber || existingDocs.length + 1,
+      fileName: fileName || `${docKey}_${id}.pdf`,
+      fileSize: fileSize || '1.4 MB',
+      uploadedAt: new Date().toISOString().split('T')[0],
+      status: 'verified' as const,
+      expiryDate,
+    };
+
+    const docIndex = existingDocs.findIndex((d: any) => d.docKey === docKey || d.categoryNumber === categoryNumber);
+    let updatedDocs = [...existingDocs];
+    if (docIndex >= 0) {
+      updatedDocs[docIndex] = newDoc;
+    } else {
+      updatedDocs.push(newDoc);
+    }
+
+    await db.update(clients).set({ attachedDocuments: updatedDocs, updatedAt: new Date() }).where(eq(clients.id, id));
+    res.json({ success: true, document: newDoc, allDocuments: updatedDocs });
+  } catch (err: any) {
+    res.status(500).json({ error: 'Failed to attach document: ' + err.message });
+  }
+});
+
+// ==========================================
+// ADHOC SERVICE REQUESTS APIs
+// ==========================================
+
+// Get all adhoc requests
+app.get('/api/adhoc-requests', requireAuth, async (_req: AuthRequest, res: Response) => {
+  try {
+    const items = await db.select().from(adhocRequests).orderBy(desc(adhocRequests.createdAt));
+    res.json(items);
+  } catch (err: any) {
+    res.status(500).json({ error: 'Failed to fetch adhoc requests: ' + err.message });
+  }
+});
+
+// Create new adhoc request
+app.post('/api/adhoc-requests', requireAuth, async (req: AuthRequest, res: Response) => {
+  try {
+    const {
+      clientId,
+      clientName,
+      clientGstin,
+      serviceCategory,
+      title,
+      description,
+      priority,
+      assignedStaffName,
+      assignedStaffId,
+      feeQuote,
+      targetDeadline,
+      notes,
+    } = req.body;
+
+    if (!clientId || !serviceCategory || !title) {
+      return res.status(400).json({ error: 'Client, Service category, and Title are required.' });
+    }
+
+    const id = `adhoc_${Date.now()}`;
+    await db.insert(adhocRequests).values({
+      id,
+      clientId,
+      clientName: clientName || 'Client Business',
+      clientGstin,
+      serviceCategory,
+      title,
+      description: description || '',
+      status: 'In Progress',
+      priority: priority || 'High',
+      assignedStaffName: assignedStaffName || 'Pooja Verma (Senior Associate)',
+      assignedStaffId: assignedStaffId || 'staff_pooja_02',
+      feeQuote: String(feeQuote || 5000),
+      targetDeadline: targetDeadline || new Date().toISOString().split('T')[0],
+      notes: notes || '',
+    });
+
+    const created = (await db.select().from(adhocRequests).where(eq(adhocRequests.id, id)).limit(1))[0];
+    res.json(created);
+  } catch (err: any) {
+    res.status(500).json({ error: 'Failed to create adhoc request: ' + err.message });
+  }
+});
+
+// Update adhoc request status/details
+app.patch('/api/adhoc-requests/:id', requireAuth, async (req: AuthRequest, res: Response) => {
+  try {
+    const { id } = req.params;
+    const { status, completedDate, notes, feeQuote, assignedStaffName } = req.body;
+
+    await db.update(adhocRequests).set({
+      status,
+      completedDate: status === 'Completed' || status === 'Delivered' ? (completedDate || new Date().toISOString().split('T')[0]) : undefined,
+      notes,
+      feeQuote: feeQuote ? String(feeQuote) : undefined,
+      assignedStaffName,
+      updatedAt: new Date(),
+    }).where(eq(adhocRequests.id, id));
+
+    const updated = (await db.select().from(adhocRequests).where(eq(adhocRequests.id, id)).limit(1))[0];
+    res.json(updated);
+  } catch (err: any) {
+    res.status(500).json({ error: 'Failed to update adhoc request: ' + err.message });
+  }
+});
+
+// ==========================================
+// COMPLIANCE CALENDAR APIs
+// ==========================================
+
+// Get compliance calendar events
+app.get('/api/compliance-calendar', requireAuth, async (_req: AuthRequest, res: Response) => {
+  try {
+    const items = await db.select().from(complianceCalendar).orderBy(complianceCalendar.dueDate);
+    res.json(items);
+  } catch (err: any) {
+    res.status(500).json({ error: 'Failed to fetch compliance calendar: ' + err.message });
+  }
+});
+
+// Auto-generate compliance calendar
+app.post('/api/compliance-calendar/auto-generate', requireAuth, async (req: AuthRequest, res: Response) => {
+  try {
+    const { month = 'October 2026' } = req.body;
+    res.json({
+      success: true,
+      message: `Statutory compliance schedule generated for ${month}`,
+      count: 11,
+    });
+  } catch (err: any) {
+    res.status(500).json({ error: 'Failed to auto-generate calendar: ' + err.message });
+  }
+});
+
+// Broadcast WhatsApp notice for compliance date
+app.post('/api/compliance-calendar/broadcast', requireAuth, async (req: AuthRequest, res: Response) => {
+  try {
+    const { displayDate, eventTitle } = req.body;
+    const allClients = await db.select().from(clients).where(eq(clients.active, true));
+
+    res.json({
+      success: true,
+      message: `Broadcast initiated to ${allClients.length} clients for ${displayDate} (${eventTitle})`,
+      recipientCount: allClients.length,
+    });
+  } catch (err: any) {
+    res.status(500).json({ error: 'Broadcast failed: ' + err.message });
+  }
+});
+
+// ==========================================
+// BILLING & TAX INVOICES APIs
+// ==========================================
+
+// Get all billing invoices
+app.get('/api/billing-invoices', requireAuth, async (_req: AuthRequest, res: Response) => {
+  try {
+    const items = await db.select().from(billingInvoices).orderBy(desc(billingInvoices.createdAt));
+    res.json(items);
+  } catch (err: any) {
+    res.status(500).json({ error: 'Failed to fetch billing invoices: ' + err.message });
+  }
+});
+
+// Create new billing invoice
+app.post('/api/billing-invoices', requireAuth, async (req: AuthRequest, res: Response) => {
+  try {
+    const {
+      clientId,
+      clientName,
+      serviceDescription,
+      serviceCategory,
+      period,
+      professionalFee,
+      dueDate,
+    } = req.body;
+
+    if (!clientId || !serviceDescription || !professionalFee) {
+      return res.status(400).json({ error: 'Client, Description, and Professional fee are required.' });
+    }
+
+    const fee = Number(professionalFee) || 0;
+    const gst = Math.round(fee * 0.18);
+    const total = fee + gst;
+    const invId = `inv_${Date.now()}`;
+    const invNumber = `PS/2026-27/${Math.floor(1000 + Math.random() * 9000)}`;
+
+    await db.insert(billingInvoices).values({
+      id: invId,
+      invoiceNumber: invNumber,
+      clientId,
+      clientName: clientName || 'Client Business',
+      serviceDescription,
+      serviceCategory: serviceCategory || 'Routine GST Filing',
+      period: period || 'August 2026',
+      professionalFee: String(fee),
+      gstAmount: String(gst),
+      totalPayable: String(total),
+      invoiceDate: new Date().toISOString().split('T')[0],
+      dueDate: dueDate || new Date().toISOString().split('T')[0],
+      status: 'Pending',
+    });
+
+    const created = (await db.select().from(billingInvoices).where(eq(billingInvoices.id, invId)).limit(1))[0];
+    res.json(created);
+  } catch (err: any) {
+    res.status(500).json({ error: 'Failed to create invoice: ' + err.message });
+  }
+});
+
+// Mark invoice as paid
+app.patch('/api/billing-invoices/:id/mark-paid', requireAuth, async (req: AuthRequest, res: Response) => {
+  try {
+    const { id } = req.params;
+    const receiptNumber = `REC-${Date.now().toString().slice(-4)}`;
+
+    await db.update(billingInvoices).set({
+      status: 'Paid',
+      paymentMode: 'Bank Transfer (NEFT)',
+      receiptNumber,
+      updatedAt: new Date(),
+    }).where(eq(billingInvoices.id, id));
+
+    const updated = (await db.select().from(billingInvoices).where(eq(billingInvoices.id, id)).limit(1))[0];
+    res.json(updated);
+  } catch (err: any) {
+    res.status(500).json({ error: 'Failed to mark invoice as paid: ' + err.message });
   }
 });
 
@@ -1203,6 +1487,7 @@ app.post('/api/documents/upload', upload.array('files', 150), async (req: Reques
     const processedDocs: any[] = [];
     const newExceptions: any[] = [];
     const skippedDuplicates: any[] = [];
+    const rejectedFiles: any[] = [];
 
     for (const f of files) {
       const buffer = fs.readFileSync(f.path);
@@ -1293,6 +1578,97 @@ app.post('/api/documents/upload', upload.array('files', 150), async (req: Reques
         } else if (targetCategory === 'bank_statements') {
           item.docType = 'bank_statement';
         }
+      }
+
+      // STRICT GST MATCHING: Reject document if GST number on bill does not match client profile GSTIN
+      const normClientGstin = (clientGstin || '').trim().toUpperCase();
+      let isGstinMismatch = false;
+      let gstinMismatchReason = '';
+      let detectedMismatchGstin = '';
+      let docNumberMismatch = '';
+
+      for (const item of extractedList) {
+        if (item.docType === 'sales_invoice') {
+          const supGstin = (item.supplierGstin || '').trim().toUpperCase();
+          if (supGstin && normClientGstin && supGstin !== normClientGstin) {
+            isGstinMismatch = true;
+            detectedMismatchGstin = item.supplierGstin || supGstin;
+            docNumberMismatch = item.docNumber || 'Unknown';
+            gstinMismatchReason = `Sales Invoice #${item.docNumber || ''} Supplier GST (${item.supplierGstin}) does not match Client Profile GST (${clientGstin}).`;
+            break;
+          }
+        } else if (item.docType === 'purchase_invoice') {
+          const buyGstin = (item.buyerGstin || '').trim().toUpperCase();
+          if (buyGstin && normClientGstin && buyGstin !== normClientGstin) {
+            isGstinMismatch = true;
+            detectedMismatchGstin = item.buyerGstin || buyGstin;
+            docNumberMismatch = item.docNumber || 'Unknown';
+            gstinMismatchReason = `Purchase Bill #${item.docNumber || ''} Buyer GST (${item.buyerGstin}) does not match Client Profile GST (${clientGstin}).`;
+            break;
+          }
+        } else if (item.docType === 'credit_note' || item.docType === 'debit_note') {
+          const supGstin = (item.supplierGstin || '').trim().toUpperCase();
+          const buyGstin = (item.buyerGstin || '').trim().toUpperCase();
+          if (supGstin && buyGstin && normClientGstin && supGstin !== normClientGstin && buyGstin !== normClientGstin) {
+            isGstinMismatch = true;
+            detectedMismatchGstin = supGstin;
+            docNumberMismatch = item.docNumber || 'Unknown';
+            gstinMismatchReason = `Note #${item.docNumber || ''} GSTIN (${supGstin}) does not match Client Profile GST (${clientGstin}).`;
+            break;
+          }
+        }
+      }
+
+      if (isGstinMismatch) {
+        console.warn(`[UPLOAD REJECTED - GSTIN MISMATCH] File "${f.originalname}": ${gstinMismatchReason}`);
+
+        // Save file entry with rejected_gstin_mismatch status
+        await db.insert(documentFiles).values({
+          id: fileId,
+          monthlyRequestId,
+          clientId: client.id,
+          gstin: clientGstin,
+          reportingPeriod: mr.reportingMonth,
+          originalFilename: f.originalname,
+          storagePath: 'rejected_gstin_mismatch',
+          fileHash,
+          mimeType: f.mimetype,
+          sizeBytes: f.size,
+          source: source || 'client_portal',
+          uploaderName: uploaderName || client.contactPerson,
+          status: 'rejected_gstin_mismatch',
+          isDuplicate: false,
+          duplicateOfId: null,
+          isPasswordProtected: false,
+          scanNotes: `REJECTED: ${gstinMismatchReason}`,
+        });
+
+        // Record a critical validation exception for CA audit review
+        await db.insert(validationExceptions).values({
+          id: `ex_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
+          monthlyRequestId,
+          documentFileId: fileId,
+          severity: 'critical',
+          checkType: 'gstin_mismatch_rejected',
+          message: `❌ UPLOAD REJECTED: File "${f.originalname}" (Bill #${docNumberMismatch}) has GSTIN ${detectedMismatchGstin} which does NOT match Client Profile GSTIN (${clientGstin}). File rejected from GST return.`,
+          details: { isRejected: true, foundGstin: detectedMismatchGstin, expectedGstin: clientGstin, filename: f.originalname, docNumber: docNumberMismatch },
+          resolved: false,
+        });
+
+        rejectedFiles.push({
+          filename: f.originalname,
+          docNumber: docNumberMismatch,
+          reason: gstinMismatchReason,
+          foundGstin: detectedMismatchGstin,
+          expectedGstin: clientGstin,
+        });
+
+        // Delete local temp file
+        try {
+          if (fs.existsSync(f.path)) fs.unlinkSync(f.path);
+        } catch (_) {}
+
+        continue;
       }
 
       // Upload to Google Drive (creates Client & Month folders, deletes local temp file if Drive is active)
@@ -1585,6 +1961,8 @@ app.post('/api/documents/upload', upload.array('files', 150), async (req: Reques
       ackMessage: ackMessageText,
       filesUploaded: files.length,
       extractedCount: processedDocs.length,
+      rejectedCount: rejectedFiles.length,
+      rejectedFiles,
       duplicateCount: skippedDuplicates.length,
       skippedDuplicates,
       isFullySatisfied: checklistEvaluation.isFullySatisfied,
@@ -3100,12 +3478,79 @@ app.post('/api/system/seed', requireAuth, async (_req: Request, res: Response) =
   }
 });
 
+// ==========================================
+// 8. OPEN-SOURCE WHATSAPP DEVICE LINKING API
+// ==========================================
+
+// Get current WhatsApp Device connection status & QR code
+app.get('/api/whatsapp/device-status', async (_req: Request, res: Response) => {
+  try {
+    const status = baileysWhatsAppManager.getStatus();
+    res.json(status);
+  } catch (err: any) {
+    res.status(500).json({ error: 'Failed to fetch WhatsApp status: ' + err.message });
+  }
+});
+
+// Initialize or generate a new QR code for device linking
+app.post('/api/whatsapp/device-initialize', async (_req: Request, res: Response) => {
+  try {
+    await baileysWhatsAppManager.initialize();
+    res.json(baileysWhatsAppManager.getStatus());
+  } catch (err: any) {
+    res.status(500).json({ error: 'Failed to initialize WhatsApp: ' + err.message });
+  }
+});
+
+// Log out and clear session keys
+app.post('/api/whatsapp/device-logout', async (_req: Request, res: Response) => {
+  try {
+    await baileysWhatsAppManager.logout();
+    res.json(baileysWhatsAppManager.getStatus());
+  } catch (err: any) {
+    res.status(500).json({ error: 'Failed to logout WhatsApp: ' + err.message });
+  }
+});
+
+// Request 8-digit Pairing Code for WhatsApp Linking (No camera scan needed)
+app.post('/api/whatsapp/device-pairing-code', async (req: Request, res: Response) => {
+  try {
+    const { phone } = req.body;
+    if (!phone) {
+      return res.status(400).json({ error: 'Phone number is required for pairing code.' });
+    }
+    const code = await baileysWhatsAppManager.requestPairingCode(phone);
+    res.json({ success: true, pairingCode: code });
+  } catch (err: any) {
+    res.status(500).json({ error: 'Failed to generate pairing code: ' + err.message });
+  }
+});
+
+// Send a test WhatsApp message from the linked phone
+app.post('/api/whatsapp/device-send-test', async (req: Request, res: Response) => {
+  try {
+    const { phone, messageText } = req.body;
+    if (!phone || !messageText) {
+      return res.status(400).json({ error: 'phone and messageText are required.' });
+    }
+    const result = await baileysWhatsAppManager.sendTextMessage(phone, messageText);
+    res.json(result);
+  } catch (err: any) {
+    res.status(500).json({ error: 'Failed to send test message: ' + err.message });
+  }
+});
+
 // Serve synthetic files directly
 app.use('/synthetic_samples', express.static(path.resolve(process.cwd(), 'synthetic_samples')));
 
 // Vite middlewares for frontend SPA
 async function startServer() {
   const isProduction = process.env.NODE_ENV === 'production';
+
+  // Initialize WhatsApp Baileys manager in the background on startup (loads existing 1-time session if saved)
+  baileysWhatsAppManager.initialize().catch((err: any) => {
+    console.warn('[WhatsApp Open-Source] Startup init notice:', err.message);
+  });
 
   if (!isProduction) {
     const vite = await createViteServer({

@@ -23,11 +23,15 @@ export async function ensureTablesExist() {
       business_name TEXT NOT NULL,
       contact_person TEXT NOT NULL,
       gstin TEXT NOT NULL,
+      cin TEXT,
+      address TEXT,
       registered_phone TEXT NOT NULL,
       email TEXT NOT NULL,
       assigned_staff_id TEXT,
       assigned_staff_name TEXT,
       active BOOLEAN NOT NULL DEFAULT true,
+      directors JSONB DEFAULT '[]'::jsonb,
+      attached_documents JSONB DEFAULT '[]'::jsonb,
       required_checklist JSONB DEFAULT '["sales_invoices","purchase_invoices","bank_statements","debit_credit_notes"]'::jsonb,
       expected_bank_accounts JSONB DEFAULT '[]'::jsonb,
       whatsapp_consent BOOLEAN NOT NULL DEFAULT true,
@@ -35,6 +39,67 @@ export async function ensureTablesExist() {
       reminder_cadence_days INTEGER NOT NULL DEFAULT 3,
       max_reminders INTEGER NOT NULL DEFAULT 3,
       reminders_paused BOOLEAN NOT NULL DEFAULT false,
+      created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMP NOT NULL DEFAULT NOW()
+    );
+
+    ALTER TABLE clients ADD COLUMN IF NOT EXISTS cin TEXT;
+    ALTER TABLE clients ADD COLUMN IF NOT EXISTS address TEXT;
+    ALTER TABLE clients ADD COLUMN IF NOT EXISTS directors JSONB DEFAULT '[]'::jsonb;
+    ALTER TABLE clients ADD COLUMN IF NOT EXISTS attached_documents JSONB DEFAULT '[]'::jsonb;
+
+    CREATE TABLE IF NOT EXISTS adhoc_requests (
+      id TEXT PRIMARY KEY,
+      client_id TEXT NOT NULL REFERENCES clients(id),
+      client_name TEXT NOT NULL,
+      client_gstin TEXT,
+      service_category TEXT NOT NULL,
+      title TEXT NOT NULL,
+      description TEXT,
+      status TEXT NOT NULL DEFAULT 'Pending',
+      priority TEXT NOT NULL DEFAULT 'High',
+      assigned_staff_name TEXT,
+      assigned_staff_id TEXT,
+      fee_quote NUMERIC(12, 2) DEFAULT 5000.00,
+      target_deadline TEXT,
+      completed_date TEXT,
+      deliverable_file TEXT,
+      notes TEXT,
+      created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMP NOT NULL DEFAULT NOW()
+    );
+
+    CREATE TABLE IF NOT EXISTS compliance_calendar (
+      id TEXT PRIMARY KEY,
+      due_date TEXT NOT NULL,
+      display_date TEXT NOT NULL,
+      event_title TEXT NOT NULL,
+      category TEXT NOT NULL,
+      applicable_to TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'Upcoming',
+      description TEXT,
+      penalty_info TEXT,
+      is_auto_generated BOOLEAN NOT NULL DEFAULT true,
+      affected_clients_count INTEGER DEFAULT 0,
+      created_at TIMESTAMP NOT NULL DEFAULT NOW()
+    );
+
+    CREATE TABLE IF NOT EXISTS billing_invoices (
+      id TEXT PRIMARY KEY,
+      invoice_number TEXT NOT NULL UNIQUE,
+      client_id TEXT NOT NULL REFERENCES clients(id),
+      client_name TEXT NOT NULL,
+      service_description TEXT NOT NULL,
+      service_category TEXT NOT NULL,
+      period TEXT,
+      professional_fee NUMERIC(12, 2) NOT NULL DEFAULT 0.00,
+      gst_amount NUMERIC(12, 2) NOT NULL DEFAULT 0.00,
+      total_payable NUMERIC(12, 2) NOT NULL DEFAULT 0.00,
+      invoice_date TEXT NOT NULL,
+      due_date TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'Pending',
+      payment_mode TEXT,
+      receipt_number TEXT,
       created_at TIMESTAMP NOT NULL DEFAULT NOW(),
       updated_at TIMESTAMP NOT NULL DEFAULT NOW()
     );

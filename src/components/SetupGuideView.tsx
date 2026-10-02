@@ -12,9 +12,14 @@ import {
   Shield,
   Layers,
   Code2,
+  ArrowLeft,
 } from 'lucide-react';
 
-export const SetupGuideView: React.FC = () => {
+interface SetupGuideViewProps {
+  onBack?: () => void;
+}
+
+export const SetupGuideView: React.FC<SetupGuideViewProps> = ({ onBack }) => {
   const [activeSection, setActiveSection] = useState<'architecture' | 'costs' | 'samples' | 'n8n' | 'ocr'>('architecture');
   const [copiedCode, setCopiedCode] = useState<string | null>(null);
 
@@ -49,6 +54,15 @@ export const SetupGuideView: React.FC = () => {
     <div className="space-y-6 max-w-5xl mx-auto">
       {/* Top Banner */}
       <div className="bg-slate-900 text-white rounded-2xl p-6 shadow-md border border-slate-800">
+        {onBack && (
+          <button
+            onClick={onBack}
+            className="mb-3 px-3 py-1.5 bg-white/15 hover:bg-white/25 text-white rounded-xl text-xs font-bold transition flex items-center gap-1.5 w-fit border border-white/20 shadow-xs"
+          >
+            <ArrowLeft className="w-4 h-4" />
+            <span>Back to Cockpit</span>
+          </button>
+        )}
         <h2 className="text-xl font-bold">Architecture, Paid vs Free Costs & Setup Manual</h2>
         <p className="text-xs text-slate-300 mt-1">
           Beginner-friendly deployment guide for Chartered Accountants, IT administrators, and staff.

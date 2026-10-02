@@ -5,6 +5,11 @@ import { Header } from './components/Header.tsx';
 import { LoginPage } from './components/LoginPage.tsx';
 import { CaExecutiveCockpit } from './components/CaExecutiveCockpit.tsx';
 import { ClientsHubView } from './components/ClientsHubView.tsx';
+import { ClientDirectoryKycView } from './components/ClientDirectoryKycView.tsx';
+import { AdhocRequestsView } from './components/AdhocRequestsView.tsx';
+import { ComplianceCalendarView } from './components/ComplianceCalendarView.tsx';
+import { Next7DaysPendingTaxView } from './components/Next7DaysPendingTaxView.tsx';
+import { BillingFinanceView } from './components/BillingFinanceView.tsx';
 import { CaDashboard } from './components/CaDashboard.tsx';
 import { StaffReviewModal } from './components/StaffReviewModal.tsx';
 import { ClientPortalView } from './components/ClientPortalView.tsx';
@@ -12,6 +17,7 @@ import { WhatsAppSenderModal } from './components/WhatsAppSenderModal.tsx';
 import { AuditLogsView } from './components/AuditLogsView.tsx';
 import { SetupGuideView } from './components/SetupGuideView.tsx';
 import { ClientManagementModal } from './components/ClientManagementModal.tsx';
+import { WhatsAppDeviceLinkModal } from './components/WhatsAppDeviceLinkModal.tsx';
 
 export default function App() {
   // Check if opened via unique client portal link with token or direct client path
@@ -64,6 +70,7 @@ export default function App() {
     actionType: 'initial' | 'reminder';
   } | null>(null);
   const [isClientModalOpen, setIsClientModalOpen] = useState(false);
+  const [isWhatsAppDeviceModalOpen, setIsWhatsAppDeviceModalOpen] = useState(false);
   const [activePortalToken, setActivePortalToken] = useState<string | undefined>(
     tokenFromUrl || authenticatedUser?.token || undefined
   );
@@ -235,6 +242,7 @@ export default function App() {
         }}
         onRefresh={fetchMonthlyRequests}
         onLogout={handleLogout}
+        onOpenWhatsAppDevice={() => setIsWhatsAppDeviceModalOpen(true)}
         isLoading={loading}
         isClientOnlyMode={isClientOnlyMode}
       />
@@ -259,15 +267,17 @@ export default function App() {
 
             {/* Dedicated Clients Hub & KYC Directory */}
             {activeTab === 'clients' && (
-              <ClientsHubView
+              <ClientDirectoryKycView
+                onBack={() => setActiveTab('cockpit')}
                 onOpenClientPortal={handleOpenClientPortal}
                 onRefreshParent={fetchMonthlyRequests}
               />
             )}
 
-            {/* Detailed GST Filing Pipeline */}
+            {/* Routine Work (GST Filing Pipeline) */}
             {activeTab === 'gst-pipeline' && (
               <CaDashboard
+                onBack={() => setActiveTab('cockpit')}
                 requests={requests}
                 onOpenReview={req => setSelectedRequestForReview(req)}
                 onOpenWhatsApp={(req, actionType) => setWhatsappModalData({ request: req, actionType })}
@@ -280,13 +290,43 @@ export default function App() {
               />
             )}
 
-            {activeTab === 'client-portal' && (
-              <ClientPortalView initialToken={activePortalToken} />
+            {/* Adhoc Request Service Desk */}
+            {activeTab === 'adhoc-requests' && (
+              <AdhocRequestsView onBack={() => setActiveTab('cockpit')} />
             )}
 
-            {activeTab === 'audit-logs' && <AuditLogsView />}
+            {/* Statutory Compliance Calendar (Auto-Generate) */}
+            {activeTab === 'compliance-calendar' && (
+              <ComplianceCalendarView onBack={() => setActiveTab('cockpit')} />
+            )}
 
-            {activeTab === 'guide' && <SetupGuideView />}
+            {/* Next 7 Days Pending Tasks Radar (Accumulated Across All Sections) */}
+            {(activeTab === 'pending-tax' || activeTab === 'pending-task') && (
+              <Next7DaysPendingTaxView
+                onBack={() => setActiveTab('cockpit')}
+                onNavigateTab={setActiveTab}
+              />
+            )}
+
+            {/* Billing & Finance */}
+            {activeTab === 'billing-finance' && (
+              <BillingFinanceView onBack={() => setActiveTab('cockpit')} />
+            )}
+
+            {activeTab === 'client-portal' && (
+              <ClientPortalView
+                initialToken={activePortalToken}
+                onBack={() => setActiveTab('cockpit')}
+              />
+            )}
+
+            {activeTab === 'audit-logs' && (
+              <AuditLogsView onBack={() => setActiveTab('cockpit')} />
+            )}
+
+            {activeTab === 'guide' && (
+              <SetupGuideView onBack={() => setActiveTab('cockpit')} />
+            )}
           </>
         )}
       </main>
@@ -318,6 +358,14 @@ export default function App() {
           actionType={whatsappModalData.actionType}
           onClose={() => setWhatsappModalData(null)}
           onRefreshParent={fetchMonthlyRequests}
+        />
+      )}
+
+      {/* Open-Source WhatsApp Device Link Modal (Admin/Staff only) */}
+      {!isClientOnlyMode && (
+        <WhatsAppDeviceLinkModal
+          isOpen={isWhatsAppDeviceModalOpen}
+          onClose={() => setIsWhatsAppDeviceModalOpen(false)}
         />
       )}
 

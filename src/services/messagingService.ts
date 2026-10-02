@@ -145,11 +145,13 @@ export function createWhatsAppDeepLink(phone: string, text: string): string {
   return `https://wa.me/${cleanPhone}?text=${encodedText}`;
 }
 
+import { baileysWhatsAppManager } from './baileysService.js';
+
 /**
  * Handle dispatch according to mode:
- * - If Meta WhatsApp Business API credentials (META_WHATSAPP_TOKEN & META_PHONE_NUMBER_ID) exist => Real outbound API
- * - If not configured => Mode A (Manual WhatsApp link) or explicit simulated status
- * Never report "message sent" unless real API returns success!
+ * - Priority 1: Open-Source Linked WhatsApp Device (Baileys session on +91 98738 75138) => Real direct delivery!
+ * - Priority 2: If Meta WhatsApp Business API credentials exist => Real outbound API
+ * - Priority 3: Manual WhatsApp Web prefilled link or simulated test mode
  */
 export async function dispatchWhatsAppNotification(params: {
   phone: string;
@@ -169,6 +171,26 @@ export async function dispatchWhatsAppNotification(params: {
     };
   }
 
+  // Check 1: Open-Source Linked WhatsApp Device Session
+  if (baileysWhatsAppManager.isConnected()) {
+    try {
+      const sendRes = await baileysWhatsAppManager.sendTextMessage(params.phone, params.messageText);
+      if (sendRes.success) {
+        return {
+          mode: 'automated_meta_api',
+          status: 'sent',
+          whatsappDeepLink: manualLink,
+          messageText: params.messageText,
+          details: `Delivered directly via Linked WhatsApp (+91 98738 75138) [Msg ID: ${sendRes.messageId}]`,
+        };
+      } else {
+        console.warn('[WhatsApp Open-Source] Direct send failed, falling back:', sendRes.error);
+      }
+    } catch (err: any) {
+      console.error('[WhatsApp Open-Source] Error sending message:', err);
+    }
+  }
+
   // Automated Mode: Check if Meta API keys are configured in environment
   const metaToken = process.env.META_WHATSAPP_TOKEN;
   const phoneNumberId = process.env.META_PHONE_NUMBER_ID;
@@ -179,7 +201,7 @@ export async function dispatchWhatsAppNotification(params: {
       status: 'simulated_dev',
       whatsappDeepLink: manualLink,
       messageText: params.messageText,
-      details: 'Meta WhatsApp Business API not configured (META_WHATSAPP_TOKEN / META_PHONE_NUMBER_ID missing in .env). Message generated in Simulated Dev Mode with fallback manual link.',
+      details: 'WhatsApp Device is not currently linked. Open "WhatsApp Device" in dashboard header to scan QR code once with +91 98738 75138, or send manually.',
     };
   }
 
