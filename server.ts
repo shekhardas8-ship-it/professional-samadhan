@@ -3551,6 +3551,22 @@ app.post('/api/whatsapp/device-send-test', async (req: Request, res: Response) =
 // Serve synthetic files directly
 app.use('/synthetic_samples', express.static(path.resolve(process.cwd(), 'synthetic_samples')));
 
+// Health check endpoint for deployment monitoring
+app.get('/api/health', (_req: Request, res: Response) => {
+  const mem = process.memoryUsage();
+  res.json({
+    status: 'ok',
+    version: '1.2.1',
+    pdfEngine: 'pdf-parse-1.1.1-lightweight',
+    uptimeSeconds: Math.floor(process.uptime()),
+    memoryMb: {
+      rss: Math.round(mem.rss / 1024 / 1024),
+      heapUsed: Math.round(mem.heapUsed / 1024 / 1024),
+      heapTotal: Math.round(mem.heapTotal / 1024 / 1024),
+    },
+  });
+});
+
 // Explicit 404 for unhandled API routes (prevents returning index.html for failed /api requests)
 app.all('/api/*', (req: Request, res: Response) => {
   res.status(404).json({ error: `API route not found: ${req.method} ${req.originalUrl}` });
