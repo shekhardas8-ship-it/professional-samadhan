@@ -3543,6 +3543,33 @@ app.post('/api/whatsapp/device-send-test', async (req: Request, res: Response) =
 // Serve synthetic files directly
 app.use('/synthetic_samples', express.static(path.resolve(process.cwd(), 'synthetic_samples')));
 
+// Explicit 404 for unhandled API routes (prevents returning index.html for failed /api requests)
+app.all('/api/*', (req: Request, res: Response) => {
+  res.status(404).json({ error: `API route not found: ${req.method} ${req.originalUrl}` });
+});
+
+// Global error handling middleware for Multer, body parsing, and API route errors
+app.use((err: any, _req: Request, res: Response, next: express.NextFunction) => {
+  if (res.headersSent) {
+    return next(err);
+  }
+  console.error('[Server Error Handler]:', err);
+  if (err instanceof multer.MulterError) {
+    if (err.code === 'LIMIT_FILE_SIZE') {
+      return res.status(413).json({ error: 'File size exceeds maximum allowed limit (25MB per file).' });
+    }
+    if (err.code === 'LIMIT_FILE_COUNT') {
+      return res.status(400).json({ error: 'Too many files uploaded in a single batch (maximum 150 files).' });
+    }
+    return res.status(400).json({ error: `Upload error: ${err.message}` });
+  }
+  if (err) {
+    const statusCode = typeof err.status === 'number' ? err.status : (typeof err.statusCode === 'number' ? err.statusCode : 500);
+    return res.status(statusCode).json({ error: err.message || 'Internal server error occurred.' });
+  }
+  next();
+});
+
 
 
 // Vite middlewares for frontend SPA

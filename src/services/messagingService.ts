@@ -207,14 +207,16 @@ export async function dispatchWhatsAppNotification(params: {
 
   try {
     const formattedTo = formatWhatsAppPhone(params.phone);
+    const isOwnNumber = formattedTo === '919899267141' || formattedTo === '919873875138';
+
     // Meta WhatsApp Cloud API does not allow sending automated messages to the sender's own registered number
-    if (formattedTo === '919899267141') {
+    if (isOwnNumber) {
       return {
         mode: 'automated_meta_api',
         status: 'failed',
         whatsappDeepLink: manualLink,
         messageText: params.messageText,
-        details: `Meta WhatsApp API error (#100 Invalid parameter): Recipient phone (${params.phone}) is identical to your registered Meta WhatsApp Business Account (+91 98992 67141). Meta Cloud API does not permit sending automated bot messages to the sender's own number. Please update the client's phone number or click 'Send via Mode A (WhatsApp Web)'.`,
+        details: `Meta WhatsApp API restriction: Recipient phone (${params.phone}) is identical to your firm's own registered WhatsApp number. Meta does not permit sending automated bot messages to the sender's own number. Please update client's phone number or send via Mode A (WhatsApp Web).`,
       };
     }
 
@@ -257,10 +259,27 @@ export async function dispatchWhatsAppNotification(params: {
 
     const data = await res.json();
     if (!res.ok) {
-      let friendlyDetails = `Meta WhatsApp API error (${res.status}): ${JSON.stringify(data)}`;
-      if (data.error?.code === 100) {
-        friendlyDetails = `Meta WhatsApp API error (#100 Invalid parameter): Meta rejected the message to ${params.phone}. Note: Meta Cloud API does not allow messaging your own WhatsApp Business number (+91 98992 67141). Please update client's phone number or use Mode A (WhatsApp Web).`;
+      const errObj = data.error || {};
+      const errCode = errObj.code;
+      const errMsg = errObj.message || '';
+      const errDetails = errObj.error_data?.details || errObj.error_user_msg || '';
+
+      let friendlyDetails = `Meta WhatsApp API error (${res.status}): ${errMsg || JSON.stringify(data)}`;
+
+      if (errCode === 131030 || errMsg.includes('131030')) {
+        friendlyDetails = `Meta Developer Sandbox limitation (Code 131030): Recipient phone (${params.phone}) is not in your Meta Developer test whitelist. While in Developer/Sandbox mode, Meta only allows sending to up to 5 verified test numbers. Use Mode A (WhatsApp Web) to send directly.`;
+      } else if (
+        errCode === 131047 ||
+        errMsg.toLowerCase().includes('customer service window') ||
+        errMsg.toLowerCase().includes('outside') ||
+        errMsg.toLowerCase().includes('re-engagement') ||
+        (!templateName && errCode === 100)
+      ) {
+        friendlyDetails = `Meta Cloud API restriction (24-Hour Policy): Meta does not permit sending automated free-form text outside the 24-hour customer window without an approved template (Meta Error: ${errMsg || 'Free text not allowed outside 24h window'}). Please send via Mode A (WhatsApp Web) for instant 100% guaranteed delivery, or link your WhatsApp device.`;
+      } else if (errCode === 100) {
+        friendlyDetails = `Meta WhatsApp API error (#100 Invalid parameter): ${errMsg || errDetails || 'Invalid request parameter or template mismatch'}. Please send via Mode A (WhatsApp Web).`;
       }
+
       return {
         mode: 'automated_meta_api',
         status: 'failed',

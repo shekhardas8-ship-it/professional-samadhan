@@ -71,6 +71,64 @@ interface ClientPortalProps {
   onBack?: () => void;
 }
 
+/**
+ * Safely parse JSON response from server, gracefully handling HTML error pages
+ * (e.g. Render proxy timeouts, 413 payload limits, 502/504, or SPA fallback index.html)
+ */
+async function safeParseResponse(res: Response): Promise<any> {
+  const contentType = res.headers.get('content-type') || '';
+  if (contentType.includes('application/json')) {
+    try {
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.error || data.message || `Request failed with status ${res.status}`);
+      }
+      return data;
+    } catch (e: any) {
+      if (!res.ok && e.message) throw e;
+      throw new Error(`Invalid JSON response: ${e.message}`);
+    }
+  }
+
+  const text = await res.text();
+  if (!res.ok) {
+    if (res.status === 413) {
+      throw new Error('Upload size exceeded server limit (maximum 25MB per batch).');
+    }
+    if (res.status === 504) {
+      throw new Error('Server timeout: Cloud processing took longer than expected. Please try uploading fewer or smaller files.');
+    }
+    if (res.status === 502) {
+      throw new Error('Server temporarily unavailable (502 Bad Gateway). Please retry in a moment.');
+    }
+    if (text.includes('<title>')) {
+      const match = text.match(/<title>(.*?)<\/title>/i);
+      if (match && match[1]) {
+        throw new Error(`Server error (${res.status}): ${match[1]}`);
+      }
+    }
+    if (text.includes('<pre>')) {
+      const match = text.match(/<pre>(.*?)<\/pre>/is);
+      if (match && match[1]) {
+        const cleanPre = match[1].replace(/<[^>]+>/g, '').trim().split('\n')[0];
+        throw new Error(`Server error (${res.status}): ${cleanPre}`);
+      }
+    }
+    throw new Error(`Server returned error HTTP ${res.status}: ${res.statusText || 'Unexpected error'}`);
+  }
+
+  // If status is 200 but content is HTML (SPA index.html served for an unmatched API route)
+  if (text.trim().startsWith('<') || text.includes('<!DOCTYPE')) {
+    throw new Error('API connection notice: Server returned an HTML page instead of JSON data. Please refresh or retry.');
+  }
+
+  try {
+    return JSON.parse(text);
+  } catch {
+    return { text };
+  }
+}
+
 export const ClientPortalView: React.FC<ClientPortalProps> = ({ initialToken, isStandaloneClient = false, onBack }) => {
   const [token, setToken] = useState<string>(initialToken || '');
   const [availableClients, setAvailableClients] = useState<any[]>([]);
@@ -131,6 +189,7 @@ export const ClientPortalView: React.FC<ClientPortalProps> = ({ initialToken, is
     if (!session) return;
     try {
       setLoading(true);
+      setError(null);
       const res = await fetch(`/api/monthly-requests/${session.request.id}/declare-category`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -140,8 +199,7 @@ export const ClientPortalView: React.FC<ClientPortalProps> = ({ initialToken, is
           declaredBy: session.client.contactPerson,
         }),
       });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'Failed to update category declaration');
+      await safeParseResponse(res);
       await fetchSession(token);
       setSuccessMsg(status === 'nil' ? `Marked "${categoryId.replace('_', ' ')}" as Nil / None this month.` : `Reset declaration for "${categoryId.replace('_', ' ')}".`);
     } catch (err: any) {
@@ -157,11 +215,7 @@ export const ClientPortalView: React.FC<ClientPortalProps> = ({ initialToken, is
       setError(null);
       const queryParam = currentToken ? `?token=${encodeURIComponent(currentToken)}` : '';
       const res = await fetch(`/api/client-portal/session${queryParam}`);
-      if (!res.ok) {
-        const data = await res.json();
-        throw new Error(data.error || 'Failed to authenticate secure portal link.');
-      }
-      const data = await res.json();
+      const data = await safeParseResponse(res);
       setSession(data);
       if (data.client?.id && !token) {
         setToken(data.client.id);
@@ -172,7 +226,7 @@ export const ClientPortalView: React.FC<ClientPortalProps> = ({ initialToken, is
       }
     } catch (err: any) {
       setError(err.message);
-      setSession(null);
+      setSession((prev: any) => prev || null);
     } finally {
       setLoading(false);
     }
@@ -296,8 +350,7 @@ export const ClientPortalView: React.FC<ClientPortalProps> = ({ initialToken, is
         body: formData,
       });
 
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'Upload failed');
+      const data = await safeParseResponse(res);
 
       if (data.rejectedCount && data.rejectedCount > 0) {
         setRejectedFilesList(data.rejectedFiles || []);
@@ -346,6 +399,7 @@ export const ClientPortalView: React.FC<ClientPortalProps> = ({ initialToken, is
 
   const handleNilDeclarationSubmit = async () => {
     try {
+      setError(null);
       const res = await fetch(`/api/monthly-requests/${session.request.id}/declaration`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -355,7 +409,7 @@ export const ClientPortalView: React.FC<ClientPortalProps> = ({ initialToken, is
           declaredBy: declaredByName,
         }),
       });
-      if (!res.ok) throw new Error('Failed to record declaration');
+      await safeParseResponse(res);
       setShowNilDeclaration(false);
       setSuccessMsg('Nil transaction declaration recorded for CA audit review.');
       await fetchSession(token);
@@ -367,6 +421,7 @@ export const ClientPortalView: React.FC<ClientPortalProps> = ({ initialToken, is
   const handleClientConfirmWorkbook = async (action: 'approve' | 'request_corrections', workbookId: string) => {
     try {
       setIsSubmittingApproval(true);
+      setError(null);
       const res = await fetch(`/api/workbooks/${workbookId}/client-confirm`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -378,8 +433,7 @@ export const ClientPortalView: React.FC<ClientPortalProps> = ({ initialToken, is
         }),
       });
 
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'Failed to submit confirmation');
+      await safeParseResponse(res);
 
       setShowApproveDialog(false);
       setShowCorrectionsDialog(false);
@@ -472,9 +526,18 @@ export const ClientPortalView: React.FC<ClientPortalProps> = ({ initialToken, is
       )}
 
       {error && (
-        <div className="bg-rose-50 border border-rose-200 rounded-xl p-4 text-rose-800 text-sm flex items-center space-x-2">
-          <AlertCircle className="w-5 h-5 text-rose-600 shrink-0" />
-          <span>{error}</span>
+        <div className="bg-rose-50 border border-rose-200 rounded-xl p-4 text-rose-800 text-sm flex items-center justify-between shadow-xs animate-in fade-in">
+          <div className="flex items-center space-x-2">
+            <AlertCircle className="w-5 h-5 text-rose-600 shrink-0" />
+            <span>{error}</span>
+          </div>
+          <button
+            onClick={() => setError(null)}
+            className="p-1 text-rose-400 hover:text-rose-600 rounded transition"
+            title="Dismiss notice"
+          >
+            <X className="w-4 h-4" />
+          </button>
         </div>
       )}
 
