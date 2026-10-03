@@ -1,6 +1,6 @@
 // src/services/extractor.ts
 import crypto from 'crypto';
-import { PDFParse } from 'pdf-parse';
+import pdfParse from 'pdf-parse';
 import ExcelJS from 'exceljs';
 
 export interface ExtractedLineItemDto {
@@ -150,12 +150,12 @@ export async function extractDocumentContent(
   } else if (isPdf) {
     scanMethod = 'pdf_parse';
     try {
-      const parser = new PDFParse({ data: buffer, password: password || '' });
-      const parsed = await parser.getText();
+      const options: any = {};
+      if (password) options.password = password;
+      const parsed = await pdfParse(buffer, options);
       if (parsed && parsed.text && parsed.text.trim()) {
         cleanText = sanitizePostgresText(parsed.text);
       }
-      await parser.destroy();
     } catch (err: any) {
       console.warn(`PDFParse notice for ${filename}:`, err?.message || err);
       if (err?.name === 'PasswordException' || (err?.message && err.message.toLowerCase().includes('password'))) {
@@ -1055,9 +1055,7 @@ export async function testPdfPasswordStatus(
 
   // 1. Try reading without a password
   try {
-    const parser = new PDFParse({ data: buffer });
-    await parser.getText();
-    await parser.destroy();
+    await pdfParse(buffer);
     return { isLocked: false, scanNotes: null };
   } catch (err: any) {
     const msg = (err?.message || '').toLowerCase();
@@ -1069,9 +1067,7 @@ export async function testPdfPasswordStatus(
     // PDF is genuinely password-protected. Try provided password:
     if (providedPassword && providedPassword.trim()) {
       try {
-        const parserWithPwd = new PDFParse({ data: buffer, password: providedPassword.trim() });
-        await parserWithPwd.getText();
-        await parserWithPwd.destroy();
+        await pdfParse(buffer, { password: providedPassword.trim() });
         return { isLocked: false, scanNotes: 'Protected PDF unlocked with provided password' };
       } catch (_) {
         return { isLocked: true, scanNotes: 'Protected PDF (Password incorrect)' };

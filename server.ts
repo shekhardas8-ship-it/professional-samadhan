@@ -48,6 +48,14 @@ import { baileysWhatsAppManager } from './src/services/baileysService.ts';
 const app = express();
 const PORT = process.env.PORT || 3000;
 
+// Production stability: Prevent unhandled errors from terminating the Node server process
+process.on('uncaughtException', (err: any) => {
+  console.error('[UNCAUGHT EXCEPTION PREVENTED]:', err?.message || err);
+});
+process.on('unhandledRejection', (reason: any) => {
+  console.error('[UNHANDLED REJECTION PREVENTED]:', reason?.message || reason);
+});
+
 // Security Hardening: Disable information disclosure headers
 app.disable('x-powered-by');
 

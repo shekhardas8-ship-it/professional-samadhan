@@ -127,15 +127,17 @@ export function runValidationChecks(params: {
   // 3. Expected Bank Accounts Coverage Check
   if (client.expectedBankAccounts && client.expectedBankAccounts.length > 0 && !request.noTransactionsDeclared) {
     for (const expectedAcc of client.expectedBankAccounts) {
+      const expLast4 = expectedAcc.accountNumber ? expectedAcc.accountNumber.slice(-4) : '';
+      const expBankName = (expectedAcc.bankName || '').toLowerCase();
       const found = bankTransactions.some(tx => 
-        tx.accountNumber.endsWith(expectedAcc.accountNumber.slice(-4)) || 
-        tx.bankName.toLowerCase().includes(expectedAcc.bankName.toLowerCase())
+        (expLast4 && tx.accountNumber && tx.accountNumber.endsWith(expLast4)) || 
+        (expBankName && tx.bankName && tx.bankName.toLowerCase().includes(expBankName))
       );
       if (!found) {
         exceptions.push({
           severity: 'warning',
           checkType: 'period_coverage_gap',
-          message: `Expected bank statement missing for ${expectedAcc.bankName} (Account ending in ${expectedAcc.accountNumber.slice(-4)}).`,
+          message: `Expected bank statement missing for ${expectedAcc.bankName} (Account ending in ${expLast4}).`,
           details: { bankName: expectedAcc.bankName, accountNumber: expectedAcc.accountNumber },
         });
       }
