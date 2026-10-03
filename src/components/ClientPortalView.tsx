@@ -653,7 +653,7 @@ export const ClientPortalView: React.FC<ClientPortalProps> = ({ initialToken, is
 
           <div className="flex flex-wrap items-center justify-between gap-2 text-xs pt-1">
             <div className="text-emerald-300">
-              Status: <strong>{uploadAckData.dispatchResult?.mode === 'automated_meta_api' ? 'WhatsApp Sent Automatically via Meta API' : 'Acknowledgement Logged & Prepared'}</strong>
+              Status: <strong>{uploadAckData.dispatchResult?.status === 'sent' ? 'WhatsApp Sent Automatically via OpenWA Bot' : 'Acknowledgement Logged & Prepared'}</strong>
             </div>
 
             {uploadAckData.dispatchResult?.whatsappDeepLink && (

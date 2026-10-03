@@ -1279,7 +1279,7 @@ app.post('/api/scheduler/run-monthly', requireWorkerOrAuth, async (req: AuthRequ
     const triggerResult = await triggerMonthlyIntakeRequests({
       overridePeriod: periodInfo,
       appBaseUrl: baseUrl,
-      messagingMode: mode || (process.env.META_WHATSAPP_TOKEN ? 'automated' : 'manual'),
+      messagingMode: mode || (baileysWhatsAppManager.isConnected() ? 'automated' : 'manual'),
     });
 
     console.log(`[n8n Scheduler] Monthly run triggered for ${triggerResult.period.reportingMonth}. Total clients: ${triggerResult.totalClients}`);
@@ -1300,7 +1300,7 @@ app.post('/api/scheduler/check-reminders', requireWorkerOrAuth, async (req: Auth
 
     const results = await checkAndDispatchDueReminders({
       appBaseUrl: baseUrl,
-      messagingMode: mode || (process.env.META_WHATSAPP_TOKEN ? 'automated' : 'manual'),
+      messagingMode: mode || (baileysWhatsAppManager.isConnected() ? 'automated' : 'manual'),
     });
 
     console.log(`[n8n Scheduler] Daily reminders checked: ${results.totalChecked} checked, ${results.processedCount} processed.`);
@@ -1930,7 +1930,7 @@ app.post('/api/documents/upload', upload.array('files', 150), async (req: Reques
       phone: client.registeredPhone,
       recipientName: client.contactPerson,
       messageText: ackMessageText,
-      mode: process.env.META_WHATSAPP_TOKEN ? 'automated' : 'manual',
+      mode: baileysWhatsAppManager.isConnected() ? 'automated' : 'manual',
     });
 
     // Log acknowledgement in audit notifications table
@@ -1939,7 +1939,7 @@ app.post('/api/documents/upload', upload.array('files', 150), async (req: Reques
       monthlyRequestId,
       clientId: client.id,
       eventType: 'receipt_acknowledged',
-      channel: dispatchResult.mode === 'automated_meta_api' ? 'whatsapp_cloud_api' : 'whatsapp_manual',
+      channel: dispatchResult.mode === 'automated_openwa' || dispatchResult.mode === 'automated_meta_api' ? 'whatsapp_openwa' : 'whatsapp_manual',
       recipient: client.registeredPhone,
       messageBody: ackMessageText,
       status: dispatchResult.status,
@@ -2555,9 +2555,9 @@ app.get('/api/monthly-requests/:id/download-package', async (req: Request, res: 
     res.setHeader('Content-Type', 'application/zip');
     res.setHeader('Content-Disposition', `attachment; filename="${zipFilename}"`);
 
-    const archive = new ZipArchive({ zlib: { level: 9 } });
+    const archive = archiver('zip', { zlib: { level: 9 } });
 
-    archive.on('error', (err) => {
+    archive.on('error', (err: any) => {
       console.error('Archive error:', err);
       if (!res.headersSent) res.status(500).send({ error: err.message });
     });

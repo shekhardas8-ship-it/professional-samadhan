@@ -4,6 +4,7 @@ import { db } from '../db/index.ts';
 import { clients, monthlyRequests, auditNotifications, validationExceptions } from '../db/schema.ts';
 import { eq, and } from 'drizzle-orm';
 import { generateMonthlyRequestMessage, generateReminderMessage, dispatchWhatsAppNotification } from './messagingService.ts';
+import { baileysWhatsAppManager } from './baileysService.ts';
 
 export interface MonthlyPeriodInfo {
   year: number;
@@ -192,7 +193,7 @@ export async function checkAndDispatchDueReminders(params?: {
   messagingMode?: 'manual' | 'automated';
 }) {
   const baseUrl = params?.appBaseUrl || process.env.APP_URL || 'http://localhost:3000';
-  const messagingMode = params?.messagingMode || (process.env.META_WHATSAPP_TOKEN ? 'automated' : 'manual');
+  const messagingMode = params?.messagingMode || (baileysWhatsAppManager.isConnected() ? 'automated' : 'manual');
   const now = new Date();
 
   const pendingRequests = await db

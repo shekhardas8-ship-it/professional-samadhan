@@ -1,7 +1,7 @@
 // src/services/messagingService.ts
 
 export interface MessageDispatchResult {
-  mode: 'manual' | 'automated_meta_api' | 'simulated_dev';
+  mode: 'manual' | 'automated' | 'automated_openwa' | 'automated_meta_api' | 'simulated_dev';
   status: 'prepared' | 'sent' | 'failed' | 'simulated_dev';
   whatsappDeepLink?: string;
   messageText: string;
@@ -149,9 +149,8 @@ import { baileysWhatsAppManager } from './baileysService.js';
 
 /**
  * Handle dispatch according to mode:
- * - Priority 1: Open-Source Linked WhatsApp Device (Baileys session on +91 98738 75138) => Real direct delivery!
- * - Priority 2: If Meta WhatsApp Business API credentials exist => Real outbound API
- * - Priority 3: Manual WhatsApp Web prefilled link or simulated test mode
+ * - Mode A ('manual'): WhatsApp Web / Mobile click-to-chat deep link (100% reliable, 0 restrictions)
+ * - Mode B ('automated'): OpenWA / Baileys Linked Device (+91 98738 75138) with zero Meta fees and direct push
  */
 export async function dispatchWhatsAppNotification(params: {
   phone: string;
@@ -167,142 +166,50 @@ export async function dispatchWhatsAppNotification(params: {
       status: 'prepared',
       whatsappDeepLink: manualLink,
       messageText: params.messageText,
-      details: 'Manual WhatsApp mode: Message prepared. Click "Open WhatsApp" to send via WhatsApp Web/Desktop.',
+      details: 'Manual WhatsApp mode: Message prepared. Click "Open in WhatsApp Web" to send with 1 click.',
     };
   }
 
-  // Check 1: Open-Source Linked WhatsApp Device Session
+  // Automated Mode: Send directly via OpenWA Linked WhatsApp Device Session
   if (baileysWhatsAppManager.isConnected()) {
     try {
       const sendRes = await baileysWhatsAppManager.sendTextMessage(params.phone, params.messageText);
       if (sendRes.success) {
         return {
-          mode: 'automated_meta_api',
+          mode: 'automated_openwa',
           status: 'sent',
           whatsappDeepLink: manualLink,
           messageText: params.messageText,
-          details: `Delivered directly via Linked WhatsApp (+91 98738 75138) [Msg ID: ${sendRes.messageId}]`,
+          details: `Delivered directly via OpenWA Linked WhatsApp (+91 98738 75138) [Msg ID: ${sendRes.messageId}]`,
         };
       } else {
-        console.warn('[WhatsApp Open-Source] Direct send failed, falling back:', sendRes.error);
+        console.warn('[OpenWA WhatsApp] Direct send failed:', sendRes.error);
+        return {
+          mode: 'automated_openwa',
+          status: 'failed',
+          whatsappDeepLink: manualLink,
+          messageText: params.messageText,
+          details: `OpenWA delivery failed: ${sendRes.error || 'Recipient could not be reached'}. Please send via Mode A (WhatsApp Web).`,
+        };
       }
     } catch (err: any) {
-      console.error('[WhatsApp Open-Source] Error sending message:', err);
-    }
-  }
-
-  // Automated Mode: Check if Meta API keys are configured in environment
-  const metaToken = process.env.META_WHATSAPP_TOKEN;
-  const phoneNumberId = process.env.META_PHONE_NUMBER_ID;
-
-  if (!metaToken || !phoneNumberId) {
-    return {
-      mode: 'simulated_dev',
-      status: 'simulated_dev',
-      whatsappDeepLink: manualLink,
-      messageText: params.messageText,
-      details: 'WhatsApp Device is not currently linked. Open "WhatsApp Device" in dashboard header to scan QR code once with +91 98738 75138, or send manually.',
-    };
-  }
-
-  try {
-    const formattedTo = formatWhatsAppPhone(params.phone);
-    const isOwnNumber = formattedTo === '919899267141' || formattedTo === '919873875138';
-
-    // Meta WhatsApp Cloud API does not allow sending automated messages to the sender's own registered number
-    if (isOwnNumber) {
+      console.error('[OpenWA WhatsApp] Error sending message:', err);
       return {
-        mode: 'automated_meta_api',
+        mode: 'automated_openwa',
         status: 'failed',
         whatsappDeepLink: manualLink,
         messageText: params.messageText,
-        details: `Meta WhatsApp API restriction: Recipient phone (${params.phone}) is identical to your firm's own registered WhatsApp number. Meta does not permit sending automated bot messages to the sender's own number. Please update client's phone number or send via Mode A (WhatsApp Web).`,
+        details: `OpenWA error: ${err.message}. Please send via Mode A (WhatsApp Web).`,
       };
     }
-
-    const templateName = process.env.META_WHATSAPP_TEMPLATE_NAME;
-
-    const requestPayload: any = templateName
-      ? {
-          messaging_product: 'whatsapp',
-          to: formattedTo,
-          type: 'template',
-          template: {
-            name: templateName,
-            language: { code: process.env.META_WHATSAPP_TEMPLATE_LANG || 'en' },
-            components: [
-              {
-                type: 'body',
-                parameters: [
-                  { type: 'text', text: params.recipientName },
-                  { type: 'text', text: params.messageText.slice(0, 1000) },
-                ],
-              },
-            ],
-          },
-        }
-      : {
-          messaging_product: 'whatsapp',
-          to: formattedTo,
-          type: 'text',
-          text: { body: params.messageText },
-        };
-
-    const res = await fetch(`https://graph.facebook.com/v19.0/${phoneNumberId}/messages`, {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${metaToken}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify(requestPayload),
-    });
-
-    const data = await res.json();
-    if (!res.ok) {
-      const errObj = data.error || {};
-      const errCode = errObj.code;
-      const errMsg = errObj.message || '';
-      const errDetails = errObj.error_data?.details || errObj.error_user_msg || '';
-
-      let friendlyDetails = `Meta WhatsApp API error (${res.status}): ${errMsg || JSON.stringify(data)}`;
-
-      if (errCode === 131030 || errMsg.includes('131030')) {
-        friendlyDetails = `Meta Developer Sandbox limitation (Code 131030): Recipient phone (${params.phone}) is not in your Meta Developer test whitelist. While in Developer/Sandbox mode, Meta only allows sending to up to 5 verified test numbers. Use Mode A (WhatsApp Web) to send directly.`;
-      } else if (
-        errCode === 131047 ||
-        errMsg.toLowerCase().includes('customer service window') ||
-        errMsg.toLowerCase().includes('outside') ||
-        errMsg.toLowerCase().includes('re-engagement') ||
-        (!templateName && errCode === 100)
-      ) {
-        friendlyDetails = `Meta Cloud API restriction (24-Hour Policy): Meta does not permit sending automated free-form text outside the 24-hour customer window without an approved template (Meta Error: ${errMsg || 'Free text not allowed outside 24h window'}). Please send via Mode A (WhatsApp Web) for instant 100% guaranteed delivery, or link your WhatsApp device.`;
-      } else if (errCode === 100) {
-        friendlyDetails = `Meta WhatsApp API error (#100 Invalid parameter): ${errMsg || errDetails || 'Invalid request parameter or template mismatch'}. Please send via Mode A (WhatsApp Web).`;
-      }
-
-      return {
-        mode: 'automated_meta_api',
-        status: 'failed',
-        whatsappDeepLink: manualLink,
-        messageText: params.messageText,
-        details: friendlyDetails,
-      };
-    }
-
-    return {
-      mode: 'automated_meta_api',
-      status: 'sent',
-      whatsappDeepLink: manualLink,
-      messageText: params.messageText,
-      details: `Dispatched via Meta WhatsApp Cloud API (Message ID: ${data.messages?.[0]?.id || 'unknown'})`,
-    };
-  } catch (err: any) {
-    return {
-      mode: 'automated_meta_api',
-      status: 'failed',
-      whatsappDeepLink: manualLink,
-      messageText: params.messageText,
-      details: `Network error connecting to Meta WhatsApp Cloud API: ${err.message}`,
-    };
   }
+
+  // OpenWA WhatsApp Device is not connected
+  return {
+    mode: 'simulated_dev',
+    status: 'failed',
+    whatsappDeepLink: manualLink,
+    messageText: params.messageText,
+    details: 'OpenWA WhatsApp Device is not currently connected. Open "WhatsApp Bot" in the top header to scan the QR code or enter the 8-digit pairing code once with your phone (+91 98738 75138), or click below to send via Mode A (WhatsApp Web).',
+  };
 }

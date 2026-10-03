@@ -18,6 +18,7 @@ interface WhatsAppSenderModalProps {
   actionType: 'initial' | 'reminder';
   onClose: () => void;
   onRefreshParent: () => void;
+  onOpenDeviceLinkModal?: () => void;
 }
 
 export const WhatsAppSenderModal: React.FC<WhatsAppSenderModalProps> = ({
@@ -25,6 +26,7 @@ export const WhatsAppSenderModal: React.FC<WhatsAppSenderModalProps> = ({
   actionType,
   onClose,
   onRefreshParent,
+  onOpenDeviceLinkModal,
 }) => {
   const [messagingMode, setMessagingMode] = useState<'manual' | 'automated'>('manual');
   const [isSending, setIsSending] = useState(false);
@@ -127,19 +129,12 @@ Team Professional Samadhan`;
     }
   };
 
-  const isRecipientOwnNumber =
-    (cleanPhone.endsWith('9899267141') || cleanPhone.endsWith('9873875138')) &&
-    (dispatchResult?.details?.includes('own registered') || dispatchResult?.details?.includes('own WhatsApp'));
-
-  const isSandboxLimitation = dispatchResult?.details?.includes('131030');
-
-  const isCustomerWindowOrTemplateRestriction =
-    dispatchResult?.details?.includes('24-Hour Policy') ||
-    dispatchResult?.details?.includes('customer service window') ||
-    dispatchResult?.details?.includes('customer window') ||
-    dispatchResult?.details?.includes('outside') ||
-    dispatchResult?.details?.includes('#100') ||
-    dispatchResult?.details?.includes('Invalid parameter');
+  const isOpenWADisconnected =
+    dispatchResult &&
+    dispatchResult.status === 'failed' &&
+    (dispatchResult.details?.includes('not currently connected') ||
+      dispatchResult.details?.includes('OpenWA') ||
+      dispatchResult.details?.includes('link device'));
 
   return (
     <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
@@ -183,7 +178,7 @@ Team Professional Samadhan`;
                 <span>Mode A: WhatsApp Web / App</span>
                 <span className="text-[9px] px-1.5 py-0.5 bg-emerald-100 text-emerald-800 font-bold rounded">100% Delivery</span>
               </div>
-              <div className="text-[11px] text-slate-500 mt-0.5">Click-to-chat. Delivers to ANY client immediately without Meta 24-hr restrictions.</div>
+              <div className="text-[11px] text-slate-500 mt-0.5">Click-to-chat deep link. Sends directly to ANY client via WhatsApp Web/App with 1 click.</div>
             </button>
 
             <button
@@ -199,7 +194,7 @@ Team Professional Samadhan`;
                 <span>Mode B: Automated WhatsApp Bot</span>
                 <span className="text-[9px] px-1.5 py-0.5 bg-emerald-100 text-emerald-800 font-bold rounded">Direct Push</span>
               </div>
-              <div className="text-[11px] text-slate-500 mt-0.5">Automated push from linked number (+91 98738 75138). Delivers to client instantly with 0 fees.</div>
+              <div className="text-[11px] text-slate-500 mt-0.5">Automated push from OpenWA linked number (+91 98738 75138). Delivers to client instantly with 0 fees.</div>
             </button>
           </div>
         </div>
@@ -227,7 +222,7 @@ Team Professional Samadhan`;
         {/* Status Callout if dispatched */}
         {dispatchResult && (
           <div
-            className={`p-3 rounded-lg text-xs space-y-2 border ${
+            className={`p-3.5 rounded-xl text-xs space-y-2 border ${
               dispatchResult.status === 'sent'
                 ? 'bg-emerald-50 border-emerald-200 text-emerald-800'
                 : dispatchResult.status === 'prepared' || dispatchResult.status === 'simulated_dev'
@@ -235,108 +230,59 @@ Team Professional Samadhan`;
                 : 'bg-rose-50 border-rose-200 text-rose-800'
             }`}
           >
-            <div className="font-bold uppercase tracking-wider text-[10px]">
-              Dispatch Status: {dispatchResult.status}
+            <div className="font-bold uppercase tracking-wider text-[10px] flex items-center justify-between">
+              <span>Dispatch Status: {dispatchResult.status}</span>
+              {dispatchResult.status === 'sent' && (
+                <span className="flex items-center gap-1 text-emerald-700 font-semibold lowercase">
+                  <CheckCircle2 className="w-3.5 h-3.5" /> delivered
+                </span>
+              )}
             </div>
-            {isRecipientOwnNumber ? (
-              <div className="space-y-1.5 text-xs text-rose-900">
-                <p className="font-semibold">
-                  ⚠️ Meta Cloud API Restriction: Cannot Message Own WhatsApp Business Number
-                </p>
-                <p className="text-[11px] text-slate-700">
-                  The recipient phone number ({request.registeredPhone}) is identical to your firm's registered Meta WhatsApp Business Account. Meta does not allow an automated bot to send API messages to its own phone number.
-                </p>
-                <p className="text-[11px] text-slate-700">
-                  To send via automated bot, edit this client's profile in <strong>Client Management</strong> with their actual mobile number. You can also send immediately using <strong>Mode A (WhatsApp Web)</strong>:
-                </p>
-                <div className="pt-1 flex items-center gap-2">
-                  <button
-                    type="button"
-                    onClick={handleSendModeA}
-                    disabled={isSending}
-                    className="inline-flex items-center space-x-1.5 px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded text-xs font-semibold shadow-sm transition"
-                  >
-                    <ExternalLink className="w-3.5 h-3.5" />
-                    <span>Send via Mode A (WhatsApp Web)</span>
-                  </button>
-                  <span className="text-[10px] text-slate-500">1-click open with prefilled message</span>
-                </div>
-              </div>
-            ) : isSandboxLimitation ? (
-              <div className="space-y-1.5 text-xs text-rose-900">
-                <p className="font-semibold">
-                  ⚠️ Meta Developer Sandbox Limitation (Code 131030):
-                </p>
-                <p className="text-[11px] text-slate-700">
-                  This recipient phone number ({request.registeredPhone}) is not in your Meta Developer test whitelist. While your Meta App is in Developer/Sandbox mode, Meta only allows sending to up to 5 verified test numbers.
-                </p>
-                <div className="pt-1 flex items-center gap-2">
-                  <button
-                    type="button"
-                    onClick={handleSendModeA}
-                    disabled={isSending}
-                    className="inline-flex items-center space-x-1.5 px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded text-xs font-semibold shadow-sm transition"
-                  >
-                    <ExternalLink className="w-3.5 h-3.5" />
-                    <span>Send via Mode A (WhatsApp Web)</span>
-                  </button>
-                  <span className="text-[10px] text-slate-500">Works 100% free with any phone number!</span>
-                </div>
-              </div>
-            ) : isCustomerWindowOrTemplateRestriction ? (
-              <div className="space-y-1.5 text-xs text-rose-900">
-                <p className="font-semibold">
-                  ⚠️ Meta Cloud API Restriction: 24-Hour Customer Window Policy
-                </p>
-                <p className="text-[11px] text-slate-700">
-                  The recipient <strong>{request.contactPerson} ({request.registeredPhone})</strong> has not messaged your WhatsApp Business number within the last 24 hours. Under Meta WhatsApp policies, automated free-form messages cannot be pushed directly unless the client messaged first or an approved Meta template is used.
-                </p>
-                <p className="text-[11px] text-slate-700">
-                  You can deliver this reminder to {request.contactPerson} immediately with 1-click using <strong>Mode A (WhatsApp Web)</strong> with 100% guaranteed delivery:
-                </p>
-                <div className="pt-1 flex items-center gap-2">
-                  <button
-                    type="button"
-                    onClick={handleSendModeA}
-                    disabled={isSending}
-                    className="inline-flex items-center space-x-1.5 px-3.5 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg text-xs font-semibold shadow-sm transition"
-                  >
-                    <ExternalLink className="w-3.5 h-3.5" />
-                    <span>Send via Mode A (WhatsApp Web)</span>
-                  </button>
-                  <span className="text-[10px] text-slate-500 font-medium">100% Free • Direct Delivery</span>
-                </div>
-              </div>
-            ) : dispatchResult.status === 'sent' && dispatchResult.mode === 'automated_meta_api' ? (
-              <div className="space-y-2 text-xs">
-                <p className="font-medium text-emerald-900">{dispatchResult.details}</p>
-                <div className="p-2.5 bg-white/80 rounded border border-emerald-300 text-slate-800 space-y-1.5 shadow-sm">
-                  <p className="font-semibold text-emerald-900 text-[11px] flex items-center gap-1">
-                    <span>📱 Note on Client Phone Delivery:</span>
+
+            {dispatchResult.status === 'sent' ? (
+              <div className="space-y-1.5 text-xs text-emerald-900">
+                <p className="font-semibold">{dispatchResult.details}</p>
+                {dispatchResult.mode === 'manual' && (
+                  <p className="text-[11px] text-slate-600">
+                    Opened in WhatsApp Web / App. Audit trail and reminder counter updated successfully.
                   </p>
-                  <p className="text-[11px] text-slate-600 leading-relaxed">
-                    Meta accepted the API dispatch. Under WhatsApp Business policies, Meta delivers free-text messages to phones that have messaged your WhatsApp Business number within the last 24 hours (or numbers on your Meta test list).
-                  </p>
-                  <p className="text-[11px] text-slate-700 font-medium">
-                    If this client has not messaged you recently and did not see the message, send directly with 1 click:
-                  </p>
-                  <div className="pt-1">
+                )}
+              </div>
+            ) : isOpenWADisconnected ? (
+              <div className="space-y-2 text-xs text-rose-900">
+                <p className="font-semibold flex items-center gap-1.5">
+                  <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0" />
+                  <span>OpenWA WhatsApp Bot Device Disconnected</span>
+                </p>
+                <p className="text-[11px] text-slate-700 leading-relaxed">
+                  Your OpenWA WhatsApp session (+91 98738 75138) is currently not connected to the server. You can link it now via QR/Pairing code, or immediately deliver this message using <strong>Mode A (WhatsApp Web)</strong>:
+                </p>
+                <div className="pt-1 flex flex-wrap items-center gap-2">
+                  {onOpenDeviceLinkModal && (
                     <button
                       type="button"
-                      onClick={handleSendModeA}
-                      disabled={isSending}
-                      className="inline-flex items-center space-x-1.5 px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded text-xs font-bold shadow-sm transition"
+                      onClick={onOpenDeviceLinkModal}
+                      className="inline-flex items-center space-x-1.5 px-3 py-1.5 bg-blue-600 hover:bg-blue-500 text-white rounded text-xs font-semibold shadow-sm transition"
                     >
-                      <ExternalLink className="w-3.5 h-3.5" />
-                      <span>Open in WhatsApp Web / App (Guaranteed 100% Delivery)</span>
+                      <MessageSquare className="w-3.5 h-3.5" />
+                      <span>Link OpenWA WhatsApp Device</span>
                     </button>
-                  </div>
+                  )}
+                  <button
+                    type="button"
+                    onClick={handleSendModeA}
+                    disabled={isSending}
+                    className="inline-flex items-center space-x-1.5 px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded text-xs font-semibold shadow-sm transition"
+                  >
+                    <ExternalLink className="w-3.5 h-3.5" />
+                    <span>Send via Mode A (WhatsApp Web)</span>
+                  </button>
                 </div>
               </div>
             ) : (
               <div className="space-y-2">
                 <p className="text-[11px] text-rose-900 font-medium">{dispatchResult.details}</p>
-                <div className="pt-1">
+                <div className="pt-1 flex items-center gap-2">
                   <button
                     type="button"
                     onClick={handleSendModeA}
@@ -346,6 +292,7 @@ Team Professional Samadhan`;
                     <ExternalLink className="w-3.5 h-3.5" />
                     <span>Send via Mode A (WhatsApp Web)</span>
                   </button>
+                  <span className="text-[10px] text-slate-500">1-click instant delivery</span>
                 </div>
               </div>
             )}
@@ -354,11 +301,11 @@ Team Professional Samadhan`;
 
         {/* Footer Actions */}
         <div className="flex flex-col sm:flex-row items-center justify-between gap-3 pt-3 border-t border-slate-100">
-          <div className="text-[11px] text-slate-400">
+          <div className="text-[11px] text-slate-500">
             {messagingMode === 'manual' ? (
-              <span>Staff explicitly clicks to launch WhatsApp chat.</span>
+              <span>Staff launches WhatsApp Web chat with prefilled text.</span>
             ) : (
-              <span>Automated Bot (Linked WhatsApp Device / Meta API).</span>
+              <span>OpenWA Linked Device (+91 98738 75138) • 100% Free.</span>
             )}
           </div>
 
@@ -389,7 +336,7 @@ Team Professional Samadhan`;
                 className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white text-xs font-bold rounded-lg shadow transition flex items-center space-x-1.5"
               >
                 <Send className="w-3.5 h-3.5" />
-                <span>{isSending ? 'Sending API Request...' : 'Dispatch Automated Bot'}</span>
+                <span>{isSending ? 'Sending via OpenWA...' : 'Dispatch via OpenWA Bot'}</span>
               </button>
             )}
           </div>

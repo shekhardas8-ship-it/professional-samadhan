@@ -358,6 +358,10 @@ export default function App() {
           actionType={whatsappModalData.actionType}
           onClose={() => setWhatsappModalData(null)}
           onRefreshParent={fetchMonthlyRequests}
+          onOpenDeviceLinkModal={() => {
+            setWhatsappModalData(null);
+            setIsWhatsAppDeviceModalOpen(true);
+          }}
         />
       )}
 
