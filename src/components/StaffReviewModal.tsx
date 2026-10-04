@@ -199,8 +199,8 @@ export const StaffReviewModal: React.FC<StaffReviewModalProps> = ({
       // Regex search for invoice number e.g. "Invoice INV-2026027" or "LBAABA270076859"
       const match = ex.message.match(/(?:Invoice|Bill|doc|#)\s*([A-Za-z0-9_\-]+)/i);
       if (match && match[1]) {
-        const docNo = match[1].trim().toLowerCase();
-        targetDoc = details.extractedDocuments.find(d => d.docNumber && d.docNumber.toLowerCase().includes(docNo));
+        const docNo = String(match[1]).trim().toLowerCase();
+        targetDoc = details.extractedDocuments.find(d => d.docNumber && String(d.docNumber).toLowerCase().includes(docNo));
       }
     }
 
@@ -225,11 +225,13 @@ export const StaffReviewModal: React.FC<StaffReviewModalProps> = ({
     // 1. Switch to Validation Exceptions tab
     setActiveTab('exceptions');
 
-    // 2. Identify target exception matching this document unit, file id, or invoice number
-    const targetEx = details?.exceptions.find(ex => {
+    // 2. Identify target exception matching this document unit, file id, or invoice number safely
+    const targetEx = (details?.exceptions || []).find(ex => {
       if (ex.documentUnitId && ex.documentUnitId === doc.id) return true;
       if (ex.documentFileId && ex.documentFileId === doc.documentFileId) return true;
-      if (doc.docNumber && ex.message && ex.message.toLowerCase().includes(doc.docNumber.toLowerCase())) return true;
+      const dNum = String(doc.docNumber || '').trim().toLowerCase();
+      const eMsg = String(ex.message || '').trim().toLowerCase();
+      if (dNum && eMsg && eMsg.includes(dNum)) return true;
       return false;
     });
 
@@ -263,14 +265,16 @@ export const StaffReviewModal: React.FC<StaffReviewModalProps> = ({
       if (!res.ok) throw new Error('Failed to mark invoice as verified');
 
       // Also resolve any open exceptions associated with this document
-      const matchingDoc = details?.extractedDocuments.find(d => d.id === docId);
-      const docExceptions = details?.exceptions.filter(ex => {
+      const matchingDoc = details?.extractedDocuments?.find(d => d.id === docId);
+      const docExceptions = (details?.exceptions || []).filter(ex => {
         if (ex.resolved) return false;
         if (ex.documentUnitId && ex.documentUnitId === docId) return true;
         if (matchingDoc && ex.documentFileId && ex.documentFileId === matchingDoc.documentFileId) return true;
-        if (matchingDoc?.docNumber && ex.message && ex.message.toLowerCase().includes(matchingDoc.docNumber.toLowerCase())) return true;
+        const dNum = String(matchingDoc?.docNumber || '').trim().toLowerCase();
+        const eMsg = String(ex.message || '').trim().toLowerCase();
+        if (dNum && eMsg && eMsg.includes(dNum)) return true;
         return false;
-      }) || [];
+      });
 
       for (const ex of docExceptions) {
         await fetch(`/api/validation-exceptions/${ex.id}`, {
@@ -789,25 +793,31 @@ export const StaffReviewModal: React.FC<StaffReviewModalProps> = ({
               {/* TAB 1: INVOICES & NOTES */}
               {activeTab === 'invoices' && (
                 <div className="space-y-4">
-                  {details?.extractedDocuments.length === 0 ? (
+                  {!details?.extractedDocuments || details.extractedDocuments.length === 0 ? (
                     <div className="text-center py-12 text-slate-400">No invoices or debit/credit notes extracted yet.</div>
                   ) : (
-                    details?.extractedDocuments.map(doc => {
+                    details.extractedDocuments.map(doc => {
                       const isEditing = editingDocId === doc.id;
-                      const lineItems = details.lineItems.filter(l => l.documentUnitId === doc.id);
+                      const lineItems = (details?.lineItems || []).filter(l => l.documentUnitId === doc.id);
 
-                      // Match all validation exceptions for this specific invoice
-                      const docExceptions = details.exceptions.filter(ex => {
+                      // Match all validation exceptions for this specific invoice safely
+                      const docExceptions = (details?.exceptions || []).filter(ex => {
                         if (ex.documentUnitId && ex.documentUnitId === doc.id) return true;
                         if (ex.documentFileId && ex.documentFileId === doc.documentFileId) return true;
-                        if (doc.docNumber && ex.message && ex.message.toLowerCase().includes(doc.docNumber.toLowerCase())) return true;
+                        const dNum = String(doc.docNumber || '').trim().toLowerCase();
+                        const eMsg = String(ex.message || '').trim().toLowerCase();
+                        if (dNum && eMsg && eMsg.includes(dNum)) return true;
                         return false;
                       });
                       const unresolvedExceptions = docExceptions.filter(ex => !ex.resolved);
 
+                      const cleanClientGstin = String(request?.clientGstin || '').trim().toUpperCase();
+                      const docSupplierGstin = String(doc.supplierGstin || '').trim().toUpperCase();
+                      const docBuyerGstin = String(doc.buyerGstin || '').trim().toUpperCase();
+
                       const isGstinMismatch = Boolean(
-                        (doc.docType === 'sales_invoice' && doc.supplierGstin && request.clientGstin && doc.supplierGstin.trim().toUpperCase() !== request.clientGstin.trim().toUpperCase()) ||
-                        (doc.docType === 'purchase_invoice' && doc.buyerGstin && request.clientGstin && doc.buyerGstin.trim().toUpperCase() !== request.clientGstin.trim().toUpperCase())
+                        (doc.docType === 'sales_invoice' && docSupplierGstin && cleanClientGstin && docSupplierGstin !== cleanClientGstin) ||
+                        (doc.docType === 'purchase_invoice' && docBuyerGstin && cleanClientGstin && docBuyerGstin !== cleanClientGstin)
                       );
 
                       const isValidationRequired = unresolvedExceptions.length > 0 || isGstinMismatch || doc.reviewStatus === 'flagged';
@@ -1201,22 +1211,22 @@ export const StaffReviewModal: React.FC<StaffReviewModalProps> = ({
                               <div>
                                 <span className="text-slate-400">Tax Breakdown:</span>
                                 <div className="text-slate-600">
-                                  CGST: ₹{Number(doc.cgstAmount).toFixed(2)} | SGST: ₹{Number(doc.sgstAmount).toFixed(2)}
+                                  CGST: ₹{Number(doc.cgstAmount || 0).toFixed(2)} | SGST: ₹{Number(doc.sgstAmount || 0).toFixed(2)}
                                 </div>
-                                <div className="text-slate-600">IGST: ₹{Number(doc.igstAmount).toFixed(2)}</div>
+                                <div className="text-slate-600">IGST: ₹{Number(doc.igstAmount || 0).toFixed(2)}</div>
                               </div>
                               <div>
                                 <span className="text-slate-400">Total Value:</span>
                                 <div className="text-base font-bold text-slate-900">
-                                  ₹{Number(doc.totalAmount).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                                  ₹{(Number(doc.totalAmount) || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
                                 </div>
-                                <div className="text-[11px] text-slate-400">Taxable: ₹{Number(doc.taxableAmount).toFixed(2)}</div>
+                                <div className="text-[11px] text-slate-400">Taxable: ₹{(Number(doc.taxableAmount) || 0).toFixed(2)}</div>
                               </div>
                             </div>
                           )}
 
                           {/* Line Items Table */}
-                          {lineItems.length > 0 && (
+                          {lineItems && lineItems.length > 0 && (
                             <div className="mt-2 pt-2 border-t border-slate-100">
                               <div className="text-[11px] font-semibold text-slate-500 mb-1">
                                 Extracted Line Items ({lineItems.length}):
@@ -1237,14 +1247,14 @@ export const StaffReviewModal: React.FC<StaffReviewModalProps> = ({
                                   <tbody>
                                     {lineItems.map(l => (
                                       <tr key={l.id} className="border-b border-slate-50">
-                                        <td className="py-1 text-slate-700">{l.itemDescription}</td>
+                                        <td className="py-1 text-slate-700">{l.itemDescription || '-'}</td>
                                         <td className="py-1 font-mono text-slate-500">{l.hsnSac || '-'}</td>
                                         <td className="py-1">{l.quantity ? `${l.quantity} ${l.unit || ''}` : '-'}</td>
                                         <td className="py-1">₹{Number(l.rate || 0).toFixed(2)}</td>
-                                        <td className="py-1">₹{Number(l.taxableValue).toFixed(2)}</td>
+                                        <td className="py-1">₹{Number(l.taxableValue || 0).toFixed(2)}</td>
                                         <td className="py-1">{Number(l.taxRatePercent || 18)}%</td>
                                         <td className="py-1 text-right font-medium text-slate-800">
-                                          ₹{Number(l.totalAmount).toFixed(2)}
+                                          ₹{Number(l.totalAmount || 0).toFixed(2)}
                                         </td>
                                       </tr>
                                     ))}
