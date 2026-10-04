@@ -820,7 +820,7 @@ export const StaffReviewModal: React.FC<StaffReviewModalProps> = ({
                         (doc.docType === 'purchase_invoice' && docBuyerGstin && cleanClientGstin && docBuyerGstin !== cleanClientGstin)
                       );
 
-                      const isValidationRequired = unresolvedExceptions.length > 0 || isGstinMismatch || doc.reviewStatus === 'flagged';
+                      const isValidationRequired = unresolvedExceptions.length > 0 || (isGstinMismatch && doc.reviewStatus !== 'verified') || doc.reviewStatus === 'flagged';
                       const isOk = !isValidationRequired || doc.reviewStatus === 'verified';
 
                       return (
@@ -862,41 +862,33 @@ export const StaffReviewModal: React.FC<StaffReviewModalProps> = ({
                                 Conf: {doc.extractionConfidence}%
                               </span>
 
-                              {/* Highlighted Status Buttons: Green [OK] and Red [Validation Required] */}
+                              {/* Highlighted Status Button: Red [Validation Required] if issues exist, otherwise Green [OK] */}
                               <div className="flex items-center space-x-1.5 ml-1">
-                                {/* Green OK Button */}
-                                <button
-                                  onClick={() => handleMarkInvoiceOk(doc.id)}
-                                  disabled={isSubmitting}
-                                  className={`px-2.5 py-1 rounded-lg text-xs font-bold flex items-center space-x-1 transition cursor-pointer shadow-2xs ${
-                                    isOk
-                                      ? 'bg-emerald-600 hover:bg-emerald-500 text-white border border-emerald-600 ring-2 ring-emerald-300 shadow-sm'
-                                      : 'bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-300'
-                                  }`}
-                                  title={isOk ? "Invoice verified & validated OK. Click to re-confirm." : "Click to mark this invoice as OK & Verified"}
-                                >
-                                  <CheckCircle2 className="w-3.5 h-3.5 shrink-0" />
-                                  <span>OK</span>
-                                </button>
-
-                                {/* Red Validation Required Button */}
-                                <button
-                                  onClick={() => handleNavigateToValidationFromInvoice(doc)}
-                                  className={`px-2.5 py-1 rounded-lg text-xs font-bold flex items-center space-x-1.5 transition cursor-pointer shadow-2xs ${
-                                    isValidationRequired
-                                      ? 'bg-rose-600 hover:bg-rose-500 text-white border border-rose-600 ring-2 ring-rose-300 shadow-sm animate-pulse'
-                                      : 'bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200'
-                                  }`}
-                                  title="Validation issues detected for this invoice. Click to redirect to Validation Exceptions page."
-                                >
-                                  <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
-                                  <span>Validation Required</span>
-                                  {unresolvedExceptions.length > 0 && (
-                                    <span className={`text-[10px] px-1.5 py-0.2 rounded-full font-extrabold ${isValidationRequired ? 'bg-white text-rose-700' : 'bg-rose-200 text-rose-800'}`}>
-                                      {unresolvedExceptions.length}
-                                    </span>
-                                  )}
-                                </button>
+                                {isValidationRequired ? (
+                                  <button
+                                    onClick={() => handleNavigateToValidationFromInvoice(doc)}
+                                    className="px-3 py-1 rounded-lg text-xs font-bold flex items-center space-x-1.5 transition cursor-pointer shadow-sm bg-rose-600 hover:bg-rose-500 text-white border border-rose-600 ring-2 ring-rose-300 animate-pulse"
+                                    title="Validation issues detected for this invoice. Click to redirect to Validation Exceptions page."
+                                  >
+                                    <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
+                                    <span>Validation Required</span>
+                                    {unresolvedExceptions.length > 0 && (
+                                      <span className="text-[10px] px-1.5 py-0.2 rounded-full font-extrabold bg-white text-rose-700">
+                                        {unresolvedExceptions.length}
+                                      </span>
+                                    )}
+                                  </button>
+                                ) : (
+                                  <button
+                                    onClick={() => handleMarkInvoiceOk(doc.id)}
+                                    disabled={isSubmitting}
+                                    className="px-3 py-1 rounded-lg text-xs font-bold flex items-center space-x-1.5 transition cursor-pointer shadow-sm bg-emerald-600 hover:bg-emerald-500 text-white border border-emerald-600 ring-2 ring-emerald-300"
+                                    title="Invoice is verified and audit OK. Click to re-confirm."
+                                  >
+                                    <CheckCircle2 className="w-3.5 h-3.5 shrink-0" />
+                                    <span>OK</span>
+                                  </button>
+                                )}
                               </div>
 
                               {isGstinMismatch && (
