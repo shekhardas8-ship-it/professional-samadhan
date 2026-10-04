@@ -43,5 +43,20 @@ export const createPool = () => {
   return global._postgresPool;
 };
 
+export const ensureSchemaColumns = async (p: Pool) => {
+  try {
+    await p.query(`
+      ALTER TABLE clients ADD COLUMN IF NOT EXISTS google_drive_folder_id text;
+      ALTER TABLE clients ADD COLUMN IF NOT EXISTS google_drive_url text;
+      ALTER TABLE document_files ADD COLUMN IF NOT EXISTS file_data text;
+      ALTER TABLE document_files ADD COLUMN IF NOT EXISTS drive_file_id text;
+      ALTER TABLE document_files ADD COLUMN IF NOT EXISTS drive_web_view_link text;
+    `);
+  } catch (err: any) {
+    console.warn('[PostgreSQL Schema Sync Warning]:', err?.message || err);
+  }
+};
+
 const pool = createPool();
+ensureSchemaColumns(pool).catch(() => {});
 export const db = drizzle(pool, { schema });
