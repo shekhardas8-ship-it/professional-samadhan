@@ -29,10 +29,15 @@ export const createPool = () => {
       ssl: { rejectUnauthorized: false },
       max: 10,
       connectionTimeoutMillis: 15000,
+      idleTimeoutMillis: 20000,
+      keepAlive: true,
+      keepAliveInitialDelayMillis: 10000,
+      statement_timeout: 30000,
     });
 
     global._postgresPool.on('error', (err) => {
-      console.error('Unexpected error on idle SQL pool client:', err);
+      // Catch and log idle pool client errors gracefully without killing the server process
+      console.warn('[PostgreSQL Pool Warning] Reconnecting dropped client:', err?.message || err);
     });
   }
   return global._postgresPool;

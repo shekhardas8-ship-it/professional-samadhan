@@ -1,6 +1,7 @@
 // src/services/extractor.ts
 import crypto from 'crypto';
-import pdfParse from 'pdf-parse';
+// Directly import lib/pdf-parse.js to bypass index.js debug block that looks for non-existent test file in ESM
+import pdfParse from 'pdf-parse/lib/pdf-parse.js';
 import ExcelJS from 'exceljs';
 
 export interface ExtractedLineItemDto {
@@ -130,7 +131,7 @@ export async function extractDocumentContent(
     scanMethod = 'spreadsheet_parse';
     try {
       const wb = new ExcelJS.Workbook();
-      await wb.xlsx.load(buffer);
+      await wb.xlsx.load(buffer as any);
       const rows: string[] = [];
       wb.eachSheet(sheet => {
         sheet.eachRow(row => {
@@ -1067,7 +1068,7 @@ export async function testPdfPasswordStatus(
     // PDF is genuinely password-protected. Try provided password:
     if (providedPassword && providedPassword.trim()) {
       try {
-        await pdfParse(buffer, { password: providedPassword.trim() });
+        await (pdfParse as any)(buffer, { password: providedPassword.trim() });
         return { isLocked: false, scanNotes: 'Protected PDF unlocked with provided password' };
       } catch (_) {
         return { isLocked: true, scanNotes: 'Protected PDF (Password incorrect)' };

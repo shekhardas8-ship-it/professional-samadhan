@@ -98,8 +98,8 @@ async function safeParseResponse(res: Response): Promise<any> {
     if (res.status === 504) {
       throw new Error('Server timeout: Cloud processing took longer than expected. Please try uploading fewer or smaller files.');
     }
-    if (res.status === 502) {
-      throw new Error('Server temporarily unavailable (502 Bad Gateway). Please retry in a moment.');
+    if (res.status === 502 || res.status === 503) {
+      throw new Error('Server is waking up or temporarily busy (502 Bad Gateway). Please retry in a moment.');
     }
     if (text.includes('<title>')) {
       const match = text.match(/<title>(.*?)<\/title>/i);
@@ -209,12 +209,20 @@ export const ClientPortalView: React.FC<ClientPortalProps> = ({ initialToken, is
     }
   };
 
-  const fetchSession = async (currentToken: string) => {
+  const fetchSession = async (currentToken: string, retryCount = 0) => {
     try {
       setLoading(true);
       setError(null);
       const queryParam = currentToken ? `?token=${encodeURIComponent(currentToken)}` : '';
       const res = await fetch(`/api/client-portal/session${queryParam}`);
+
+      // Handle Render free tier cold-starts (502 / 503 / 504 proxy response while spinning up)
+      if ((res.status === 502 || res.status === 503 || res.status === 504) && retryCount < 4) {
+        console.warn(`[Client Portal] Server is waking up (HTTP ${res.status}). Retrying in 2.5s (attempt ${retryCount + 1}/4)...`);
+        await new Promise(resolve => setTimeout(resolve, 2500));
+        return await fetchSession(currentToken, retryCount + 1);
+      }
+
       const data = await safeParseResponse(res);
       setSession(data);
       if (data.client?.id && !token) {
@@ -228,7 +236,9 @@ export const ClientPortalView: React.FC<ClientPortalProps> = ({ initialToken, is
       setError(err.message);
       setSession((prev: any) => prev || null);
     } finally {
-      setLoading(false);
+      if (retryCount === 0 || retryCount >= 4) {
+        setLoading(false);
+      }
     }
   };
 

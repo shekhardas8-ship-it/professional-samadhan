@@ -3567,6 +3567,11 @@ app.get('/api/health', (_req: Request, res: Response) => {
   });
 });
 
+// Root health check endpoint for Render service health monitoring
+app.get(['/health', '/healthz'], (_req: Request, res: Response) => {
+  res.status(200).json({ status: 'healthy', uptime: Math.floor(process.uptime()) });
+});
+
 // Explicit 404 for unhandled API routes (prevents returning index.html for failed /api requests)
 app.all('/api/*', (req: Request, res: Response) => {
   res.status(404).json({ error: `API route not found: ${req.method} ${req.originalUrl}` });
@@ -3619,9 +3624,13 @@ async function startServer() {
     });
   }
 
-  app.listen(PORT, () => {
-    console.log(`Professional Samadhan GST Server running on http://localhost:${PORT}`);
+  const server = app.listen(Number(PORT), '0.0.0.0', () => {
+    console.log(`Professional Samadhan GST Server running on http://0.0.0.0:${PORT}`);
   });
+
+  // Render & Cloudflare proxy compatibility: keepalive timeout must exceed proxy timeout (typically 60s)
+  server.keepAliveTimeout = 65000;
+  server.headersTimeout = 66000;
 }
 
 startServer();
