@@ -236,15 +236,44 @@ Guidelines:
     const docNumber = data.cpin || data.docNumber || filename.replace(/\.[^/.]+$/, '');
     const docDate = normalizeDate(data.docDate || new Date().toISOString().slice(0, 10));
 
+    const cleanClientGstin = (clientGstin || '').trim().toUpperCase();
+    let supplierGstin = (data.supplierGstin || '').trim().toUpperCase();
+    let buyerGstin = (data.buyerGstin || '').trim().toUpperCase();
+    let supplierName = data.supplierName || '';
+    let buyerName = data.buyerName || '';
+
+    if (data.isGstChallan) {
+      supplierName = 'GST Common Portal (GSTN)';
+      supplierGstin = cleanClientGstin;
+      buyerName = clientBusinessName || 'Taxpayer Client';
+      buyerGstin = cleanClientGstin;
+    } else if (docType === 'sales_invoice') {
+      if (!supplierGstin && cleanClientGstin) supplierGstin = cleanClientGstin;
+      if (!supplierName) supplierName = clientBusinessName || 'Supplier';
+      if (!buyerName || buyerName.toLowerCase() === supplierName.toLowerCase()) buyerName = 'Customer / Buyer';
+      // Strictly prevent identical buyer & supplier GSTIN on outward sales
+      if (buyerGstin && supplierGstin && buyerGstin === supplierGstin) {
+        buyerGstin = 'Unregistered (B2C)';
+      }
+    } else if (docType === 'purchase_invoice') {
+      if (!buyerGstin && cleanClientGstin) buyerGstin = cleanClientGstin;
+      if (!buyerName) buyerName = clientBusinessName || 'Client';
+      if (!supplierName || supplierName.toLowerCase() === buyerName.toLowerCase()) supplierName = 'Vendor Supplier';
+      // Strictly prevent identical buyer & supplier GSTIN on inward purchases
+      if (supplierGstin && buyerGstin && supplierGstin === buyerGstin) {
+        supplierGstin = '';
+      }
+    }
+
     return [{
       docType,
       docNumber,
       docDate,
-      supplierName: data.supplierName || (data.isGstChallan ? 'GST Portal / Tax Authority' : clientBusinessName || 'Supplier'),
-      supplierGstin: data.supplierGstin || (data.isGstChallan ? clientGstin : ''),
+      supplierName: supplierName || clientBusinessName || 'Supplier',
+      supplierGstin,
       supplierAddress: data.supplierAddress || '',
-      buyerName: data.buyerName || clientBusinessName || 'Client',
-      buyerGstin: data.buyerGstin || clientGstin,
+      buyerName: buyerName || 'Customer / Buyer',
+      buyerGstin,
       buyerAddress: data.buyerAddress || '',
       placeOfSupply: data.placeOfSupply || '27-Maharashtra',
       taxableAmount: Number(data.taxableAmount) || 0,
@@ -840,25 +869,40 @@ function extractDocumentPartyGstins(
   if (isSales) {
     // For Sales slip/invoice: Seller MUST be the client
     if (!supplierGstin) {
-      if (gstinList.length === 1) {
-        supplierGstin = gstinList[0];
-      } else if (cleanClientGstin && gstinList.includes(cleanClientGstin)) {
+      if (cleanClientGstin) {
         supplierGstin = cleanClientGstin;
+      } else if (detectedBuyerGstin) {
+        const other = gstinList.find(g => g !== detectedBuyerGstin);
+        supplierGstin = other || '';
       } else if (gstinList.length > 0) {
         supplierGstin = gstinList[0];
-      } else {
-        supplierGstin = cleanClientGstin;
       }
     }
     if (!buyerGstin) {
-      const other = gstinList.find(g => g !== supplierGstin);
+      const other = gstinList.find(g => g !== supplierGstin && g !== cleanClientGstin);
       buyerGstin = other || 'Unregistered (B2C)';
+    }
+
+    // Strictly prevent identical buyer & supplier GSTIN on outward sales
+    if (supplierGstin && buyerGstin && supplierGstin.toUpperCase() === buyerGstin.toUpperCase()) {
+      if (cleanClientGstin && supplierGstin.toUpperCase() === cleanClientGstin) {
+        const other = gstinList.find(g => g !== cleanClientGstin);
+        buyerGstin = other || 'Unregistered (B2C)';
+      } else if (cleanClientGstin) {
+        buyerGstin = supplierGstin;
+        supplierGstin = cleanClientGstin;
+      } else {
+        buyerGstin = 'Unregistered (B2C)';
+      }
     }
   } else {
     // For Purchase slip/bill: Buyer MUST be the client (claiming ITC)
     if (!buyerGstin) {
-      if (cleanClientGstin && gstinList.includes(cleanClientGstin)) {
+      if (cleanClientGstin) {
         buyerGstin = cleanClientGstin;
+      } else if (detectedSupplierGstin) {
+        const other = gstinList.find(g => g !== detectedSupplierGstin);
+        buyerGstin = other || '';
       } else if (gstinList.length >= 2) {
         buyerGstin = gstinList[1];
       } else {
@@ -866,8 +910,19 @@ function extractDocumentPartyGstins(
       }
     }
     if (!supplierGstin) {
-      const other = gstinList.find(g => g !== buyerGstin);
-      supplierGstin = other || (gstinList.length > 0 ? gstinList[0] : 'Vendor Supplier');
+      const other = gstinList.find(g => g !== buyerGstin && g !== cleanClientGstin);
+      supplierGstin = other || (gstinList.length > 0 && gstinList[0] !== buyerGstin ? gstinList[0] : 'Vendor Supplier');
+    }
+
+    // Strictly prevent identical buyer & supplier GSTIN on inward purchases
+    if (supplierGstin && buyerGstin && supplierGstin.toUpperCase() === buyerGstin.toUpperCase()) {
+      if (cleanClientGstin && buyerGstin.toUpperCase() === cleanClientGstin) {
+        const other = gstinList.find(g => g !== cleanClientGstin);
+        supplierGstin = other || 'Vendor Supplier';
+      } else if (cleanClientGstin) {
+        supplierGstin = buyerGstin;
+        buyerGstin = cleanClientGstin;
+      }
     }
   }
 

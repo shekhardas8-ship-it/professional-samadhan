@@ -31,6 +31,7 @@ import {
   Eye,
   Folder,
   Settings,
+  ArrowLeft,
 } from 'lucide-react';
 import { HtmlReportModal } from './HtmlReportModal.tsx';
 
@@ -81,11 +82,27 @@ export const StaffReviewModal: React.FC<StaffReviewModalProps> = ({
     title: string;
     subtitle: string;
   } | null>(null);
-  const [highlightedDocId, setHighlightedDocId] = useState<string | null>(null);
-  const [previewSourceFile, setPreviewSourceFile] = useState<{ file: DocumentFile; docTitle: string } | null>(null);
+  const [previewSourceFile, setPreviewSourceFile] = useState<{ file: DocumentFile; docTitle: string; docId?: string } | null>(null);
   const [clientDriveUrl, setClientDriveUrl] = useState<string | null>(null);
   const [showDriveUrlModal, setShowDriveUrlModal] = useState(false);
   const [inputDriveUrl, setInputDriveUrl] = useState('');
+
+  const handleClosePreview = () => {
+    const targetId = previewSourceFile?.docId;
+    setPreviewSourceFile(null);
+    if (targetId) {
+      setTimeout(() => {
+        const el = document.getElementById(`invoice-card-${targetId}`);
+        if (el) {
+          el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+          el.classList.add('ring-4', 'ring-indigo-500', 'transition-all', 'duration-500');
+          setTimeout(() => {
+            el.classList.remove('ring-4', 'ring-indigo-500');
+          }, 2500);
+        }
+      }, 80);
+    }
+  };
 
   const handleFlagMissingSubmit = async () => {
     if (!flagMissingMessage.trim()) return;
@@ -217,9 +234,25 @@ export const StaffReviewModal: React.FC<StaffReviewModalProps> = ({
       cgstAmount: doc.cgstAmount,
       sgstAmount: doc.sgstAmount,
       igstAmount: doc.igstAmount,
+      cessAmount: doc.cessAmount || 0,
       totalAmount: doc.totalAmount,
       reviewStatus: 'verified',
     });
+  };
+
+  const handleCancelEdit = (id: string) => {
+    setEditingDocId(null);
+    setEditFormData({});
+    setTimeout(() => {
+      const el = document.getElementById(`invoice-card-${id}`);
+      if (el) {
+        el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        el.classList.add('ring-4', 'ring-indigo-400', 'transition-all', 'duration-500');
+        setTimeout(() => {
+          el.classList.remove('ring-4', 'ring-indigo-400');
+        }, 2000);
+      }
+    }, 80);
   };
 
   const handleSaveDoc = async (id: string) => {
@@ -235,6 +268,16 @@ export const StaffReviewModal: React.FC<StaffReviewModalProps> = ({
       setEditingDocId(null);
       await fetchDetails();
       onRefreshParent();
+      setTimeout(() => {
+        const el = document.getElementById(`invoice-card-${id}`);
+        if (el) {
+          el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+          el.classList.add('ring-4', 'ring-emerald-500', 'transition-all', 'duration-500');
+          setTimeout(() => {
+            el.classList.remove('ring-4', 'ring-emerald-500');
+          }, 2500);
+        }
+      }, 100);
     } catch (err: any) {
       setMessage({ type: 'error', text: err.message });
     } finally {
@@ -680,23 +723,25 @@ export const StaffReviewModal: React.FC<StaffReviewModalProps> = ({
                         >
                           <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 border-b border-slate-100 pb-2">
                             <div className="flex flex-wrap items-center gap-2">
-                              <select
-                                value={doc.docType}
-                                onChange={e => handleQuickChangeDocType(doc.id, e.target.value)}
-                                className={`px-2 py-0.5 text-xs font-bold uppercase rounded border transition cursor-pointer ${
+                              <span
+                                className={`px-2.5 py-0.5 text-xs font-bold uppercase rounded border shadow-2xs ${
                                   doc.docType === 'sales_invoice'
                                     ? 'bg-blue-100 text-blue-900 border-blue-300'
                                     : doc.docType === 'purchase_invoice'
                                     ? 'bg-emerald-100 text-emerald-900 border-emerald-300'
                                     : 'bg-purple-100 text-purple-900 border-purple-300'
                                 }`}
-                                title="Click to reclassify (Sales Invoice vs Purchase Bill)"
                               >
-                                <option value="sales_invoice">Sales Invoice (GSTR-1 Outward)</option>
-                                <option value="purchase_invoice">Purchase Bill (ITC Inward)</option>
-                                <option value="credit_note">Credit Note</option>
-                                <option value="debit_note">Debit Note</option>
-                              </select>
+                                {doc.docType === 'sales_invoice'
+                                  ? 'Sales Invoice (GSTR-1 Outward)'
+                                  : doc.docType === 'purchase_invoice'
+                                  ? 'Purchase Bill (ITC Inward)'
+                                  : doc.docType === 'credit_note'
+                                  ? 'Credit Note'
+                                  : doc.docType === 'debit_note'
+                                  ? 'Debit Note'
+                                  : (doc.docType || 'Document')}
+                              </span>
                               <span className="font-bold text-slate-800">{doc.docNumber || 'No Doc Number'}</span>
                               <span className="text-xs text-slate-400">Date: {doc.docDate || 'N/A'}</span>
                               <span className="text-[11px] text-slate-400 bg-slate-100 px-2 py-0.5 rounded">
@@ -713,14 +758,25 @@ export const StaffReviewModal: React.FC<StaffReviewModalProps> = ({
 
                             <div className="flex items-center space-x-2">
                               {isEditing ? (
-                                <button
-                                  onClick={() => handleSaveDoc(doc.id)}
-                                  disabled={isSubmitting}
-                                  className="px-3 py-1 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold rounded-lg shadow-sm flex items-center space-x-1"
-                                >
-                                  <Save className="w-3.5 h-3.5" />
-                                  <span>Save Changes</span>
-                                </button>
+                                <div className="flex items-center space-x-2">
+                                  <button
+                                    onClick={() => handleCancelEdit(doc.id)}
+                                    disabled={isSubmitting}
+                                    className="px-3 py-1 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-semibold rounded-lg border border-slate-300 flex items-center space-x-1.5 transition cursor-pointer"
+                                    title="Exit edit mode without saving"
+                                  >
+                                    <ArrowLeft className="w-3.5 h-3.5" />
+                                    <span>Back / Cancel</span>
+                                  </button>
+                                  <button
+                                    onClick={() => handleSaveDoc(doc.id)}
+                                    disabled={isSubmitting}
+                                    className="px-3.5 py-1 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold rounded-lg shadow-sm flex items-center space-x-1.5 transition cursor-pointer"
+                                  >
+                                    <Save className="w-3.5 h-3.5" />
+                                    <span>Save Changes</span>
+                                  </button>
+                                </div>
                               ) : (
                                 <div className="flex items-center space-x-1.5">
                                   {/* Source File Button */}
@@ -728,7 +784,7 @@ export const StaffReviewModal: React.FC<StaffReviewModalProps> = ({
                                     onClick={() => {
                                       const f = details?.files.find(file => file.id === doc.documentFileId);
                                       if (f) {
-                                        setPreviewSourceFile({ file: f, docTitle: doc.docNumber || 'Source Document' });
+                                        setPreviewSourceFile({ file: f, docTitle: doc.docNumber || 'Source Document', docId: doc.id });
                                       } else {
                                         window.open(`/api/documents/${doc.documentFileId}/preview`, '_blank');
                                       }
@@ -762,91 +818,194 @@ export const StaffReviewModal: React.FC<StaffReviewModalProps> = ({
 
                           {/* Invoice Fields */}
                           {isEditing ? (
-                            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 bg-slate-50 p-3 rounded-lg text-xs">
-                              <div>
-                                <label className="font-semibold text-slate-600">Document Type</label>
-                                <select
-                                  value={editFormData.docType || 'sales_invoice'}
-                                  onChange={e => setEditFormData({ ...editFormData, docType: e.target.value as any })}
-                                  className="w-full mt-1 p-1.5 border rounded bg-white font-medium"
-                                >
-                                  <option value="sales_invoice">Sales Invoice (Outward)</option>
-                                  <option value="purchase_invoice">Purchase Invoice (Inward)</option>
-                                  <option value="credit_note">Credit Note</option>
-                                  <option value="debit_note">Debit Note</option>
-                                </select>
+                            <div className="bg-slate-50 p-3.5 rounded-xl border border-slate-200 text-xs space-y-3">
+                              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                                <div>
+                                  <label className="font-semibold text-slate-700">Document Type</label>
+                                  <select
+                                    value={editFormData.docType || 'sales_invoice'}
+                                    onChange={e => setEditFormData({ ...editFormData, docType: e.target.value as any })}
+                                    className="w-full mt-1 p-2 border border-slate-300 rounded-lg bg-white font-medium focus:ring-2 focus:ring-blue-500"
+                                  >
+                                    <option value="sales_invoice">Sales Invoice (GSTR-1 Outward)</option>
+                                    <option value="purchase_invoice">Purchase Bill (ITC Inward)</option>
+                                    <option value="credit_note">Credit Note</option>
+                                    <option value="debit_note">Debit Note</option>
+                                  </select>
+                                </div>
+                                <div>
+                                  <label className="font-semibold text-slate-700">Invoice Number</label>
+                                  <input
+                                    type="text"
+                                    value={editFormData.docNumber || ''}
+                                    onChange={e => setEditFormData({ ...editFormData, docNumber: e.target.value })}
+                                    className="w-full mt-1 p-2 border border-slate-300 rounded-lg bg-white font-medium focus:ring-2 focus:ring-blue-500"
+                                  />
+                                </div>
+                                <div>
+                                  <label className="font-semibold text-slate-700">Invoice Date</label>
+                                  <input
+                                    type="text"
+                                    value={editFormData.docDate || ''}
+                                    onChange={e => setEditFormData({ ...editFormData, docDate: e.target.value })}
+                                    className="w-full mt-1 p-2 border border-slate-300 rounded-lg bg-white font-medium focus:ring-2 focus:ring-blue-500"
+                                    placeholder="YYYY-MM-DD"
+                                  />
+                                </div>
+                                <div>
+                                  <label className="font-semibold text-slate-700">Place of Supply</label>
+                                  <input
+                                    type="text"
+                                    value={editFormData.placeOfSupply || ''}
+                                    onChange={e => setEditFormData({ ...editFormData, placeOfSupply: e.target.value })}
+                                    className="w-full mt-1 p-2 border border-slate-300 rounded-lg bg-white font-medium focus:ring-2 focus:ring-blue-500"
+                                    placeholder="e.g. 07-Delhi"
+                                  />
+                                </div>
                               </div>
-                              <div>
-                                <label className="font-semibold text-slate-600">Invoice Number</label>
-                                <input
-                                  type="text"
-                                  value={editFormData.docNumber || ''}
-                                  onChange={e => setEditFormData({ ...editFormData, docNumber: e.target.value })}
-                                  className="w-full mt-1 p-1.5 border rounded bg-white"
-                                />
+
+                              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                                <div>
+                                  <label className="font-semibold text-slate-700">Supplier Name</label>
+                                  <input
+                                    type="text"
+                                    value={editFormData.supplierName || ''}
+                                    onChange={e => setEditFormData({ ...editFormData, supplierName: e.target.value })}
+                                    className="w-full mt-1 p-2 border border-slate-300 rounded-lg bg-white font-medium focus:ring-2 focus:ring-blue-500"
+                                  />
+                                </div>
+                                <div>
+                                  <label className="font-semibold text-slate-700">Supplier GSTIN</label>
+                                  <input
+                                    type="text"
+                                    value={editFormData.supplierGstin || ''}
+                                    onChange={e => setEditFormData({ ...editFormData, supplierGstin: e.target.value.toUpperCase() })}
+                                    className="w-full mt-1 p-2 border border-slate-300 rounded-lg bg-white font-mono font-medium focus:ring-2 focus:ring-blue-500"
+                                  />
+                                </div>
+                                <div>
+                                  <label className="font-semibold text-slate-700">Buyer Name</label>
+                                  <input
+                                    type="text"
+                                    value={editFormData.buyerName || ''}
+                                    onChange={e => setEditFormData({ ...editFormData, buyerName: e.target.value })}
+                                    className="w-full mt-1 p-2 border border-slate-300 rounded-lg bg-white font-medium focus:ring-2 focus:ring-blue-500"
+                                  />
+                                </div>
+                                <div>
+                                  <label className="font-semibold text-slate-700">Buyer GSTIN</label>
+                                  <input
+                                    type="text"
+                                    value={editFormData.buyerGstin || ''}
+                                    onChange={e => setEditFormData({ ...editFormData, buyerGstin: e.target.value.toUpperCase() })}
+                                    className="w-full mt-1 p-2 border border-slate-300 rounded-lg bg-white font-mono font-medium focus:ring-2 focus:ring-blue-500"
+                                  />
+                                </div>
                               </div>
-                              <div>
-                                <label className="font-semibold text-slate-600">Invoice Date</label>
-                                <input
-                                  type="text"
-                                  value={editFormData.docDate || ''}
-                                  onChange={e => setEditFormData({ ...editFormData, docDate: e.target.value })}
-                                  className="w-full mt-1 p-1.5 border rounded bg-white"
-                                />
-                              </div>
-                              <div>
-                                <label className="font-semibold text-slate-600">Supplier Name</label>
-                                <input
-                                  type="text"
-                                  value={editFormData.supplierName || ''}
-                                  onChange={e => setEditFormData({ ...editFormData, supplierName: e.target.value })}
-                                  className="w-full mt-1 p-1.5 border rounded bg-white"
-                                />
-                              </div>
-                              <div>
-                                <label className="font-semibold text-slate-600">Supplier GSTIN</label>
-                                <input
-                                  type="text"
-                                  value={editFormData.supplierGstin || ''}
-                                  onChange={e => setEditFormData({ ...editFormData, supplierGstin: e.target.value })}
-                                  className="w-full mt-1 p-1.5 border rounded bg-white font-mono"
-                                />
-                              </div>
-                              <div>
-                                <label className="font-semibold text-slate-600">Buyer Name</label>
-                                <input
-                                  type="text"
-                                  value={editFormData.buyerName || ''}
-                                  onChange={e => setEditFormData({ ...editFormData, buyerName: e.target.value })}
-                                  className="w-full mt-1 p-1.5 border rounded bg-white"
-                                />
-                              </div>
-                              <div>
-                                <label className="font-semibold text-slate-600">Buyer GSTIN</label>
-                                <input
-                                  type="text"
-                                  value={editFormData.buyerGstin || ''}
-                                  onChange={e => setEditFormData({ ...editFormData, buyerGstin: e.target.value })}
-                                  className="w-full mt-1 p-1.5 border rounded bg-white font-mono"
-                                />
-                              </div>
-                              <div>
-                                <label className="font-semibold text-slate-600">Taxable Value (₹)</label>
-                                <input
-                                  type="number"
-                                  value={editFormData.taxableAmount || 0}
-                                  onChange={e => setEditFormData({ ...editFormData, taxableAmount: parseFloat(e.target.value) })}
-                                  className="w-full mt-1 p-1.5 border rounded bg-white"
-                                />
-                              </div>
-                              <div>
-                                <label className="font-semibold text-slate-600">Total Invoice (₹)</label>
-                                <input
-                                  type="number"
-                                  value={editFormData.totalAmount || 0}
-                                  onChange={e => setEditFormData({ ...editFormData, totalAmount: parseFloat(e.target.value) })}
-                                  className="w-full mt-1 p-1.5 border rounded bg-white"
-                                />
+
+                              {/* All GST Components & Total Invoice */}
+                              <div className="bg-white p-3 rounded-lg border border-slate-200 shadow-2xs">
+                                <div className="text-[11px] font-bold text-slate-600 uppercase tracking-wider mb-2 flex items-center justify-between">
+                                  <span>GST & Tax Breakdown (Editable)</span>
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      const t = parseFloat(String(editFormData.taxableAmount || 0)) || 0;
+                                      const c = parseFloat(String(editFormData.cgstAmount || 0)) || 0;
+                                      const s = parseFloat(String(editFormData.sgstAmount || 0)) || 0;
+                                      const i = parseFloat(String(editFormData.igstAmount || 0)) || 0;
+                                      const cs = parseFloat(String(editFormData.cessAmount || 0)) || 0;
+                                      setEditFormData(prev => ({
+                                        ...prev,
+                                        totalAmount: +(t + c + s + i + cs).toFixed(2),
+                                      }));
+                                    }}
+                                    className="text-[10px] text-blue-600 hover:text-blue-800 font-bold underline cursor-pointer"
+                                    title="Auto-sum: Taxable + CGST + SGST + IGST + Cess"
+                                  >
+                                    Auto-Sum Total (₹)
+                                  </button>
+                                </div>
+                                <div className="grid grid-cols-2 sm:grid-cols-6 gap-2.5">
+                                  <div>
+                                    <label className="font-semibold text-slate-700">Taxable Value (₹)</label>
+                                    <input
+                                      type="number"
+                                      step="0.01"
+                                      value={editFormData.taxableAmount ?? 0}
+                                      onChange={e => {
+                                        const val = parseFloat(e.target.value) || 0;
+                                        setEditFormData(prev => ({ ...prev, taxableAmount: val }));
+                                      }}
+                                      className="w-full mt-1 p-2 border border-slate-300 rounded-lg bg-white font-medium"
+                                    />
+                                  </div>
+                                  <div>
+                                    <label className="font-semibold text-slate-700">Central GST / CGST (₹)</label>
+                                    <input
+                                      type="number"
+                                      step="0.01"
+                                      value={editFormData.cgstAmount ?? 0}
+                                      onChange={e => {
+                                        const val = parseFloat(e.target.value) || 0;
+                                        setEditFormData(prev => ({ ...prev, cgstAmount: val }));
+                                      }}
+                                      className="w-full mt-1 p-2 border border-slate-300 rounded-lg bg-white font-medium"
+                                    />
+                                  </div>
+                                  <div>
+                                    <label className="font-semibold text-slate-700">State GST / SGST (₹)</label>
+                                    <input
+                                      type="number"
+                                      step="0.01"
+                                      value={editFormData.sgstAmount ?? 0}
+                                      onChange={e => {
+                                        const val = parseFloat(e.target.value) || 0;
+                                        setEditFormData(prev => ({ ...prev, sgstAmount: val }));
+                                      }}
+                                      className="w-full mt-1 p-2 border border-slate-300 rounded-lg bg-white font-medium"
+                                    />
+                                  </div>
+                                  <div>
+                                    <label className="font-semibold text-slate-700">Integrated GST / IGST (₹)</label>
+                                    <input
+                                      type="number"
+                                      step="0.01"
+                                      value={editFormData.igstAmount ?? 0}
+                                      onChange={e => {
+                                        const val = parseFloat(e.target.value) || 0;
+                                        setEditFormData(prev => ({ ...prev, igstAmount: val }));
+                                      }}
+                                      className="w-full mt-1 p-2 border border-slate-300 rounded-lg bg-white font-medium"
+                                    />
+                                  </div>
+                                  <div>
+                                    <label className="font-semibold text-slate-700">Cess (₹)</label>
+                                    <input
+                                      type="number"
+                                      step="0.01"
+                                      value={editFormData.cessAmount ?? 0}
+                                      onChange={e => {
+                                        const val = parseFloat(e.target.value) || 0;
+                                        setEditFormData(prev => ({ ...prev, cessAmount: val }));
+                                      }}
+                                      className="w-full mt-1 p-2 border border-slate-300 rounded-lg bg-white font-medium"
+                                    />
+                                  </div>
+                                  <div>
+                                    <label className="font-semibold text-slate-900">Total Invoice (₹)</label>
+                                    <input
+                                      type="number"
+                                      step="0.01"
+                                      value={editFormData.totalAmount ?? 0}
+                                      onChange={e => {
+                                        const val = parseFloat(e.target.value) || 0;
+                                        setEditFormData(prev => ({ ...prev, totalAmount: val }));
+                                      }}
+                                      className="w-full mt-1 p-2 border border-slate-400 rounded-lg bg-white font-bold text-slate-900"
+                                    />
+                                  </div>
+                                </div>
                               </div>
                             </div>
                           ) : (
@@ -874,7 +1033,7 @@ export const StaffReviewModal: React.FC<StaffReviewModalProps> = ({
                                         <button
                                           onClick={() => {
                                             if (f) {
-                                              setPreviewSourceFile({ file: f, docTitle: doc.docNumber || 'Source Document' });
+                                              setPreviewSourceFile({ file: f, docTitle: doc.docNumber || 'Source Document', docId: doc.id });
                                             } else {
                                               window.open(`/api/documents/${doc.documentFileId}/preview`, '_blank');
                                             }
@@ -1449,9 +1608,16 @@ export const StaffReviewModal: React.FC<StaffReviewModalProps> = ({
           />
         )}
 
-        {/* Source Document File Preview Modal (Requirement 2) */}
+        {/* Source Document File Preview Modal (Requirement 2 & 5) */}
         {previewSourceFile && (
-          <div className="fixed inset-0 z-60 bg-black/75 backdrop-blur-xs flex items-center justify-center p-3 sm:p-5 animate-in fade-in">
+          <div
+            className="fixed inset-0 z-60 bg-black/75 backdrop-blur-xs flex items-center justify-center p-3 sm:p-5 animate-in fade-in"
+            onClick={(e) => {
+              if (e.target === e.currentTarget) {
+                handleClosePreview();
+              }
+            }}
+          >
             <div className="bg-white rounded-2xl shadow-2xl max-w-5xl w-full max-h-[92vh] flex flex-col overflow-hidden border border-slate-200">
               <div className="p-4 bg-slate-900 text-white flex flex-wrap items-center justify-between gap-3 border-b border-slate-800">
                 <div className="flex items-center space-x-3">
@@ -1472,6 +1638,15 @@ export const StaffReviewModal: React.FC<StaffReviewModalProps> = ({
                 </div>
 
                 <div className="flex items-center space-x-2">
+                  <button
+                    onClick={handleClosePreview}
+                    className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 rounded-lg text-xs font-semibold flex items-center space-x-1.5 transition cursor-pointer"
+                    title="Close preview and return to invoice"
+                  >
+                    <ArrowLeft className="w-3.5 h-3.5" />
+                    <span>Back to Invoice</span>
+                  </button>
+
                   {clientDriveUrl && (
                     <a
                       href={clientDriveUrl}
@@ -1501,8 +1676,9 @@ export const StaffReviewModal: React.FC<StaffReviewModalProps> = ({
                     <span>New Tab</span>
                   </a>
                   <button
-                    onClick={() => setPreviewSourceFile(null)}
-                    className="p-1.5 text-slate-400 hover:text-white hover:bg-slate-800 rounded-lg transition"
+                    onClick={handleClosePreview}
+                    className="p-1.5 text-slate-400 hover:text-white hover:bg-slate-800 rounded-lg transition cursor-pointer"
+                    title="Close and return to invoice"
                   >
                     <X className="w-5 h-5" />
                   </button>
