@@ -67,6 +67,8 @@ export interface Client {
   reminderCadenceDays: number;
   maxReminders: number;
   remindersPaused: boolean;
+  googleDriveFolderId?: string;
+  googleDriveUrl?: string;
 }
 
 export type AdhocServiceCategory =
@@ -236,6 +238,9 @@ export interface DocumentFile {
   scanMethod?: string;
   isPasswordProtected?: boolean;
   scanNotes?: string;
+  fileData?: string;
+  driveFileId?: string;
+  driveWebViewLink?: string;
 }
 
 export interface ExtractedDocument {

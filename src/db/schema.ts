@@ -76,6 +76,8 @@ export const clients = pgTable('clients', {
   reminderCadenceDays: integer('reminder_cadence_days').notNull().default(3),
   maxReminders: integer('max_reminders').notNull().default(3),
   remindersPaused: boolean('reminders_paused').notNull().default(false),
+  googleDriveFolderId: text('google_drive_folder_id'),
+  googleDriveUrl: text('google_drive_url'),
   createdAt: timestamp('created_at').defaultNow().notNull(),
   updatedAt: timestamp('updated_at').defaultNow().notNull(),
 });
@@ -199,6 +201,9 @@ export const documentFiles = pgTable('document_files', {
   scanMethod: text('scan_method').default('native_pdf'), // 'native_pdf' | 'paddle_ocr' | 'spreadsheet_parse'
   isPasswordProtected: boolean('is_password_protected').default(false),
   scanNotes: text('scan_notes'),
+  fileData: text('file_data'), // Base64 persistent cloud backup: immune to container restarts!
+  driveFileId: text('drive_file_id'),
+  driveWebViewLink: text('drive_web_view_link'),
   createdAt: timestamp('created_at').defaultNow().notNull(),
 });
 

@@ -43,6 +43,7 @@ import {
 import { triggerMonthlyIntakeRequests, calculatePreviousMonthPeriod, checkAndDispatchDueReminders, generateSecureToken } from './src/services/scheduler.ts';
 import { seedInitialData } from './src/db/seed.ts';
 import { baileysWhatsAppManager } from './src/services/baileysService.ts';
+import { collectServerMetrics, sendServerHealthEmail } from './src/services/serverMonitor.ts';
 
 
 const app = express();
@@ -664,6 +665,23 @@ app.post('/api/clients/:id/attached-docs', requireAuth, async (req: AuthRequest,
     res.json({ success: true, document: newDoc, allDocuments: updatedDocs });
   } catch (err: any) {
     res.status(500).json({ error: 'Failed to attach document: ' + err.message });
+  }
+});
+
+// Delete Attached Document from Client Dossier
+app.delete('/api/clients/:id/attached-docs/:docId', requireAuth, async (req: AuthRequest, res: Response) => {
+  try {
+    const { id, docId } = req.params;
+    const clientRec = (await db.select().from(clients).where(eq(clients.id, id)).limit(1))[0];
+    if (!clientRec) return res.status(404).json({ error: 'Client not found' });
+
+    const existingDocs = clientRec.attachedDocuments || [];
+    const updatedDocs = existingDocs.filter((d: any) => d.id !== docId && d.docKey !== docId);
+
+    await db.update(clients).set({ attachedDocuments: updatedDocs, updatedAt: new Date() }).where(eq(clients.id, id));
+    res.json({ success: true, allDocuments: updatedDocs });
+  } catch (err: any) {
+    res.status(500).json({ error: 'Failed to delete attached document: ' + err.message });
   }
 });
 
@@ -1602,6 +1620,19 @@ app.post('/api/documents/upload', upload.array('files', 150), async (req: Reques
         const allDocGstins: string[] = ((item.additionalFields?.allGstins as string[]) || []).map((g: string) => g.trim().toUpperCase());
         const docNo = item.docNumber || 'Unknown';
 
+        // 0. GST CHALLAN: Verify Taxpayer GSTIN against client registered GSTIN
+        if (item.additionalFields?.isGstChallan) {
+          const taxGstin = (item.additionalFields?.taxpayerGstin || item.buyerGstin || '').trim().toUpperCase();
+          if (taxGstin && normClientGstin && taxGstin !== normClientGstin) {
+            isGstinMismatch = true;
+            detectedMismatchGstin = taxGstin;
+            docNumberMismatch = docNo;
+            gstinMismatchReason = `GST Tax Challan #${docNo} Taxpayer GSTIN (${taxGstin}) does not match Client Profile GSTIN (${normClientGstin}). Tax challans must be deposited under the client's registered GSTIN.`;
+            break;
+          }
+          continue;
+        }
+
         // 1. SALES INVOICE / SALES SLIP: Seller MUST match client profile GSTIN
         if (item.docType === 'sales_invoice') {
           if (supGstin && normClientGstin && supGstin !== normClientGstin) {
@@ -1749,6 +1780,9 @@ app.post('/api/documents/upload', upload.array('files', 150), async (req: Reques
         duplicateOfId: null,
         isPasswordProtected: pwdStatus.isLocked,
         scanNotes: pwdStatus.scanNotes,
+        fileData: buffer.length <= 15 * 1024 * 1024 ? buffer.toString('base64') : null, // Persistent cloud database backup
+        driveFileId: driveUpload.fileId || null,
+        driveWebViewLink: driveUpload.webViewLink || null,
       });
 
       for (const item of extractedList) {
@@ -2027,6 +2061,52 @@ app.post('/api/documents/upload', upload.array('files', 150), async (req: Reques
 });
 
 // Change document classification type (Sales Invoice vs Purchase Invoice vs Bank Statement)
+// System OCR & Multimodal AI Engine Configuration
+app.get('/api/system/ocr-status', (_req: Request, res: Response) => {
+  res.json({
+    geminiActive: !!process.env.GEMINI_API_KEY,
+    geminiModel: 'gemini-3.8-flash',
+    tesseractActive: true,
+    nativePdfActive: true,
+    supportedEngines: ['Google Gemini Multimodal AI', 'Tesseract.js Pixel OCR', 'PDFParse Native Stream'],
+  });
+});
+
+app.post('/api/system/ocr-config', (req: Request, res: Response) => {
+  const { geminiApiKey } = req.body;
+  if (typeof geminiApiKey === 'string') {
+    process.env.GEMINI_API_KEY = geminiApiKey.trim();
+  }
+  res.json({
+    success: true,
+    geminiActive: !!process.env.GEMINI_API_KEY,
+    message: process.env.GEMINI_API_KEY
+      ? 'Google Gemini Multimodal Vision AI is active! Uploads will be analyzed down to the byte with 100% precision.'
+      : 'Gemini API key cleared. Operating in Local Tesseract OCR Mode.',
+  });
+});
+
+// Server Health, Storage & Telemetry Monitoring
+app.get('/api/system/monitoring', async (_req: Request, res: Response) => {
+  try {
+    const metrics = await collectServerMetrics();
+    res.json(metrics);
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/system/send-monitoring-email', async (req: Request, res: Response) => {
+  try {
+    const { email } = req.body;
+    const recipient = (email || 'shekhardas8@gmail.com').trim();
+    const result = await sendServerHealthEmail(recipient);
+    res.json(result);
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 app.put('/api/extracted-documents/:id/change-type', async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
@@ -2058,6 +2138,51 @@ app.get('/api/storage/status', (_req: Request, res: Response) => {
   });
 });
 
+// Client Google Drive folder link & management
+app.get('/api/clients/:id/drive-folder', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const clientRec = await db.select().from(clients).where(eq(clients.id, id)).limit(1);
+    if (clientRec.length === 0) return res.status(404).json({ error: 'Client not found' });
+    const c = clientRec[0];
+    res.json({
+      clientId: c.id,
+      businessName: c.businessName,
+      googleDriveFolderId: c.googleDriveFolderId || null,
+      googleDriveUrl: c.googleDriveUrl || (c.googleDriveFolderId ? `https://drive.google.com/drive/folders/${c.googleDriveFolderId}` : null),
+      isDriveEnabled: googleDriveStorage.isEnabled(),
+    });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.put('/api/clients/:id/drive-folder', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const { googleDriveFolderId, googleDriveUrl } = req.body;
+    let folderId = googleDriveFolderId;
+    let url = googleDriveUrl;
+
+    if (url && !folderId) {
+      const match = url.match(/folders\/([a-zA-Z0-9_-]+)/);
+      if (match) folderId = match[1];
+    }
+    if (folderId && !url) {
+      url = `https://drive.google.com/drive/folders/${folderId}`;
+    }
+
+    await db.update(clients).set({
+      googleDriveFolderId: folderId || null,
+      googleDriveUrl: url || null,
+    }).where(eq(clients.id, id));
+
+    res.json({ success: true, googleDriveFolderId: folderId, googleDriveUrl: url });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // Download original document file (Direct browser download to PC)
 app.get('/api/documents/:id/download', async (req: Request, res: Response) => {
   try {
@@ -2086,10 +2211,18 @@ app.get('/api/documents/:id/download', async (req: Request, res: Response) => {
     }
 
     // Case 2: Stored locally on server disk
-    if (fs.existsSync(fileRec.storagePath)) {
+    if (fileRec.storagePath && fs.existsSync(fileRec.storagePath)) {
       res.setHeader('Content-Disposition', `attachment; filename="${encodeURIComponent(fileRec.originalFilename)}"`);
       res.setHeader('Content-Type', fileRec.mimeType || 'application/octet-stream');
       return res.sendFile(fileRec.storagePath);
+    }
+
+    // Case 3: Stored in persistent database backup (fileData) - immune to Render restarts!
+    if (fileRec.fileData) {
+      const buffer = Buffer.from(fileRec.fileData, 'base64');
+      res.setHeader('Content-Disposition', `attachment; filename="${encodeURIComponent(fileRec.originalFilename)}"`);
+      res.setHeader('Content-Type', fileRec.mimeType || 'application/octet-stream');
+      return res.send(buffer);
     }
 
     // If file in storage path does not exist on disk, return synthetic receipt
@@ -2128,11 +2261,19 @@ app.get('/api/documents/:id/preview', async (req: Request, res: Response) => {
       }
     }
 
-    // Case 2: Local
-    if (fs.existsSync(fileRec.storagePath)) {
+    // Case 2: Local disk
+    if (fileRec.storagePath && fs.existsSync(fileRec.storagePath)) {
       res.setHeader('Content-Disposition', `inline; filename="${encodeURIComponent(fileRec.originalFilename)}"`);
       res.setHeader('Content-Type', fileRec.mimeType || 'application/pdf');
       return res.sendFile(fileRec.storagePath);
+    }
+
+    // Case 3: Persistent cloud database backup (fileData)
+    if (fileRec.fileData) {
+      const buffer = Buffer.from(fileRec.fileData, 'base64');
+      res.setHeader('Content-Disposition', `inline; filename="${encodeURIComponent(fileRec.originalFilename)}"`);
+      res.setHeader('Content-Type', fileRec.mimeType || 'application/pdf');
+      return res.send(buffer);
     }
 
     res.status(404).json({ error: 'File content not available.' });

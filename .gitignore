@@ -12,4 +12,5 @@ local_storage/workbooks/*
 *.zip
 *.tar.gz
 wa_auth_session/
+veers-gym*
 
