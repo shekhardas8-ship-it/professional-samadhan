@@ -3,6 +3,7 @@ import fs from 'fs';
 import path from 'path';
 import pino from 'pino';
 import QRCode from 'qrcode';
+import { createPool } from '../db/index.ts';
 
 // Dynamic imports to handle ESM/CJS compatibility cleanly
 let makeWASocket: any;
@@ -50,6 +51,71 @@ class BaileysWhatsAppManager {
     }
   }
 
+  private async restoreSessionFromDb(): Promise<void> {
+    try {
+      const pool = createPool();
+      await pool.query(`
+        CREATE TABLE IF NOT EXISTS system_sessions (
+          key text PRIMARY KEY,
+          data jsonb NOT NULL,
+          updated_at timestamp DEFAULT now()
+        );
+      `);
+      const res = await pool.query(`SELECT data FROM system_sessions WHERE key = 'baileys_auth_session' LIMIT 1;`);
+      if (res.rows.length > 0 && res.rows[0].data) {
+        const filesMap = res.rows[0].data as Record<string, string>;
+        if (!fs.existsSync(this.sessionDir)) {
+          fs.mkdirSync(this.sessionDir, { recursive: true });
+        }
+        for (const [filename, content] of Object.entries(filesMap)) {
+          const filePath = path.join(this.sessionDir, filename);
+          fs.writeFileSync(filePath, content, 'utf-8');
+        }
+        console.log(`[WhatsApp Auth] Restored ${Object.keys(filesMap).length} auth keys from cloud database.`);
+      }
+    } catch (e: any) {
+      console.warn('[WhatsApp Auth] Failed to restore session from DB:', e?.message || e);
+    }
+  }
+
+  private async backupSessionToDb(): Promise<void> {
+    try {
+      if (!fs.existsSync(this.sessionDir)) return;
+      const fileNames = fs.readdirSync(this.sessionDir);
+      const filesMap: Record<string, string> = {};
+      for (const fn of fileNames) {
+        if (fn.endsWith('.json')) {
+          const fullPath = path.join(this.sessionDir, fn);
+          try {
+            filesMap[fn] = fs.readFileSync(fullPath, 'utf-8');
+          } catch (_) {}
+        }
+      }
+      if (Object.keys(filesMap).length > 0) {
+        const pool = createPool();
+        await pool.query(`
+          CREATE TABLE IF NOT EXISTS system_sessions (
+            key text PRIMARY KEY,
+            data jsonb NOT NULL,
+            updated_at timestamp DEFAULT now()
+          );
+          INSERT INTO system_sessions (key, data, updated_at)
+          VALUES ('baileys_auth_session', $1, now())
+          ON CONFLICT (key) DO UPDATE SET data = $1, updated_at = now();
+        `, [JSON.stringify(filesMap)]);
+      }
+    } catch (e: any) {
+      console.warn('[WhatsApp Auth] Failed to backup session to DB:', e?.message || e);
+    }
+  }
+
+  private async clearDbSession(): Promise<void> {
+    try {
+      const pool = createPool();
+      await pool.query(`DELETE FROM system_sessions WHERE key = 'baileys_auth_session';`);
+    } catch (_) {}
+  }
+
   public async initialize(): Promise<void> {
     if (this.isConnected()) {
       return;
@@ -78,6 +144,7 @@ class BaileysWhatsAppManager {
 
     try {
       await this.loadBaileysModules();
+      await this.restoreSessionFromDb();
 
       const { state, saveCreds } = await useMultiFileAuthState(this.sessionDir);
       let version = [2, 3000, 1015901307];
@@ -101,7 +168,10 @@ class BaileysWhatsAppManager {
       this.sock = socket;
 
       // Save credentials on updates
-      socket.ev.on('creds.update', saveCreds);
+      socket.ev.on('creds.update', async () => {
+        await saveCreds();
+        await this.backupSessionToDb();
+      });
 
       // Handle connection lifecycle
       socket.ev.on('connection.update', async (update: any) => {
@@ -144,6 +214,7 @@ class BaileysWhatsAppManager {
           this.connectedName = socket?.user?.name || 'Professional Samadhan Official';
 
           console.log(`[WhatsApp Open-Source] 🎉 Successfully connected to WhatsApp as ${this.connectedPhone} (${this.connectedName})! 1-time setup active.`);
+          await this.backupSessionToDb();
         } else if (connection === 'close') {
           const statusCode = (lastDisconnect?.error as any)?.output?.statusCode;
           console.log(`[WhatsApp Open-Source] Connection closed with status code: ${statusCode}`);
@@ -299,6 +370,7 @@ class BaileysWhatsAppManager {
   }
 
   private clearSessionFolder() {
+    this.clearDbSession().catch(() => {});
     try {
       if (fs.existsSync(this.sessionDir)) {
         const files = fs.readdirSync(this.sessionDir);
