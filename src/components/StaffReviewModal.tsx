@@ -73,6 +73,8 @@ export const StaffReviewModal: React.FC<StaffReviewModalProps> = ({
   const [caApprovalNotes, setCaApprovalNotes] = useState('');
   const [caOverrideReason, setCaOverrideReason] = useState('');
   const [showCaApprovalDialog, setShowCaApprovalDialog] = useState(false);
+  const [highlightedDocId, setHighlightedDocId] = useState<string | null>(null);
+  const [highlightedExceptionId, setHighlightedExceptionId] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
   const [activeHtmlReport, setActiveHtmlReport] = useState<{
@@ -216,6 +218,89 @@ export const StaffReviewModal: React.FC<StaffReviewModalProps> = ({
       }, 6000);
     } else {
       setMessage({ type: 'error', text: 'Switched to Invoices & Notes. Inspect invoices for this period.' });
+    }
+  };
+
+  const handleNavigateToValidationFromInvoice = (doc: ExtractedDocument) => {
+    // 1. Switch to Validation Exceptions tab
+    setActiveTab('exceptions');
+
+    // 2. Identify target exception matching this document unit, file id, or invoice number
+    const targetEx = details?.exceptions.find(ex => {
+      if (ex.documentUnitId && ex.documentUnitId === doc.id) return true;
+      if (ex.documentFileId && ex.documentFileId === doc.documentFileId) return true;
+      if (doc.docNumber && ex.message && ex.message.toLowerCase().includes(doc.docNumber.toLowerCase())) return true;
+      return false;
+    });
+
+    if (targetEx) {
+      setHighlightedExceptionId(targetEx.id);
+      setTimeout(() => {
+        const el = document.getElementById(`exception-card-${targetEx.id}`);
+        if (el) {
+          el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        }
+      }, 150);
+      setTimeout(() => {
+        setHighlightedExceptionId(prev => (prev === targetEx.id ? null : prev));
+      }, 6000);
+    } else {
+      setMessage({
+        type: 'success',
+        text: `Switched to Validation Exceptions tab. Invoice ${doc.docNumber || ''} has no open rule violations.`,
+      });
+    }
+  };
+
+  const handleMarkInvoiceOk = async (docId: string) => {
+    try {
+      setIsSubmitting(true);
+      const res = await fetch(`/api/extracted-documents/${docId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ reviewStatus: 'verified' }),
+      });
+      if (!res.ok) throw new Error('Failed to mark invoice as verified');
+
+      // Also resolve any open exceptions associated with this document
+      const matchingDoc = details?.extractedDocuments.find(d => d.id === docId);
+      const docExceptions = details?.exceptions.filter(ex => {
+        if (ex.resolved) return false;
+        if (ex.documentUnitId && ex.documentUnitId === docId) return true;
+        if (matchingDoc && ex.documentFileId && ex.documentFileId === matchingDoc.documentFileId) return true;
+        if (matchingDoc?.docNumber && ex.message && ex.message.toLowerCase().includes(matchingDoc.docNumber.toLowerCase())) return true;
+        return false;
+      }) || [];
+
+      for (const ex of docExceptions) {
+        await fetch(`/api/validation-exceptions/${ex.id}`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            resolved: true,
+            resolutionNotes: 'Verified and marked OK by reviewer',
+          }),
+        });
+      }
+
+      setMessage({ type: 'success', text: `Invoice ${matchingDoc?.docNumber || ''} marked OK & verified.` });
+      await fetchDetails();
+      onRefreshParent();
+
+      setTimeout(() => {
+        const el = document.getElementById(`invoice-card-${docId}`);
+        if (el) {
+          el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+          el.classList.add('ring-4', 'ring-emerald-500', 'transition-all', 'duration-500');
+          setTimeout(() => {
+            el.classList.remove('ring-4', 'ring-emerald-500');
+          }, 2500);
+        }
+      }, 100);
+    } catch (err: any) {
+      setMessage({ type: 'error', text: err.message });
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
@@ -711,6 +796,23 @@ export const StaffReviewModal: React.FC<StaffReviewModalProps> = ({
                       const isEditing = editingDocId === doc.id;
                       const lineItems = details.lineItems.filter(l => l.documentUnitId === doc.id);
 
+                      // Match all validation exceptions for this specific invoice
+                      const docExceptions = details.exceptions.filter(ex => {
+                        if (ex.documentUnitId && ex.documentUnitId === doc.id) return true;
+                        if (ex.documentFileId && ex.documentFileId === doc.documentFileId) return true;
+                        if (doc.docNumber && ex.message && ex.message.toLowerCase().includes(doc.docNumber.toLowerCase())) return true;
+                        return false;
+                      });
+                      const unresolvedExceptions = docExceptions.filter(ex => !ex.resolved);
+
+                      const isGstinMismatch = Boolean(
+                        (doc.docType === 'sales_invoice' && doc.supplierGstin && request.clientGstin && doc.supplierGstin.trim().toUpperCase() !== request.clientGstin.trim().toUpperCase()) ||
+                        (doc.docType === 'purchase_invoice' && doc.buyerGstin && request.clientGstin && doc.buyerGstin.trim().toUpperCase() !== request.clientGstin.trim().toUpperCase())
+                      );
+
+                      const isValidationRequired = unresolvedExceptions.length > 0 || isGstinMismatch || doc.reviewStatus === 'flagged';
+                      const isOk = !isValidationRequired || doc.reviewStatus === 'verified';
+
                       return (
                         <div
                           key={doc.id}
@@ -718,7 +820,9 @@ export const StaffReviewModal: React.FC<StaffReviewModalProps> = ({
                           className={`bg-white rounded-xl border shadow-sm p-4 space-y-3 transition duration-300 ${
                             highlightedDocId === doc.id
                               ? 'border-indigo-500 ring-4 ring-indigo-200/80 bg-indigo-50/25 shadow-lg'
-                              : 'border-slate-200 hover:border-blue-300'
+                              : isValidationRequired
+                              ? 'border-rose-200 border-l-4 border-l-rose-500 hover:border-rose-300 bg-rose-50/15'
+                              : 'border-slate-200 border-l-4 border-l-emerald-500 hover:border-blue-300'
                           }`}
                         >
                           <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 border-b border-slate-100 pb-2">
@@ -747,8 +851,45 @@ export const StaffReviewModal: React.FC<StaffReviewModalProps> = ({
                               <span className="text-[11px] text-slate-400 bg-slate-100 px-2 py-0.5 rounded">
                                 Conf: {doc.extractionConfidence}%
                               </span>
-                              {((doc.docType === 'sales_invoice' && doc.supplierGstin && request.clientGstin && doc.supplierGstin.trim().toUpperCase() !== request.clientGstin.trim().toUpperCase()) ||
-                                (doc.docType === 'purchase_invoice' && doc.buyerGstin && request.clientGstin && doc.buyerGstin.trim().toUpperCase() !== request.clientGstin.trim().toUpperCase())) && (
+
+                              {/* Highlighted Status Buttons: Green [OK] and Red [Validation Required] */}
+                              <div className="flex items-center space-x-1.5 ml-1">
+                                {/* Green OK Button */}
+                                <button
+                                  onClick={() => handleMarkInvoiceOk(doc.id)}
+                                  disabled={isSubmitting}
+                                  className={`px-2.5 py-1 rounded-lg text-xs font-bold flex items-center space-x-1 transition cursor-pointer shadow-2xs ${
+                                    isOk
+                                      ? 'bg-emerald-600 hover:bg-emerald-500 text-white border border-emerald-600 ring-2 ring-emerald-300 shadow-sm'
+                                      : 'bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-300'
+                                  }`}
+                                  title={isOk ? "Invoice verified & validated OK. Click to re-confirm." : "Click to mark this invoice as OK & Verified"}
+                                >
+                                  <CheckCircle2 className="w-3.5 h-3.5 shrink-0" />
+                                  <span>OK</span>
+                                </button>
+
+                                {/* Red Validation Required Button */}
+                                <button
+                                  onClick={() => handleNavigateToValidationFromInvoice(doc)}
+                                  className={`px-2.5 py-1 rounded-lg text-xs font-bold flex items-center space-x-1.5 transition cursor-pointer shadow-2xs ${
+                                    isValidationRequired
+                                      ? 'bg-rose-600 hover:bg-rose-500 text-white border border-rose-600 ring-2 ring-rose-300 shadow-sm animate-pulse'
+                                      : 'bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200'
+                                  }`}
+                                  title="Validation issues detected for this invoice. Click to redirect to Validation Exceptions page."
+                                >
+                                  <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
+                                  <span>Validation Required</span>
+                                  {unresolvedExceptions.length > 0 && (
+                                    <span className={`text-[10px] px-1.5 py-0.2 rounded-full font-extrabold ${isValidationRequired ? 'bg-white text-rose-700' : 'bg-rose-200 text-rose-800'}`}>
+                                      {unresolvedExceptions.length}
+                                    </span>
+                                  )}
+                                </button>
+                              </div>
+
+                              {isGstinMismatch && (
                                 <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-amber-100 text-amber-900 border border-amber-300 flex items-center gap-1 shadow-2xs" title={`Invoice GST does not match client profile GST (${request.clientGstin}). File accepted and marked for CA verification.`}>
                                   <AlertTriangle className="w-3 h-3 text-amber-600 shrink-0" />
                                   <span>Not Matching Client GST</span>
@@ -1190,8 +1331,11 @@ export const StaffReviewModal: React.FC<StaffReviewModalProps> = ({
                     details?.exceptions.map(ex => (
                       <div
                         key={ex.id}
-                        className={`p-4 rounded-xl border flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 ${
-                          ex.resolved
+                        id={`exception-card-${ex.id}`}
+                        className={`p-4 rounded-xl border flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 transition duration-300 ${
+                          highlightedExceptionId === ex.id
+                            ? 'border-rose-500 ring-4 ring-rose-400 bg-rose-50/90 shadow-lg'
+                            : ex.resolved
                             ? 'bg-slate-50 border-slate-200 opacity-60'
                             : ex.severity === 'critical'
                             ? 'bg-rose-50 border-rose-200'
