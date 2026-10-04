@@ -3,7 +3,7 @@ import { isValidGstinFormat } from './extractor.ts';
 
 export interface ValidationItem {
   severity: 'critical' | 'warning' | 'info';
-  checkType: 'category_missing' | 'gstin_mismatch' | 'arithmetic_discrepancy' | 'sequence_gap' | 'duplicate_invoice' | 'bank_balance_mismatch' | 'period_coverage_gap' | 'unreadable_scan';
+  checkType: 'category_missing' | 'gstin_mismatch' | 'arithmetic_discrepancy' | 'sequence_gap' | 'duplicate_invoice' | 'bank_balance_mismatch' | 'period_coverage_gap' | 'unreadable_scan' | 'gstin_mismatch_rejected';
   message: string;
   documentFileId?: string;
   documentUnitId?: string;

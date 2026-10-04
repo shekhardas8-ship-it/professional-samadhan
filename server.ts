@@ -1588,7 +1588,8 @@ app.post('/api/documents/upload', upload.array('files', 150), async (req: Reques
         }
       }
 
-      // STRICT GST MATCHING: Reject document if GST number on bill does not match client profile GSTIN
+      // COMPREHENSIVE GST CROSS-VERIFICATION
+      // Cross-verify all document GST numbers against the client's registered GSTIN (clientGstin)
       const normClientGstin = (clientGstin || '').trim().toUpperCase();
       let isGstinMismatch = false;
       let gstinMismatchReason = '';
@@ -1596,32 +1597,71 @@ app.post('/api/documents/upload', upload.array('files', 150), async (req: Reques
       let docNumberMismatch = '';
 
       for (const item of extractedList) {
+        const supGstin = (item.supplierGstin || '').trim().toUpperCase();
+        const buyGstin = (item.buyerGstin || '').trim().toUpperCase();
+        const allDocGstins: string[] = ((item.additionalFields?.allGstins as string[]) || []).map((g: string) => g.trim().toUpperCase());
+        const docNo = item.docNumber || 'Unknown';
+
+        // 1. SALES INVOICE / SALES SLIP: Seller MUST match client profile GSTIN
         if (item.docType === 'sales_invoice') {
-          const supGstin = (item.supplierGstin || '').trim().toUpperCase();
           if (supGstin && normClientGstin && supGstin !== normClientGstin) {
             isGstinMismatch = true;
-            detectedMismatchGstin = item.supplierGstin || supGstin;
-            docNumberMismatch = item.docNumber || 'Unknown';
-            gstinMismatchReason = `Sales Invoice #${item.docNumber || ''} Supplier GST (${item.supplierGstin}) does not match Client Profile GST (${clientGstin}).`;
+            detectedMismatchGstin = supGstin;
+            docNumberMismatch = docNo;
+            gstinMismatchReason = `Sales slip/invoice #${docNo} Seller GSTIN (${supGstin}) does not match Client Profile GSTIN (${normClientGstin}). Outward supply bills must be issued by the registered client business.`;
             break;
           }
-        } else if (item.docType === 'purchase_invoice') {
-          const buyGstin = (item.buyerGstin || '').trim().toUpperCase();
-          if (buyGstin && normClientGstin && buyGstin !== normClientGstin) {
+          if (allDocGstins.length > 0 && normClientGstin && !allDocGstins.includes(normClientGstin)) {
             isGstinMismatch = true;
-            detectedMismatchGstin = item.buyerGstin || buyGstin;
-            docNumberMismatch = item.docNumber || 'Unknown';
-            gstinMismatchReason = `Purchase Bill #${item.docNumber || ''} Buyer GST (${item.buyerGstin}) does not match Client Profile GST (${clientGstin}).`;
+            detectedMismatchGstin = allDocGstins[0];
+            docNumberMismatch = docNo;
+            gstinMismatchReason = `Sales document #${docNo} contains GSTIN (${allDocGstins[0]}) which does not match Client Profile GSTIN (${normClientGstin}).`;
             break;
           }
-        } else if (item.docType === 'credit_note' || item.docType === 'debit_note') {
-          const supGstin = (item.supplierGstin || '').trim().toUpperCase();
-          const buyGstin = (item.buyerGstin || '').trim().toUpperCase();
+        }
+        // 2. PURCHASE INVOICE / EXPENSE BILL: Buyer MUST match client profile GSTIN
+        else if (item.docType === 'purchase_invoice') {
+          if (buyGstin && normClientGstin && buyGstin !== normClientGstin && !buyGstin.includes('UNREGISTERED')) {
+            isGstinMismatch = true;
+            detectedMismatchGstin = buyGstin;
+            docNumberMismatch = docNo;
+            gstinMismatchReason = `Purchase bill #${docNo} Buyer/Recipient GSTIN (${buyGstin}) does not match Client Profile GSTIN (${normClientGstin}). Input Tax Credit (ITC) can only be claimed when bills are issued to the client's registered GSTIN.`;
+            break;
+          }
+          // If bill has 2+ GST numbers (B2B invoice) and client GSTIN is neither buyer nor seller
+          if (allDocGstins.length >= 2 && normClientGstin && !allDocGstins.includes(normClientGstin)) {
+            isGstinMismatch = true;
+            detectedMismatchGstin = allDocGstins.find((g: string) => g !== supGstin) || allDocGstins[0];
+            docNumberMismatch = docNo;
+            gstinMismatchReason = `Purchase bill #${docNo} was issued between 3rd party entities (${allDocGstins.join(', ')}). Client GSTIN (${normClientGstin}) is not found on this bill.`;
+            break;
+          }
+        }
+        // 3. CREDIT / DEBIT NOTES: Client must be either supplier or buyer
+        else if (item.docType === 'credit_note' || item.docType === 'debit_note') {
           if (supGstin && buyGstin && normClientGstin && supGstin !== normClientGstin && buyGstin !== normClientGstin) {
             isGstinMismatch = true;
             detectedMismatchGstin = supGstin;
-            docNumberMismatch = item.docNumber || 'Unknown';
-            gstinMismatchReason = `Note #${item.docNumber || ''} GSTIN (${supGstin}) does not match Client Profile GST (${clientGstin}).`;
+            docNumberMismatch = docNo;
+            gstinMismatchReason = `Adjustment Note #${docNo} GSTIN (${supGstin}) does not match Client Profile GSTIN (${normClientGstin}).`;
+            break;
+          }
+          if (allDocGstins.length >= 2 && normClientGstin && !allDocGstins.includes(normClientGstin)) {
+            isGstinMismatch = true;
+            detectedMismatchGstin = allDocGstins[0];
+            docNumberMismatch = docNo;
+            gstinMismatchReason = `Note #${docNo} does not contain Client Profile GSTIN (${normClientGstin}).`;
+            break;
+          }
+        }
+        // 4. CHALLANS / TAX DEPOSIT SLIPS / OTHER DOCUMENTS
+        else {
+          // If a challan or slip has a GSTIN and it does not match client GSTIN
+          if (allDocGstins.length > 0 && normClientGstin && !allDocGstins.includes(normClientGstin)) {
+            isGstinMismatch = true;
+            detectedMismatchGstin = allDocGstins[0];
+            docNumberMismatch = docNo;
+            gstinMismatchReason = `Challan / Document #${docNo} contains GSTIN (${allDocGstins[0]}) which does not match Client Profile GSTIN (${normClientGstin}).`;
             break;
           }
         }

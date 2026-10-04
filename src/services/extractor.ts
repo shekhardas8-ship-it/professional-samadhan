@@ -323,17 +323,17 @@ function parseDocumentTextOrScan(
     const docNumber = extractDocNumber(text, filename, isCreditNote ? 'CN' : 'DN');
     const docDate = extractDocDate(text);
     const { taxable, cgst, sgst, igst, total } = extractInvoiceAmounts(text);
-    const gstinMatches = extractGstinList(text);
-    const isClientSupplier = gstinMatches[0] === clientGstin || !combinedLower.includes('vendor');
+    const isClientSupplier = !combinedLower.includes('vendor');
+    const { supplierGstin, buyerGstin, allGstins } = extractDocumentPartyGstins(text, clientGstin, isClientSupplier);
 
     return {
       docType,
       docNumber,
       docDate,
       supplierName: isClientSupplier ? (clientBusinessName || 'Client') : 'Vendor / Supplier',
-      supplierGstin: isClientSupplier ? clientGstin : (gstinMatches[0] || '27AAACK4499P1ZZ'),
+      supplierGstin,
       buyerName: isClientSupplier ? 'Customer / Buyer' : (clientBusinessName || 'Client'),
-      buyerGstin: isClientSupplier ? (gstinMatches[1] || '27AABCM7788K1Z3') : clientGstin,
+      buyerGstin,
       placeOfSupply: '27-Maharashtra',
       taxableAmount: taxable,
       cgstAmount: cgst,
@@ -353,6 +353,7 @@ function parseDocumentTextOrScan(
       rawText: sanitizePostgresText(text.slice(0, 800)),
       extractionConfidence: 88.0,
       scanMethod,
+      additionalFields: { allGstins },
     };
   }
 
@@ -476,19 +477,13 @@ function parseDocumentTextOrScan(
     }
   }
 
-  const otherGstin = gstinList.find(g => g !== clientGstin) || '';
+  const { supplierGstin, buyerGstin, allGstins } = extractDocumentPartyGstins(text, clientGstin, isSales);
   const supplierName = isSales
     ? (clientBusinessName || 'Client')
     : (extractPartyNameFromText(text, 'supplier') || 'Vendor Supplier');
-  const supplierGstin = isSales
-    ? clientGstin
-    : (otherGstin || gstinList[0] || clientGstin);
   const buyerName = isSales
     ? (extractPartyNameFromText(text, 'buyer') || 'Customer / Buyer')
     : (clientBusinessName || 'Client');
-  const buyerGstin = isSales
-    ? (otherGstin || 'Unregistered (B2C)')
-    : clientGstin;
 
   // Extract real Place of Supply
   let placeOfSupply = '07-Delhi';
@@ -526,9 +521,78 @@ function parseDocumentTextOrScan(
     totalAmount: total,
     lineItems,
     rawText: sanitizePostgresText(text.slice(0, 1000)) || `Invoice ${docNumber} (${filename})`,
-    extractionConfidence: gstinList.length > 0 && total > 0 ? 95.0 : 85.0,
+    extractionConfidence: allGstins.length > 0 && total > 0 ? 95.0 : 85.0,
     scanMethod,
+    additionalFields: { allGstins },
   };
+}
+
+/**
+ * Accurately extracts supplier and buyer GSTINs directly from invoice/challan/slip text
+ * preserving the actual document GSTINs so cross-verification against client profile GSTIN succeeds or flags mismatches.
+ */
+function extractDocumentPartyGstins(
+  text: string,
+  clientGstin: string,
+  isSales: boolean
+): { supplierGstin: string; buyerGstin: string; allGstins: string[] } {
+  const gstinList = extractGstinList(text);
+  const cleanClientGstin = (clientGstin || '').trim().toUpperCase();
+
+  // 1. Search for Buyer / Recipient / Billed To GSTIN using contextual regex
+  let detectedBuyerGstin = '';
+  const buyerGstinRegex = /(?:bill\s*to|billed\s*to|ship\s*to|shipped\s*to|buyer|consignee|customer|recipient|gstin\s*of\s*recipient)[\s\S]{0,180}?([0-9]{2}[A-Z]{5}[0-9]{4}[A-Z]{1}[1-9A-Z]{1}Z[0-9A-Z]{1})/i;
+  const buyerMatch = text.match(buyerGstinRegex);
+  if (buyerMatch && buyerMatch[1]) {
+    detectedBuyerGstin = buyerMatch[1].toUpperCase();
+  }
+
+  // 2. Search for Seller / Supplier / Sold By GSTIN using contextual regex
+  let detectedSupplierGstin = '';
+  const sellerGstinRegex = /(?:sold\s*by|seller|supplier|billed\s*from|consignor|vendor|taxpayer)[\s\S]{0,180}?([0-9]{2}[A-Z]{5}[0-9]{4}[A-Z]{1}[1-9A-Z]{1}Z[0-9A-Z]{1})/i;
+  const sellerMatch = text.match(sellerGstinRegex);
+  if (sellerMatch && sellerMatch[1]) {
+    detectedSupplierGstin = sellerMatch[1].toUpperCase();
+  }
+
+  let supplierGstin = detectedSupplierGstin;
+  let buyerGstin = detectedBuyerGstin;
+
+  if (isSales) {
+    // For Sales slip/invoice: Seller MUST be the client
+    if (!supplierGstin) {
+      if (gstinList.length === 1) {
+        supplierGstin = gstinList[0];
+      } else if (cleanClientGstin && gstinList.includes(cleanClientGstin)) {
+        supplierGstin = cleanClientGstin;
+      } else if (gstinList.length > 0) {
+        supplierGstin = gstinList[0];
+      } else {
+        supplierGstin = cleanClientGstin;
+      }
+    }
+    if (!buyerGstin) {
+      const other = gstinList.find(g => g !== supplierGstin);
+      buyerGstin = other || 'Unregistered (B2C)';
+    }
+  } else {
+    // For Purchase slip/bill: Buyer MUST be the client (claiming ITC)
+    if (!buyerGstin) {
+      if (cleanClientGstin && gstinList.includes(cleanClientGstin)) {
+        buyerGstin = cleanClientGstin;
+      } else if (gstinList.length >= 2) {
+        buyerGstin = gstinList[1];
+      } else {
+        buyerGstin = cleanClientGstin;
+      }
+    }
+    if (!supplierGstin) {
+      const other = gstinList.find(g => g !== buyerGstin);
+      supplierGstin = other || (gstinList.length > 0 ? gstinList[0] : 'Vendor Supplier');
+    }
+  }
+
+  return { supplierGstin, buyerGstin, allGstins: gstinList };
 }
 
 // ==========================================
