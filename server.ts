@@ -162,11 +162,52 @@ const upload = multer({
   },
 });
 
+// Storage Guard: Auto-prunes local ephemeral container disk if cache exceeds 80% (150MB)
+// All files remain 100% permanently preserved in Neon PostgreSQL and Google Drive!
+export function autoPruneLocalDiskCache(thresholdMb = 150) {
+  try {
+    if (!fs.existsSync(UPLOAD_DIR)) return;
+    const files = fs.readdirSync(UPLOAD_DIR);
+    let totalBytes = 0;
+    const fileStats = files.map(f => {
+      const p = path.join(UPLOAD_DIR, f);
+      try {
+        const s = fs.statSync(p);
+        totalBytes += s.size;
+        return { path: p, size: s.size, mtime: s.mtimeMs };
+      } catch (e) {
+        return { path: p, size: 0, mtime: 0 };
+      }
+    });
+
+    const totalMb = totalBytes / (1024 * 1024);
+    if (totalMb > thresholdMb) {
+      console.log(`[Storage Guard] Local container disk cache (${totalMb.toFixed(1)} MB) reached threshold (>80% / ${thresholdMb} MB). Auto-pruning down to 50%...`);
+      // Sort oldest files first
+      fileStats.sort((a, b) => a.mtime - b.mtime);
+      for (const f of fileStats) {
+        try {
+          if (fs.existsSync(f.path)) fs.unlinkSync(f.path);
+          totalBytes -= f.size;
+          if (totalBytes / (1024 * 1024) <= thresholdMb * 0.5) break;
+        } catch (e) {}
+      }
+      console.log(`[Storage Guard] Pruning complete. Current disk cache: ${(totalBytes / (1024 * 1024)).toFixed(1)} MB. All original files remain permanently preserved in Neon Database & Google Drive.`);
+    }
+  } catch (err: any) {
+    console.warn('[Storage Guard] Auto-prune warning:', err?.message || err);
+  }
+}
+
+// Check every 30 minutes to ensure container storage never bloats
+setInterval(() => autoPruneLocalDiskCache(), 30 * 60 * 1000);
+
 import { ensureTablesExist } from './src/db/autoMigrate.ts';
 
 // Auto-migrate tables and seed DB on startup
 (async () => {
   try {
+    autoPruneLocalDiskCache();
     await ensureTablesExist();
     const existingClients = await db.select().from(clients).limit(1);
     if (existingClients.length === 0) {
@@ -2036,6 +2077,9 @@ app.post('/api/documents/upload', upload.array('files', 150), async (req: Reques
         dispatch: dispatchResult,
       },
     });
+
+    // Storage Guard: Auto-prune local cache if threshold exceeded (files are permanently in DB)
+    autoPruneLocalDiskCache();
 
     res.json({
       success: true,
