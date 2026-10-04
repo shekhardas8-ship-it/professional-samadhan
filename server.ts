@@ -2539,8 +2539,11 @@ app.get('/api/monthly-requests/:id/download-zip', async (req: Request, res: Resp
         } catch (e: any) {
           console.warn(`Could not append Drive file ${f.originalFilename} to zip:`, e.message);
         }
-      } else if (fs.existsSync(f.storagePath)) {
+      } else if (f.storagePath && fs.existsSync(f.storagePath)) {
         archive.file(f.storagePath, { name: f.originalFilename });
+      } else if (f.fileData) {
+        const buf = Buffer.from(f.fileData, 'base64');
+        archive.append(buf, { name: f.originalFilename });
       }
     }
 

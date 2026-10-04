@@ -30,6 +30,7 @@ import {
   Trash2,
   Eye,
   Folder,
+  Settings,
 } from 'lucide-react';
 import { HtmlReportModal } from './HtmlReportModal.tsx';
 
@@ -375,30 +376,45 @@ export const StaffReviewModal: React.FC<StaffReviewModalProps> = ({
             </p>
           </div>
           <div className="flex items-center space-x-2">
-            {clientDriveUrl ? (
-              <a
-                href={clientDriveUrl}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="px-3 py-1.5 bg-emerald-950/80 hover:bg-emerald-900 text-emerald-300 border border-emerald-700/60 text-xs font-semibold rounded-lg flex items-center space-x-1.5 transition shadow-2xs"
-                title="Open Client Google Drive folder in new tab"
-              >
-                <Folder className="w-3.5 h-3.5 text-emerald-400" />
-                <span className="hidden sm:inline">Google Drive Folder</span>
-                <span className="sm:hidden">Drive</span>
-                <ExternalLink className="w-3 h-3 text-emerald-400" />
-              </a>
-            ) : (
-              <button
-                onClick={() => setShowDriveUrlModal(true)}
-                className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 text-xs font-semibold rounded-lg flex items-center space-x-1.5 transition cursor-pointer"
-                title="Link Client Google Drive folder"
-              >
-                <Folder className="w-3.5 h-3.5 text-slate-400" />
-                <span className="hidden sm:inline">Link Google Drive</span>
-                <span className="sm:hidden">Drive</span>
-              </button>
-            )}
+            {/* 1-Click ZIP Download for all client original files */}
+            <a
+              href={`/api/monthly-requests/${request.id}/download-zip`}
+              download
+              className="px-3 py-1.5 bg-blue-600 hover:bg-blue-500 text-white text-xs font-semibold rounded-lg flex items-center space-x-1.5 transition shadow-xs"
+              title="Download all client files for this period as a single ZIP archive to your PC"
+            >
+              <Download className="w-3.5 h-3.5" />
+              <span className="hidden sm:inline">Download All (.zip)</span>
+              <span className="sm:hidden">ZIP</span>
+            </a>
+
+            {/* Direct 1-Click Google Drive Access (Dedicated per Client) */}
+            <a
+              href={
+                clientDriveUrl ||
+                `https://drive.google.com/drive/search?q=${encodeURIComponent(
+                  (request.clientName || '') + ' ' + (request.clientGstin || '')
+                )}`
+              }
+              target="_blank"
+              rel="noopener noreferrer"
+              className="px-3 py-1.5 bg-emerald-950/80 hover:bg-emerald-900 text-emerald-300 border border-emerald-700/60 text-xs font-semibold rounded-lg flex items-center space-x-1.5 transition shadow-2xs"
+              title={`Open Google Drive files for ${request.clientName} in 1 click`}
+            >
+              <Folder className="w-3.5 h-3.5 text-emerald-400" />
+              <span className="hidden sm:inline">Google Drive ({request.clientName})</span>
+              <span className="sm:hidden">Drive</span>
+              <ExternalLink className="w-3 h-3 text-emerald-400" />
+            </a>
+
+            {/* Optional folder link config icon */}
+            <button
+              onClick={() => setShowDriveUrlModal(true)}
+              className="p-1.5 bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-slate-200 border border-slate-700 rounded-lg text-xs transition cursor-pointer"
+              title="Custom Google Drive Folder Settings"
+            >
+              <Settings className="w-3.5 h-3.5" />
+            </button>
             <button
               onClick={onClose}
               className="p-2 text-slate-400 hover:text-white hover:bg-slate-800 rounded-lg transition"
@@ -1532,11 +1548,29 @@ export const StaffReviewModal: React.FC<StaffReviewModalProps> = ({
 
               <div className="space-y-3">
                 <p className="text-xs text-slate-500">
-                  Associate a Google Drive folder with <strong>{request.clientName}</strong> ({request.clientGstin}). Documents uploaded for this client will be permanently accessible in Google Drive anytime.
+                  Google Drive access for <strong>{request.clientName}</strong> ({request.clientGstin}).
                 </p>
 
+                {/* Direct 1-Click Drive Launch */}
+                <a
+                  href={`https://drive.google.com/drive/search?q=${encodeURIComponent((request.clientName || '') + ' ' + (request.clientGstin || ''))}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="w-full py-2.5 px-3 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-300 rounded-lg text-xs font-bold flex items-center justify-center space-x-2 transition shadow-2xs"
+                >
+                  <Folder className="w-4 h-4 text-emerald-600" />
+                  <span>Open {request.clientName}'s Files in Google Drive (1-Click)</span>
+                  <ExternalLink className="w-3.5 h-3.5 text-emerald-600" />
+                </a>
+
+                <div className="relative flex py-1 items-center">
+                  <div className="flex-grow border-t border-slate-200"></div>
+                  <span className="flex-shrink mx-2 text-[10px] text-slate-400 font-medium uppercase">Or Custom Folder (Optional)</span>
+                  <div className="flex-grow border-t border-slate-200"></div>
+                </div>
+
                 <div>
-                  <label className="text-xs font-semibold text-slate-700">Google Drive Folder Link / ID</label>
+                  <label className="text-xs font-semibold text-slate-700">Custom Google Drive Folder Link / ID</label>
                   <input
                     type="text"
                     value={inputDriveUrl}
