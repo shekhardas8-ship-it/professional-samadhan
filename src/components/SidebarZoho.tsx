@@ -47,6 +47,8 @@ export const SidebarZoho: React.FC<SidebarZohoProps> = ({
   onOpenLiveTour,
   userRole = 'ca_admin',
 }) => {
+  const [isClientsSubmenuOpen, setIsClientsSubmenuOpen] = useState(true);
+
   const mainMenuItems = [
     {
       id: 'home',
@@ -58,13 +60,16 @@ export const SidebarZoho: React.FC<SidebarZohoProps> = ({
       label: 'Clients',
       icon: Users,
       badge: '25',
-    },
-    {
-      id: 'client-requests',
-      label: 'Client Requests',
-      icon: Inbox,
-      badge: '3 Due',
-      badgeColor: 'bg-amber-500/20 text-amber-300 border-amber-500/30',
+      subItems: [
+        { id: 'clients', label: 'All Clients', icon: Users },
+        {
+          id: 'client-requests',
+          label: 'Client Requests',
+          icon: Inbox,
+          badge: '3 Due',
+          badgeColor: 'bg-amber-500/20 text-amber-300 border-amber-500/30',
+        },
+      ],
     },
     {
       id: 'insights',
@@ -210,10 +215,98 @@ export const SidebarZoho: React.FC<SidebarZohoProps> = ({
           {/* Main Items */}
           {mainMenuItems.map(item => {
             const Icon = item.icon;
-            const isActive =
+            const hasSubItems = Boolean((item as any).subItems);
+            const isItemOrChildActive =
               activeTab === item.id ||
               (item.id === 'home' && (activeTab === 'cockpit' || activeTab === 'dashboard')) ||
-              (item.id === 'workpaper' && activeTab === 'gst-pipeline');
+              (item.id === 'workpaper' && activeTab === 'gst-pipeline') ||
+              (hasSubItems && (item as any).subItems.some((s: any) => s.id === activeTab));
+
+            if (hasSubItems && !collapsed) {
+              const subItems: any[] = (item as any).subItems;
+              return (
+                <div key={item.id} className="space-y-0.5">
+                  <button
+                    onClick={() => {
+                      setIsClientsSubmenuOpen(!isClientsSubmenuOpen);
+                      if (activeTab !== 'clients' && activeTab !== 'client-requests') {
+                        onTabChange('clients');
+                      }
+                    }}
+                    className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg text-[13px] font-medium transition-all group ${
+                      isItemOrChildActive
+                        ? 'bg-[#00C975]/20 text-[#00C975] border border-[#00C975]/30 font-semibold'
+                        : 'text-slate-300 hover:text-white hover:bg-[#223046]'
+                    }`}
+                  >
+                    <Icon
+                      className={`w-4 h-4 shrink-0 transition-transform ${
+                        isItemOrChildActive ? 'text-[#00C975]' : 'text-slate-400 group-hover:text-white'
+                      }`}
+                    />
+                    <span className="flex-1 text-left truncate">{item.label}</span>
+                    <div className="flex items-center gap-1.5 shrink-0">
+                      {item.badge && (
+                        <span
+                          className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full border ${
+                            isItemOrChildActive
+                              ? 'bg-[#00C975]/30 text-[#00C975] border-[#00C975]/40'
+                              : item.badgeColor || 'bg-slate-700 text-slate-300 border-slate-600'
+                          }`}
+                        >
+                          {item.badge}
+                        </span>
+                      )}
+                      <span className="text-slate-400">
+                        {isClientsSubmenuOpen ? (
+                          <ChevronDown className="w-3.5 h-3.5" />
+                        ) : (
+                          <ChevronRight className="w-3.5 h-3.5" />
+                        )}
+                      </span>
+                    </div>
+                  </button>
+
+                  {isClientsSubmenuOpen && (
+                    <div className="ml-3 pl-3.5 border-l-2 border-slate-700/50 space-y-0.5 py-0.5 animate-in fade-in duration-150">
+                      {subItems.map(sub => {
+                        const SubIcon = sub.icon;
+                        const isSubActive = activeTab === sub.id;
+                        return (
+                          <button
+                            key={sub.id}
+                            onClick={() => onTabChange(sub.id)}
+                            className={`w-full flex items-center gap-2.5 px-2.5 py-1.5 rounded-lg text-xs font-medium transition-all ${
+                              isSubActive
+                                ? 'bg-[#00C975] text-white font-bold shadow-xs'
+                                : 'text-slate-400 hover:text-white hover:bg-[#223046]'
+                            }`}
+                          >
+                            <SubIcon
+                              className={`w-3.5 h-3.5 shrink-0 ${
+                                isSubActive ? 'text-white' : 'text-slate-400'
+                              }`}
+                            />
+                            <span className="flex-1 text-left truncate">{sub.label}</span>
+                            {sub.badge && (
+                              <span
+                                className={`text-[9px] font-bold px-1.5 py-0.5 rounded-full border ${
+                                  isSubActive
+                                    ? 'bg-white/20 text-white border-white/30'
+                                    : sub.badgeColor || 'bg-slate-700 text-slate-300 border-slate-600'
+                                }`}
+                              >
+                                {sub.badge}
+                              </span>
+                            )}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              );
+            }
 
             return (
               <button
@@ -221,14 +314,14 @@ export const SidebarZoho: React.FC<SidebarZohoProps> = ({
                 onClick={() => onTabChange(item.id)}
                 title={collapsed ? item.label : undefined}
                 className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg text-[13px] font-medium transition-all group ${
-                  isActive
+                  isItemOrChildActive
                     ? 'bg-[#00C975] text-white font-semibold shadow-sm shadow-[#00C975]/30'
                     : 'text-slate-300 hover:text-white hover:bg-[#223046]'
                 }`}
               >
                 <Icon
                   className={`w-4 h-4 shrink-0 transition-transform ${
-                    isActive ? 'text-white' : 'text-slate-400 group-hover:text-white'
+                    isItemOrChildActive ? 'text-white' : 'text-slate-400 group-hover:text-white'
                   }`}
                 />
                 {!collapsed && (
@@ -237,7 +330,7 @@ export const SidebarZoho: React.FC<SidebarZohoProps> = ({
                 {!collapsed && item.badge && (
                   <span
                     className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full border ${
-                      isActive
+                      isItemOrChildActive
                         ? 'bg-white/20 text-white border-white/30'
                         : item.badgeColor || 'bg-slate-700 text-slate-300 border-slate-600'
                     }`}

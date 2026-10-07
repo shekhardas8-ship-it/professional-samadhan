@@ -124,11 +124,40 @@ export const PracticeLayout: React.FC<PracticeLayoutProps> = ({
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, []);
 
+  const [isClientsMenuOpen, setIsClientsMenuOpen] = useState(true);
+
   // Core Practice Navigation Items
-  const primaryNavItems = [
+  const primaryNavItems: Array<{
+    key: string;
+    label: string;
+    icon: any;
+    badge?: string;
+    badgeColor?: string;
+    subItems?: Array<{
+      key: string;
+      label: string;
+      icon: any;
+      badge?: string;
+      badgeColor?: string;
+    }>;
+  }> = [
     { key: 'home', label: 'Home', icon: Home },
-    { key: 'clients', label: 'Clients', icon: Users, badge: '25' },
-    { key: 'client-requests', label: 'Client Requests', icon: MessageSquare, badge: '3 Due', badgeColor: 'bg-amber-500/20 text-amber-300' },
+    {
+      key: 'clients',
+      label: 'Clients',
+      icon: Users,
+      badge: '25',
+      subItems: [
+        { key: 'clients', label: 'All Clients', icon: Users },
+        {
+          key: 'client-requests',
+          label: 'Client Requests',
+          icon: MessageSquare,
+          badge: '3 Due',
+          badgeColor: 'bg-amber-500/20 text-amber-300 border border-amber-500/30 font-bold',
+        },
+      ],
+    },
     { key: 'insights', label: 'Insights', icon: BarChart2 },
     { key: 'tasks', label: 'Tasks', icon: CheckSquare, badge: '17' },
     { key: 'time-tracking', label: 'Time Tracking', icon: Clock },
@@ -229,7 +258,104 @@ export const PracticeLayout: React.FC<PracticeLayoutProps> = ({
             <div className="space-y-1">
               {primaryNavItems.map(item => {
                 const Icon = item.icon;
-                const isActive = activeTab === item.key || (item.key === 'home' && activeTab === 'cockpit');
+                const isItemOrChildActive =
+                  activeTab === item.key ||
+                  (item.key === 'home' && activeTab === 'cockpit') ||
+                  (item.subItems && item.subItems.some(sub => sub.key === activeTab));
+
+                if (item.subItems) {
+                  return (
+                    <div key={item.key} className="space-y-1">
+                      <button
+                        onClick={() => {
+                          setIsClientsMenuOpen(!isClientsMenuOpen);
+                          if (activeTab !== 'clients' && activeTab !== 'client-requests') {
+                            onTabChange('clients');
+                          }
+                        }}
+                        className={`w-full flex items-center justify-between px-3.5 py-2 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
+                          isItemOrChildActive
+                            ? 'bg-[#00c073]/20 text-[#00c073] border border-[#00c073]/30 font-bold'
+                            : 'text-slate-300 hover:text-white hover:bg-white/5'
+                        }`}
+                      >
+                        <div className="flex items-center gap-3 truncate">
+                          <Icon
+                            className={`w-4 h-4 shrink-0 ${
+                              isItemOrChildActive ? 'text-[#00c073]' : 'text-slate-400'
+                            }`}
+                          />
+                          <span className="truncate">{item.label}</span>
+                        </div>
+                        <div className="flex items-center gap-1.5 shrink-0">
+                          {item.badge && (
+                            <span
+                              className={`px-2 py-0.5 rounded-full text-[10px] font-semibold shrink-0 ${
+                                isItemOrChildActive
+                                  ? 'bg-[#00c073]/30 text-[#00c073]'
+                                  : item.badgeColor || 'bg-slate-700/60 text-slate-300'
+                              }`}
+                            >
+                              {item.badge}
+                            </span>
+                          )}
+                          <span className="text-slate-400">
+                            {isClientsMenuOpen ? (
+                              <ChevronDown className="w-3.5 h-3.5" />
+                            ) : (
+                              <ChevronRight className="w-3.5 h-3.5" />
+                            )}
+                          </span>
+                        </div>
+                      </button>
+
+                      {/* Nested Sub-Items (All Clients & Client Requests) */}
+                      {isClientsMenuOpen && (
+                        <div className="ml-3 pl-3.5 border-l-2 border-slate-700/50 space-y-1 py-1 animate-in fade-in slide-in-from-top-1 duration-150">
+                          {item.subItems.map(sub => {
+                            const SubIcon = sub.icon;
+                            const isSubActive = activeTab === sub.key;
+                            return (
+                              <button
+                                key={sub.key}
+                                onClick={() => {
+                                  onTabChange(sub.key);
+                                  setIsMobileMenuOpen(false);
+                                }}
+                                className={`w-full flex items-center justify-between px-3 py-1.5 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
+                                  isSubActive
+                                    ? 'bg-[#00c073] text-white shadow-xs font-bold'
+                                    : 'text-slate-400 hover:text-white hover:bg-white/5'
+                                }`}
+                              >
+                                <div className="flex items-center gap-2.5 truncate">
+                                  <SubIcon
+                                    className={`w-3.5 h-3.5 shrink-0 ${
+                                      isSubActive ? 'text-white' : 'text-slate-400'
+                                    }`}
+                                  />
+                                  <span className="truncate">{sub.label}</span>
+                                </div>
+                                {sub.badge && (
+                                  <span
+                                    className={`px-1.5 py-0.5 rounded-full text-[9px] font-semibold shrink-0 ${
+                                      isSubActive
+                                        ? 'bg-white/20 text-white'
+                                        : sub.badgeColor || 'bg-slate-700/60 text-slate-300'
+                                    }`}
+                                  >
+                                    {sub.badge}
+                                  </span>
+                                )}
+                              </button>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </div>
+                  );
+                }
+
                 return (
                   <button
                     key={item.key}
@@ -237,20 +363,24 @@ export const PracticeLayout: React.FC<PracticeLayoutProps> = ({
                       onTabChange(item.key);
                       setIsMobileMenuOpen(false);
                     }}
-                    className={`w-full flex items-center justify-between px-3.5 py-2 rounded-lg text-xs font-semibold transition-all ${
-                      isActive
+                    className={`w-full flex items-center justify-between px-3.5 py-2 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
+                      isItemOrChildActive
                         ? 'bg-[#00c073] text-white shadow-sm font-bold'
                         : 'text-slate-300 hover:text-white hover:bg-white/5'
                     }`}
                   >
                     <div className="flex items-center gap-3 truncate">
-                      <Icon className={`w-4 h-4 shrink-0 ${isActive ? 'text-white' : 'text-slate-400'}`} />
+                      <Icon
+                        className={`w-4 h-4 shrink-0 ${
+                          isItemOrChildActive ? 'text-white' : 'text-slate-400'
+                        }`}
+                      />
                       <span className="truncate">{item.label}</span>
                     </div>
                     {item.badge && (
                       <span
                         className={`px-2 py-0.5 rounded-full text-[10px] font-semibold shrink-0 ${
-                          isActive
+                          isItemOrChildActive
                             ? 'bg-white/20 text-white'
                             : item.badgeColor || 'bg-slate-700/60 text-slate-300'
                         }`}

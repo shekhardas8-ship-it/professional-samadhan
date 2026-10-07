@@ -389,19 +389,27 @@ export default function App() {
         />
       )}
 
-      {/* 2. Clients Hub & KYC Directory */}
-      {activeTab === 'clients' && (
+      {/* 2. Clients Hub & KYC Directory (Includes Client Requests under Clients) */}
+      {(activeTab === 'clients' || activeTab === 'client-requests') && (
         <ClientDirectoryKycView
           onBack={() => setActiveTab('home')}
           onOpenClientPortal={handleOpenClientPortal}
           onRefreshParent={fetchMonthlyRequests}
+          initialSubTab={activeTab === 'client-requests' ? 'client-requests' : undefined}
+          requests={requests}
+          onOpenReview={req => setSelectedRequestForReview(req)}
+          onOpenWhatsApp={(req, actionType) => setWhatsappModalData({ request: req, actionType })}
+          onGenerateWorkbook={handleGenerateWorkbook}
+          onTriggerSchedule={handleTriggerSchedule}
+          onTogglePauseReminders={handleTogglePauseReminders}
+          isActionLoading={actionLoading}
         />
       )}
 
-      {/* 3. Client Requests & Routine Work (GST Filing Pipeline) */}
-      {(activeTab === 'client-requests' || activeTab === 'gst-pipeline') && (
+      {/* 3. Direct Routine Work (GST Filing Pipeline) */}
+      {activeTab === 'gst-pipeline' && (
         <CaDashboard
-          onBack={() => setActiveTab('home')}
+          onBack={() => setActiveTab('clients')}
           requests={requests}
           onOpenReview={req => setSelectedRequestForReview(req)}
           onOpenWhatsApp={(req, actionType) => setWhatsappModalData({ request: req, actionType })}

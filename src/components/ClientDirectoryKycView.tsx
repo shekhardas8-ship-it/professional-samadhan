@@ -55,23 +55,41 @@ import {
   ContactPerson,
   ClientNote,
   ClientRequestItem,
+  MonthlyRequest,
 } from '../types/index.ts';
 import {
   INITIAL_CLIENTS_DATA,
   ATTACHED_DOC_TEMPLATES,
 } from '../services/frontPageDataService.ts';
 import { ClientManagementModal } from './ClientManagementModal.tsx';
+import { CaDashboard } from './CaDashboard.tsx';
 
 interface ClientDirectoryKycViewProps {
   onBack?: () => void;
   onOpenClientPortal?: (token: string) => void;
   onRefreshParent?: () => void;
+  initialSubTab?: 'overview' | 'profile' | 'tasks' | 'insights' | 'client-requests' | 'emails' | 'discussions' | 'documents';
+  requests?: MonthlyRequest[];
+  onOpenReview?: (request: MonthlyRequest) => void;
+  onOpenWhatsApp?: (request: MonthlyRequest, actionType: 'initial' | 'reminder') => void;
+  onGenerateWorkbook?: (requestId: string) => Promise<void>;
+  onTriggerSchedule?: () => Promise<void>;
+  onTogglePauseReminders?: (requestId: string, paused: boolean) => Promise<void>;
+  isActionLoading?: boolean;
 }
 
 export const ClientDirectoryKycView: React.FC<ClientDirectoryKycViewProps> = ({
   onBack,
   onOpenClientPortal,
   onRefreshParent,
+  initialSubTab,
+  requests,
+  onOpenReview,
+  onOpenWhatsApp,
+  onGenerateWorkbook,
+  onTriggerSchedule,
+  onTogglePauseReminders,
+  isActionLoading,
 }) => {
   // Load clients with local persistence
   const [clients, setClients] = useState<Client[]>(() => {
@@ -103,7 +121,19 @@ export const ClientDirectoryKycView: React.FC<ClientDirectoryKycViewProps> = ({
     | 'emails'
     | 'discussions'
     | 'documents'
-  >('profile');
+  >(initialSubTab || 'profile');
+
+  // Client Requests Inner Mode: 'service_requests' vs 'gst_pipeline'
+  const [clientRequestsMode, setClientRequestsMode] = useState<'service_requests' | 'gst_pipeline'>('service_requests');
+
+  useEffect(() => {
+    if (initialSubTab) {
+      setActiveSubTab(initialSubTab);
+      if (initialSubTab === 'client-requests') {
+        setViewMode('detail');
+      }
+    }
+  }, [initialSubTab]);
 
   // Search & Filter in Table
   const [searchQuery, setSearchQuery] = useState('');
@@ -1148,136 +1178,185 @@ export const ClientDirectoryKycView: React.FC<ClientDirectoryKycViewProps> = ({
                  ================================================================= */}
               {activeSubTab === 'client-requests' && (
                 <div className="space-y-5">
-                  {/* Top Header & Filters (Screenshot 3) */}
+                  {/* Top Switcher: Service Requests (Zoho tickets) vs GST Document Intake Pipeline (Attachment 1) */}
                   <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-                    <div className="flex items-center space-x-2">
-                      <button className="flex items-center space-x-1.5 text-base font-bold text-slate-900 cursor-pointer">
-                        <span>All Requests</span>
-                        <ChevronDown className="w-4 h-4 text-slate-500" />
-                      </button>
+                    <div className="flex items-center gap-2">
+                      <div className="inline-flex p-1 rounded-xl bg-slate-200/80 border border-slate-300/60 shadow-2xs">
+                        <button
+                          onClick={() => setClientRequestsMode('service_requests')}
+                          className={`px-3.5 py-1.5 rounded-lg text-xs font-bold transition flex items-center gap-2 cursor-pointer ${
+                            clientRequestsMode === 'service_requests'
+                              ? 'bg-white text-blue-700 shadow-xs'
+                              : 'text-slate-600 hover:text-slate-900'
+                          }`}
+                        >
+                          <FileText className="w-3.5 h-3.5 text-blue-600" />
+                          <span>Service Requests & Tickets</span>
+                        </button>
+                        <button
+                          onClick={() => setClientRequestsMode('gst_pipeline')}
+                          className={`px-3.5 py-1.5 rounded-lg text-xs font-bold transition flex items-center gap-2 cursor-pointer ${
+                            clientRequestsMode === 'gst_pipeline'
+                              ? 'bg-[#00c073] text-white shadow-xs'
+                              : 'text-slate-600 hover:text-slate-900'
+                          }`}
+                        >
+                          <FileSpreadsheet className="w-3.5 h-3.5" />
+                          <span>GST Document Intake Pipeline</span>
+                          <span
+                            className={`px-1.5 py-0.2 rounded-full text-[9px] font-bold ${
+                              clientRequestsMode === 'gst_pipeline'
+                                ? 'bg-white/20 text-white'
+                                : 'bg-amber-100 text-amber-800 border border-amber-300'
+                            }`}
+                          >
+                            3 Due
+                          </span>
+                        </button>
+                      </div>
                     </div>
 
-                    <button
-                      onClick={() => setIsNewRequestModalOpen(true)}
-                      className="px-4 py-2 bg-[#1565c0] hover:bg-[#0d47a1] text-white rounded-lg text-xs font-bold flex items-center gap-1.5 shadow-xs transition self-start sm:self-auto cursor-pointer"
-                    >
-                      <Plus className="w-3.5 h-3.5" />
-                      <span>New</span>
-                    </button>
-                  </div>
-
-                  {/* Filters Bar (Screenshot 3) */}
-                  <div className="flex flex-wrap items-center gap-3 text-xs bg-white p-3 rounded-xl border border-slate-200">
-                    <span className="font-bold text-slate-400 uppercase tracking-wider text-[11px]">
-                      FILTERS:
-                    </span>
-
-                    {/* Filter: Select an App */}
-                    <select
-                      value={requestFilterApp}
-                      onChange={e => setRequestFilterApp(e.target.value)}
-                      className="px-2.5 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs font-semibold text-slate-700"
-                    >
-                      <option value="all">Select an App</option>
-                      <option value="Books">Books</option>
-                      <option value="GST">GST Compliance</option>
-                      <option value="Expense">Expense</option>
-                      <option value="Inventory">Inventory</option>
-                    </select>
-
-                    {/* Filter: Select Status */}
-                    <select
-                      value={requestFilterStatus}
-                      onChange={e => setRequestFilterStatus(e.target.value)}
-                      className="px-2.5 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs font-semibold text-slate-700"
-                    >
-                      <option value="all">Select Status</option>
-                      <option value="Open">Open</option>
-                      <option value="In Progress">In Progress</option>
-                      <option value="Needs Review">Needs Review</option>
-                      <option value="Completed">Completed</option>
-                    </select>
-
-                    {/* Filter: Select Priority */}
-                    <select
-                      value={requestFilterPriority}
-                      onChange={e => setRequestFilterPriority(e.target.value)}
-                      className="px-2.5 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs font-semibold text-slate-700"
-                    >
-                      <option value="all">Select Priority</option>
-                      <option value="Very Low">Very Low</option>
-                      <option value="Low">Low</option>
-                      <option value="Medium">Medium</option>
-                      <option value="High">High</option>
-                      <option value="Urgent">Urgent</option>
-                    </select>
-
-                    {/* Filter: Select user */}
-                    <select
-                      value={requestFilterUser}
-                      onChange={e => setRequestFilterUser(e.target.value)}
-                      className="px-2.5 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs font-semibold text-slate-700"
-                    >
-                      <option value="all">Select user</option>
-                      <option value="Dwaipayan Bose">Dwaipayan Bose</option>
-                      <option value="CA Suraj Dutta">CA Suraj Dutta</option>
-                      <option value="Pooja Verma">Pooja Verma</option>
-                    </select>
-                  </div>
-
-                  {/* Requests Table (Screenshot 3) */}
-                  <div className="bg-white rounded-xl border border-slate-200 shadow-2xs overflow-hidden">
-                    <table className="w-full text-left text-xs">
-                      <thead className="bg-[#f8fafc] text-slate-500 uppercase tracking-wider text-[11px] font-bold border-b border-slate-200">
-                        <tr>
-                          <th className="py-3.5 px-4">CLIENT REQUEST#</th>
-                          <th className="py-3.5 px-4">TITLE</th>
-                          <th className="py-3.5 px-4">ASSIGNED TO</th>
-                          <th className="py-3.5 px-4">STATUS</th>
-                          <th className="py-3.5 px-4">PRIORITY</th>
-                          <th className="py-3.5 px-4">CLIENT</th>
-                          <th className="py-3.5 px-4">ASSOCIATED APP</th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-slate-100">
-                        {clientRequestsList.map(req => (
-                          <tr key={req.id} className="hover:bg-slate-50 transition">
-                            <td className="py-3.5 px-4 font-mono font-bold text-blue-600">
-                              {req.requestNumber}
-                            </td>
-                            <td className="py-3.5 px-4 font-semibold text-slate-800">
-                              {req.title}
-                            </td>
-                            <td className="py-3.5 px-4 text-slate-600">
-                              {req.assignedTo}
-                            </td>
-                            <td className="py-3.5 px-4">
-                              <span className="flex items-center gap-1.5 font-semibold text-amber-600">
-                                <span className="w-1 h-3.5 bg-amber-500 rounded-full"></span>
-                                <span>{req.status}</span>
-                              </span>
-                            </td>
-                            <td className="py-3.5 px-4 text-slate-600">
-                              {req.priority}
-                            </td>
-                            <td className="py-3.5 px-4 text-slate-700 font-medium">
-                              {req.clientName}
-                            </td>
-                            <td className="py-3.5 px-4 text-slate-500 flex items-center gap-1.5">
-                              <FileSpreadsheet className="w-3.5 h-3.5 text-blue-500" />
-                              <span>{req.associatedApp}</span>
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-
-                    {clientRequestsList.length === 0 && (
-                      <div className="text-center py-12 text-slate-400 text-xs">
-                        No requests found for current filter.
-                      </div>
+                    {clientRequestsMode === 'service_requests' && (
+                      <button
+                        onClick={() => setIsNewRequestModalOpen(true)}
+                        className="px-4 py-2 bg-[#1565c0] hover:bg-[#0d47a1] text-white rounded-lg text-xs font-bold flex items-center gap-1.5 shadow-xs transition self-start sm:self-auto cursor-pointer"
+                      >
+                        <Plus className="w-3.5 h-3.5" />
+                        <span>New Request</span>
+                      </button>
                     )}
                   </div>
+
+                  {clientRequestsMode === 'gst_pipeline' ? (
+                    <div className="rounded-2xl overflow-hidden border border-slate-200 bg-white shadow-2xs animate-in fade-in">
+                      <CaDashboard
+                        requests={requests || []}
+                        onOpenReview={onOpenReview || (() => {})}
+                        onOpenWhatsApp={onOpenWhatsApp || (() => {})}
+                        onGenerateWorkbook={onGenerateWorkbook || (async () => {})}
+                        onTriggerSchedule={onTriggerSchedule || (async () => {})}
+                        onTogglePauseReminders={onTogglePauseReminders || (async () => {})}
+                        onOpenClientPortal={onOpenClientPortal || (() => {})}
+                        onRefresh={onRefreshParent}
+                        isActionLoading={Boolean(isActionLoading)}
+                      />
+                    </div>
+                  ) : (
+                    <>
+                      {/* Filters Bar (Screenshot 3) */}
+                      <div className="flex flex-wrap items-center gap-3 text-xs bg-white p-3 rounded-xl border border-slate-200">
+                        <span className="font-bold text-slate-400 uppercase tracking-wider text-[11px]">
+                          FILTERS:
+                        </span>
+
+                        {/* Filter: Select an App */}
+                        <select
+                          value={requestFilterApp}
+                          onChange={e => setRequestFilterApp(e.target.value)}
+                          className="px-2.5 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs font-semibold text-slate-700"
+                        >
+                          <option value="all">Select an App</option>
+                          <option value="Books">Books</option>
+                          <option value="GST">GST Compliance</option>
+                          <option value="Expense">Expense</option>
+                          <option value="Inventory">Inventory</option>
+                        </select>
+
+                        {/* Filter: Select Status */}
+                        <select
+                          value={requestFilterStatus}
+                          onChange={e => setRequestFilterStatus(e.target.value)}
+                          className="px-2.5 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs font-semibold text-slate-700"
+                        >
+                          <option value="all">Select Status</option>
+                          <option value="Open">Open</option>
+                          <option value="In Progress">In Progress</option>
+                          <option value="Needs Review">Needs Review</option>
+                          <option value="Completed">Completed</option>
+                        </select>
+
+                        {/* Filter: Select Priority */}
+                        <select
+                          value={requestFilterPriority}
+                          onChange={e => setRequestFilterPriority(e.target.value)}
+                          className="px-2.5 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs font-semibold text-slate-700"
+                        >
+                          <option value="all">Select Priority</option>
+                          <option value="Very Low">Very Low</option>
+                          <option value="Low">Low</option>
+                          <option value="Medium">Medium</option>
+                          <option value="High">High</option>
+                          <option value="Urgent">Urgent</option>
+                        </select>
+
+                        {/* Filter: Select user */}
+                        <select
+                          value={requestFilterUser}
+                          onChange={e => setRequestFilterUser(e.target.value)}
+                          className="px-2.5 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs font-semibold text-slate-700"
+                        >
+                          <option value="all">Select user</option>
+                          <option value="Dwaipayan Bose">Dwaipayan Bose</option>
+                          <option value="CA Suraj Dutta">CA Suraj Dutta</option>
+                          <option value="Pooja Verma">Pooja Verma</option>
+                        </select>
+                      </div>
+
+                      {/* Requests Table (Screenshot 3) */}
+                      <div className="bg-white rounded-xl border border-slate-200 shadow-2xs overflow-hidden">
+                        <table className="w-full text-left text-xs">
+                          <thead className="bg-[#f8fafc] text-slate-500 uppercase tracking-wider text-[11px] font-bold border-b border-slate-200">
+                            <tr>
+                              <th className="py-3.5 px-4">CLIENT REQUEST#</th>
+                              <th className="py-3.5 px-4">TITLE</th>
+                              <th className="py-3.5 px-4">ASSIGNED TO</th>
+                              <th className="py-3.5 px-4">STATUS</th>
+                              <th className="py-3.5 px-4">PRIORITY</th>
+                              <th className="py-3.5 px-4">CLIENT</th>
+                              <th className="py-3.5 px-4">ASSOCIATED APP</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-slate-100">
+                            {clientRequestsList.map(req => (
+                              <tr key={req.id} className="hover:bg-slate-50 transition">
+                                <td className="py-3.5 px-4 font-mono font-bold text-blue-600">
+                                  {req.requestNumber}
+                                </td>
+                                <td className="py-3.5 px-4 font-semibold text-slate-800">
+                                  {req.title}
+                                </td>
+                                <td className="py-3.5 px-4 text-slate-600">
+                                  {req.assignedTo}
+                                </td>
+                                <td className="py-3.5 px-4">
+                                  <span className="flex items-center gap-1.5 font-semibold text-amber-600">
+                                    <span className="w-1 h-3.5 bg-amber-500 rounded-full"></span>
+                                    <span>{req.status}</span>
+                                  </span>
+                                </td>
+                                <td className="py-3.5 px-4 text-slate-600">
+                                  {req.priority}
+                                </td>
+                                <td className="py-3.5 px-4 text-slate-700 font-medium">
+                                  {req.clientName}
+                                </td>
+                                <td className="py-3.5 px-4 text-slate-500 flex items-center gap-1.5">
+                                  <FileSpreadsheet className="w-3.5 h-3.5 text-blue-500" />
+                                  <span>{req.associatedApp}</span>
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+
+                        {clientRequestsList.length === 0 && (
+                          <div className="text-center py-12 text-slate-400 text-xs">
+                            No requests found for current filter.
+                          </div>
+                        )}
+                      </div>
+                    </>
+                  )}
                 </div>
               )}
 
