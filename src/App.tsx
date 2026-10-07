@@ -440,7 +440,7 @@ export default function App() {
       )}
 
       {/* 7b. Direct GST & ITR Government E-Filing Hub */}
-      {activeTab === 'gst-itr-filing' && (
+      {(activeTab === 'gst-itr-filing' || activeTab === 'govt-efiling') && (
         <GstItrFilingHubView onBack={() => setActiveTab('home')} />
       )}
 

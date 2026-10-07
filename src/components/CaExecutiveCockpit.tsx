@@ -228,6 +228,16 @@ export const CaExecutiveCockpit: React.FC<CaExecutiveCockpitProps> = ({
             {/* Quick Actions */}
             <div className="flex flex-wrap items-center gap-3">
               <button
+                onClick={() => onNavigateTab('gst-itr-filing')}
+                className="px-4 py-2.5 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white text-xs sm:text-sm font-bold rounded-xl shadow-md transition flex items-center space-x-2 border border-emerald-400/30"
+                title="Direct GST & ITR Government E-Filing Hub (₹0 Cost)"
+              >
+                <ShieldCheck className="w-4 h-4 text-emerald-200" />
+                <span>Govt E-Filing Hub</span>
+                <span className="bg-white/20 text-emerald-100 text-[10px] px-1.5 py-0.5 rounded font-bold uppercase tracking-wider">₹0 Free</span>
+              </button>
+
+              <button
                 onClick={onOpenNewClientModal}
                 className="px-4 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white text-xs sm:text-sm font-bold rounded-xl shadow-md transition flex items-center space-x-2"
                 title="Register a new business under practice management"
@@ -263,7 +273,7 @@ export const CaExecutiveCockpit: React.FC<CaExecutiveCockpitProps> = ({
             <span className="text-xs text-slate-400">Direct Navigation</span>
           </div>
 
-        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-7 gap-3">
           {/* 1. Client Directory & KYC */}
           <div
             onClick={() => onNavigateTab('clients')}
@@ -302,7 +312,29 @@ export const CaExecutiveCockpit: React.FC<CaExecutiveCockpitProps> = ({
             </div>
           </div>
 
-          {/* 3. Adhoc Request */}
+          {/* 3. Govt E-Filing Hub */}
+          <div
+            onClick={() => onNavigateTab('gst-itr-filing')}
+            className="bg-gradient-to-b from-emerald-50/60 to-white rounded-2xl p-4 border-2 border-emerald-500/50 shadow-sm hover:shadow-md hover:border-emerald-600 transition-all cursor-pointer group flex flex-col justify-between relative overflow-hidden"
+          >
+            <div className="absolute top-2 right-2">
+              <span className="bg-emerald-600 text-white text-[9px] font-bold px-1.5 py-0.5 rounded-full uppercase tracking-wider">₹0 Fee</span>
+            </div>
+            <div>
+              <div className="w-8 h-8 rounded-lg bg-emerald-100 text-emerald-800 flex items-center justify-center mb-2 group-hover:scale-110 transition-transform">
+                <ShieldCheck className="w-4 h-4 text-emerald-700" />
+              </div>
+              <h3 className="text-xs font-bold text-slate-900 group-hover:text-emerald-700 leading-tight">
+                Govt E-Filing Hub
+              </h3>
+            </div>
+            <div className="mt-3 flex items-center justify-between text-[11px] text-emerald-700 font-bold">
+              <span>GST & ITR v1.5</span>
+              <ArrowRight className="w-3 h-3 group-hover:translate-x-1 transition-transform" />
+            </div>
+          </div>
+
+          {/* 4. Adhoc Request */}
           <div
             onClick={() => onNavigateTab('adhoc-requests')}
             className="bg-white rounded-2xl p-4 border border-slate-200/90 shadow-sm hover:shadow-md hover:border-purple-500 transition-all cursor-pointer group flex flex-col justify-between"
@@ -321,7 +353,7 @@ export const CaExecutiveCockpit: React.FC<CaExecutiveCockpitProps> = ({
             </div>
           </div>
 
-          {/* 4. Compliance Calendar */}
+          {/* 5. Compliance Calendar */}
           <div
             onClick={() => onNavigateTab('compliance-calendar')}
             className="bg-white rounded-2xl p-4 border border-slate-200/90 shadow-sm hover:shadow-md hover:border-emerald-500 transition-all cursor-pointer group flex flex-col justify-between"
@@ -340,7 +372,7 @@ export const CaExecutiveCockpit: React.FC<CaExecutiveCockpitProps> = ({
             </div>
           </div>
 
-          {/* 5. Next 7 days Pending task */}
+          {/* 6. Next 7 days Pending task */}
           <div
             onClick={() => onNavigateTab('pending-task')}
             className="bg-white rounded-2xl p-4 border border-rose-200/80 shadow-sm hover:shadow-md hover:border-rose-500 transition-all cursor-pointer group flex flex-col justify-between bg-rose-50/20"
@@ -359,7 +391,7 @@ export const CaExecutiveCockpit: React.FC<CaExecutiveCockpitProps> = ({
             </div>
           </div>
 
-          {/* 6. Billing & Finance */}
+          {/* 7. Billing & Finance */}
           <div
             onClick={() => onNavigateTab('billing-finance')}
             className="bg-white rounded-2xl p-4 border border-slate-200/90 shadow-sm hover:shadow-md hover:border-amber-500 transition-all cursor-pointer group flex flex-col justify-between"

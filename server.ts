@@ -4573,9 +4573,15 @@ app.get('/api/filing/data/:clientId/:period', async (req: Request, res: Response
       // Format date to DD-MM-YYYY
       let formattedDate = '01-08-2026';
       if (doc.docDate) {
-        const parts = doc.docDate.split('-');
+        const rawDate = typeof doc.docDate === 'string' ? doc.docDate : String(doc.docDate);
+        const cleanDate = rawDate.split('T')[0].trim();
+        const parts = cleanDate.split('-');
         if (parts.length === 3) {
-          formattedDate = `${parts[2]}-${parts[1]}-${parts[0]}`;
+          if (parts[0].length === 4) {
+            formattedDate = `${parts[2].padStart(2, '0')}-${parts[1].padStart(2, '0')}-${parts[0]}`;
+          } else if (parts[2].length === 4) {
+            formattedDate = `${parts[0].padStart(2, '0')}-${parts[1].padStart(2, '0')}-${parts[2]}`;
+          }
         }
       }
 

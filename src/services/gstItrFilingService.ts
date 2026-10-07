@@ -245,6 +245,11 @@ export function validateGstr1PreFlight(
       });
     }
 
+    if (inv.invoiceDate && /^\d{4}-\d{2}-\d{2}$/.test(inv.invoiceDate)) {
+      const p = inv.invoiceDate.split('-');
+      inv.invoiceDate = `${p[2]}-${p[1]}-${p[0]}`;
+    }
+
     if (!inv.invoiceDate || !/^\d{2}-\d{2}-\d{4}$/.test(inv.invoiceDate)) {
       issues.push({
         field: `invoice_${index}_date`,
