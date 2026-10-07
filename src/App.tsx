@@ -2,6 +2,9 @@
 import React, { useState, useEffect } from 'react';
 import { UserRole, MonthlyRequest, AuthUser } from './types/index.ts';
 import { Header } from './components/Header.tsx';
+import { SidebarZoho } from './components/SidebarZoho.tsx';
+import { HeaderZoho } from './components/HeaderZoho.tsx';
+import { ZohoDashboardView } from './components/ZohoDashboardView.tsx';
 import { LoginPage } from './components/LoginPage.tsx';
 import { CaExecutiveCockpit } from './components/CaExecutiveCockpit.tsx';
 import { ClientsHubView } from './components/ClientsHubView.tsx';
@@ -18,6 +21,14 @@ import { AuditLogsView } from './components/AuditLogsView.tsx';
 import { SetupGuideView } from './components/SetupGuideView.tsx';
 import { ClientManagementModal } from './components/ClientManagementModal.tsx';
 import { WhatsAppDeviceLinkModal } from './components/WhatsAppDeviceLinkModal.tsx';
+import { QuickCreateModal } from './components/QuickCreateModal.tsx';
+import { SuperAdminView } from './components/SuperAdminView.tsx';
+import { AiCopilotDrawer } from './components/AiCopilotDrawer.tsx';
+import { WorkflowBuilderView } from './components/WorkflowBuilderView.tsx';
+import { NoticesDscView } from './components/NoticesDscView.tsx';
+import { DevDiagnosticsView } from './components/DevDiagnosticsView.tsx';
+import { GovtEfilingHubView } from './components/GovtEfilingHubView.tsx';
+import { MessageSquare, ChevronUp } from 'lucide-react';
 
 export default function App() {
   // Check if opened via unique client portal link with token or direct client path
@@ -56,8 +67,12 @@ export default function App() {
       ? 'client-portal'
       : authenticatedUser?.role === 'client'
       ? 'client-portal'
-      : 'cockpit'
+      : 'home'
   );
+
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [isQuickCreateOpen, setIsQuickCreateOpen] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
 
   const [requests, setRequests] = useState<MonthlyRequest[]>([]);
   const [loading, setLoading] = useState(false);
@@ -111,7 +126,7 @@ export default function App() {
       setActivePortalToken(user.token);
       setActiveTab('client-portal');
     } else {
-      setActiveTab('cockpit'); // Always take CA/Staff to the clean Executive Cockpit
+      setActiveTab('home'); // Zoho Practice styled primary home
     }
   };
 
@@ -122,7 +137,7 @@ export default function App() {
     localStorage.removeItem('ps_auth_user');
     setAuthenticatedUser(null);
     setCurrentRole('ca_admin');
-    setActiveTab('cockpit');
+    setActiveTab('home');
   };
 
   const handleTriggerSchedule = async () => {
@@ -206,130 +221,256 @@ export default function App() {
     );
   }
 
-  return (
-    <div className="min-h-screen bg-slate-100 flex flex-col font-sans text-slate-800 relative overflow-x-hidden">
-      {/* Professional Samadhan Official Watermark */}
-      <div
-        className="fixed inset-0 pointer-events-none z-0 flex items-center justify-center overflow-hidden select-none"
-        aria-hidden="true"
-      >
-        <div className="relative flex items-center justify-center">
-          <img
-            src="/logo.jpg"
-            alt=""
-            className="w-[420px] sm:w-[600px] h-[420px] sm:h-[600px] object-contain opacity-[0.045] filter grayscale contrast-125 rotate-[-12deg]"
+  // 1. Client-Only Standalone Mode
+  if (isClientOnlyMode || activeTab === 'client-portal') {
+    return (
+      <div className="min-h-screen bg-slate-50 flex flex-col font-sans text-slate-800">
+        <Header
+          currentRole={currentRole}
+          currentUser={authenticatedUser}
+          onRoleChange={setCurrentRole}
+          activeTab={activeTab}
+          onTabChange={setActiveTab}
+          onRefresh={fetchMonthlyRequests}
+          onLogout={handleLogout}
+          isLoading={loading}
+          isClientOnlyMode={true}
+        />
+        <main className="flex-1 max-w-6xl w-full mx-auto p-4 sm:p-6">
+          <ClientPortalView
+            initialToken={activePortalToken}
+            isStandaloneClient={isClientOnlyMode}
+            onBack={isClientOnlyMode ? undefined : () => setActiveTab('home')}
           />
-        </div>
+        </main>
       </div>
+    );
+  }
 
-      {/* Navigation Header */}
-      <Header
-        currentRole={currentRole}
-        currentUser={authenticatedUser}
-        onRoleChange={role => {
-          if (isClientOnlyMode) return;
-          setCurrentRole(role);
-          if (role === 'client') {
-            setActiveTab('client-portal');
-          } else if (activeTab === 'client-portal') {
-            setActiveTab('cockpit');
-          }
-        }}
+  // 2. CA Firm Practice OS Layout (Matching attached Zoho Practice design)
+  return (
+    <div className="min-h-screen bg-[#f4f6fa] flex font-sans text-slate-800 antialiased overflow-x-hidden">
+      {/* Left Navigation Sidebar (Zoho Practice style) */}
+      <SidebarZoho
         activeTab={activeTab}
-        onTabChange={tab => {
-          if (isClientOnlyMode) return;
-          setActiveTab(tab);
-        }}
-        onRefresh={fetchMonthlyRequests}
-        onLogout={handleLogout}
-        onOpenWhatsAppDevice={() => setIsWhatsAppDeviceModalOpen(true)}
-        isLoading={loading}
-        isClientOnlyMode={isClientOnlyMode}
+        onTabChange={setActiveTab}
+        collapsed={sidebarCollapsed}
+        onToggleCollapse={() => setSidebarCollapsed(!sidebarCollapsed)}
+        onOpenLiveTour={() => setActiveTab('guide')}
+        userRole={currentRole}
       />
 
-      {/* Main View Area */}
-      <main className="flex-1 max-w-7xl w-full mx-auto p-4 sm:p-6 lg:p-8 relative z-10">
-        {isClientOnlyMode ? (
-          <ClientPortalView initialToken={activePortalToken} isStandaloneClient={true} />
-        ) : (
-          <>
-            {/* Front Page / Chartered Accountant Executive Cockpit */}
-            {activeTab === 'cockpit' && (
-              <CaExecutiveCockpit
-                requests={requests}
-                onNavigateTab={tab => setActiveTab(tab)}
-                onTriggerSchedule={handleTriggerSchedule}
-                onOpenNewClientModal={() => setIsClientModalOpen(true)}
-                onRefreshParent={fetchMonthlyRequests}
-                isActionLoading={actionLoading}
-              />
-            )}
+      {/* Main Content Area */}
+      <div className="flex-1 flex flex-col min-w-0 min-h-screen">
+        {/* Top Header Bar */}
+        <HeaderZoho
+          currentUser={authenticatedUser}
+          currentRole={currentRole}
+          onRoleChange={setCurrentRole}
+          onLogout={handleLogout}
+          onRefresh={fetchMonthlyRequests}
+          isLoading={loading}
+          onOpenQuickCreate={() => setIsQuickCreateOpen(true)}
+          onOpenWhatsAppDevice={() => setIsWhatsAppDeviceModalOpen(true)}
+          onOpenNotifications={() => setActiveTab('audit-logs')}
+          onOpenSettings={() => setActiveTab('super-admin')}
+          onSearchQuery={setSearchQuery}
+        />
 
-            {/* Dedicated Clients Hub & KYC Directory */}
-            {activeTab === 'clients' && (
-              <ClientDirectoryKycView
-                onBack={() => setActiveTab('cockpit')}
-                onOpenClientPortal={handleOpenClientPortal}
-                onRefreshParent={fetchMonthlyRequests}
-              />
-            )}
+        {/* Dynamic View Body */}
+        <main className="flex-1 p-4 sm:p-6 max-w-[1600px] w-full mx-auto pb-14">
+          {/* Zoho Practice Main Dashboard View */}
+          {activeTab === 'home' && (
+            <ZohoDashboardView
+              requests={requests}
+              onNavigateTab={setActiveTab}
+              onOpenQuickCreate={() => setIsQuickCreateOpen(true)}
+              onTriggerSchedule={handleTriggerSchedule}
+              isActionLoading={actionLoading}
+            />
+          )}
 
-            {/* Routine Work (GST Filing Pipeline) */}
-            {activeTab === 'gst-pipeline' && (
-              <CaDashboard
-                onBack={() => setActiveTab('cockpit')}
-                requests={requests}
-                onOpenReview={req => setSelectedRequestForReview(req)}
-                onOpenWhatsApp={(req, actionType) => setWhatsappModalData({ request: req, actionType })}
-                onGenerateWorkbook={handleGenerateWorkbook}
-                onTriggerSchedule={handleTriggerSchedule}
-                onTogglePauseReminders={handleTogglePauseReminders}
-                onOpenClientPortal={handleOpenClientPortal}
-                onRefresh={fetchMonthlyRequests}
-                isActionLoading={actionLoading}
-              />
-            )}
+          {/* CA Executive Cockpit */}
+          {activeTab === 'cockpit' && (
+            <CaExecutiveCockpit
+              requests={requests}
+              onNavigateTab={setActiveTab}
+              onTriggerSchedule={handleTriggerSchedule}
+              onOpenNewClientModal={() => setIsClientModalOpen(true)}
+              onRefreshParent={fetchMonthlyRequests}
+              isActionLoading={actionLoading}
+            />
+          )}
 
-            {/* Adhoc Request Service Desk */}
-            {activeTab === 'adhoc-requests' && (
-              <AdhocRequestsView onBack={() => setActiveTab('cockpit')} />
-            )}
+          {/* Client Directory & 360 KYC */}
+          {activeTab === 'clients' && (
+            <ClientDirectoryKycView
+              onBack={() => setActiveTab('home')}
+              onOpenClientPortal={handleOpenClientPortal}
+              onRefreshParent={fetchMonthlyRequests}
+            />
+          )}
 
-            {/* Statutory Compliance Calendar (Auto-Generate) */}
-            {activeTab === 'compliance-calendar' && (
-              <ComplianceCalendarView onBack={() => setActiveTab('cockpit')} />
-            )}
+          {/* Client Requests & Routine Work (GST Intake Pipeline) */}
+          {(activeTab === 'client-requests' || activeTab === 'gst-pipeline') && (
+            <CaDashboard
+              onBack={() => setActiveTab('home')}
+              requests={requests}
+              onOpenReview={req => setSelectedRequestForReview(req)}
+              onOpenWhatsApp={(req, actionType) => setWhatsappModalData({ request: req, actionType })}
+              onGenerateWorkbook={handleGenerateWorkbook}
+              onTriggerSchedule={handleTriggerSchedule}
+              onTogglePauseReminders={handleTogglePauseReminders}
+              onOpenClientPortal={handleOpenClientPortal}
+              onRefresh={fetchMonthlyRequests}
+              isActionLoading={actionLoading}
+            />
+          )}
 
-            {/* Next 7 Days Pending Tasks Radar (Accumulated Across All Sections) */}
-            {(activeTab === 'pending-tax' || activeTab === 'pending-task') && (
-              <Next7DaysPendingTaxView
-                onBack={() => setActiveTab('cockpit')}
+          {/* Workpaper Engine */}
+          {activeTab === 'workpaper' && (
+            <CaDashboard
+              onBack={() => setActiveTab('home')}
+              requests={requests}
+              onOpenReview={req => setSelectedRequestForReview(req)}
+              onOpenWhatsApp={(req, actionType) => setWhatsappModalData({ request: req, actionType })}
+              onGenerateWorkbook={handleGenerateWorkbook}
+              onTriggerSchedule={handleTriggerSchedule}
+              onTogglePauseReminders={handleTogglePauseReminders}
+              onOpenClientPortal={handleOpenClientPortal}
+              onRefresh={fetchMonthlyRequests}
+              isActionLoading={actionLoading}
+            />
+          )}
+
+          {/* Tasks & Next 7 Days Radar */}
+          {(activeTab === 'tasks' || activeTab === 'pending-tax' || activeTab === 'pending-task') && (
+            <Next7DaysPendingTaxView
+              onBack={() => setActiveTab('home')}
+              onNavigateTab={setActiveTab}
+            />
+          )}
+
+          {/* Time Tracking / Timesheet */}
+          {activeTab === 'time-tracking' && (
+            <Next7DaysPendingTaxView
+              onBack={() => setActiveTab('home')}
+              onNavigateTab={setActiveTab}
+            />
+          )}
+
+          {/* Statutory Compliance Calendar */}
+          {activeTab === 'compliance-calendar' && (
+            <ComplianceCalendarView onBack={() => setActiveTab('home')} />
+          )}
+
+          {/* Government Return E-Filing Hub (GST & ITR) */}
+          {activeTab === 'govt-efiling' && (
+            <GovtEfilingHubView onBack={() => setActiveTab('home')} />
+          )}
+
+          {/* Department Notices & DSC Expiry Management */}
+          {activeTab === 'notices-dsc' && (
+            <NoticesDscView />
+          )}
+
+          {/* Billing & Finance */}
+          {activeTab === 'billing-finance' && (
+            <BillingFinanceView onBack={() => setActiveTab('home')} />
+          )}
+
+          {/* Adhoc Request Service Desk */}
+          {activeTab === 'adhoc-requests' && (
+            <AdhocRequestsView onBack={() => setActiveTab('home')} />
+          )}
+
+          {/* AI CA Copilot */}
+          {activeTab === 'ai-copilot' && (
+            <div className="max-w-4xl mx-auto">
+              <AiCopilotDrawer
+                isOpen={true}
+                onClose={() => setActiveTab('home')}
                 onNavigateTab={setActiveTab}
               />
-            )}
+            </div>
+          )}
 
-            {/* Billing & Finance */}
-            {activeTab === 'billing-finance' && (
-              <BillingFinanceView onBack={() => setActiveTab('cockpit')} />
-            )}
+          {/* Workflow Automation Builder */}
+          {activeTab === 'workflow-builder' && (
+            <WorkflowBuilderView />
+          )}
 
-            {activeTab === 'client-portal' && (
-              <ClientPortalView
-                initialToken={activePortalToken}
-                onBack={() => setActiveTab('cockpit')}
-              />
-            )}
+          {/* Super Admin Console */}
+          {activeTab === 'super-admin' && (
+            <SuperAdminView />
+          )}
 
-            {activeTab === 'audit-logs' && (
-              <AuditLogsView onBack={() => setActiveTab('cockpit')} />
-            )}
+          {/* System Diagnostics */}
+          {activeTab === 'diagnostics' && (
+            <DevDiagnosticsView />
+          )}
 
-            {activeTab === 'guide' && (
-              <SetupGuideView onBack={() => setActiveTab('cockpit')} />
-            )}
-          </>
-        )}
-      </main>
+          {/* Audit Logs */}
+          {activeTab === 'audit-logs' && (
+            <AuditLogsView onBack={() => setActiveTab('home')} />
+          )}
+
+          {/* Setup Guide */}
+          {activeTab === 'guide' && (
+            <SetupGuideView onBack={() => setActiveTab('home')} />
+          )}
+
+          {/* Insights / Reports */}
+          {(activeTab === 'insights' || activeTab === 'documents') && (
+            <CaExecutiveCockpit
+              requests={requests}
+              onNavigateTab={setActiveTab}
+              onTriggerSchedule={handleTriggerSchedule}
+              onOpenNewClientModal={() => setIsClientModalOpen(true)}
+              onRefreshParent={fetchMonthlyRequests}
+              isActionLoading={actionLoading}
+            />
+          )}
+        </main>
+
+        {/* Bottom Fixed Status Bar (Matching Zoho Screenshot) */}
+        <footer className="fixed bottom-0 right-0 left-0 bg-white/95 backdrop-blur-md border-t border-slate-200 px-4 sm:px-6 py-2 flex items-center justify-between text-xs text-slate-500 z-20 shadow-xs">
+          <div className="flex items-center gap-4">
+            <span className="font-medium text-slate-600">
+              Mon to Fri 9:00AM - 7:00PM
+            </span>
+            <span className="hidden sm:inline text-slate-300">|</span>
+            <span className="hidden sm:inline text-slate-500">
+              QuinceCA AI Practice Engine v3.0 • Multi-Tenant Enterprise
+            </span>
+          </div>
+
+          <div className="flex items-center gap-3">
+            <button
+              onClick={() => setActiveTab('ai-copilot')}
+              className="bg-[#1e88e5] hover:bg-[#1976d2] text-white px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5 shadow-sm transition active:scale-95"
+            >
+              <MessageSquare className="w-3.5 h-3.5" />
+              <span>Chat with our experts</span>
+            </button>
+            <button
+              onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}
+              className="p-1 hover:bg-slate-100 rounded text-slate-400 hover:text-slate-600 transition"
+              title="Back to Top"
+            >
+              <ChevronUp className="w-4 h-4" />
+            </button>
+          </div>
+        </footer>
+      </div>
+
+      {/* Quick Create "+" Modal */}
+      <QuickCreateModal
+        isOpen={isQuickCreateOpen}
+        onClose={() => setIsQuickCreateOpen(false)}
+        onNavigateTab={setActiveTab}
+        onOpenNewClientModal={() => setIsClientModalOpen(true)}
+      />
 
       {/* Onboard / Edit Client Modal */}
       {isClientModalOpen && (
@@ -372,20 +513,6 @@ export default function App() {
           onClose={() => setIsWhatsAppDeviceModalOpen(false)}
         />
       )}
-
-      {/* Footer */}
-      <footer className="bg-slate-900 border-t border-slate-800 py-6 text-center text-xs text-slate-400 relative z-10">
-        <div className="max-w-7xl mx-auto px-4 flex flex-col sm:flex-row items-center justify-between gap-2">
-          <div>
-            <strong>Professional Samadhan Chartered Accountants</strong> -{' '}
-            {isClientOnlyMode ? 'Statutory Client GST Document Portal' : 'GST Practice Management System'}
-          </div>
-          <div className="flex items-center space-x-4 text-slate-500">
-            <span>{isClientOnlyMode ? '256-Bit Encrypted Client Session' : 'Statutory Audit Working Paper Engine'}</span>
-            <span>Version 2.5.0</span>
-          </div>
-        </div>
-      </footer>
     </div>
   );
 }

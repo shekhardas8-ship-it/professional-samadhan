@@ -99,6 +99,8 @@ class BaileysWhatsAppManager {
             data jsonb NOT NULL,
             updated_at timestamp DEFAULT now()
           );
+        `);
+        await pool.query(`
           INSERT INTO system_sessions (key, data, updated_at)
           VALUES ('baileys_auth_session', $1, now())
           ON CONFLICT (key) DO UPDATE SET data = $1, updated_at = now();

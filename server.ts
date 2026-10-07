@@ -44,6 +44,7 @@ import { triggerMonthlyIntakeRequests, calculatePreviousMonthPeriod, checkAndDis
 import { seedInitialData } from './src/db/seed.ts';
 import { baileysWhatsAppManager } from './src/services/baileysService.ts';
 import { collectServerMetrics, sendServerHealthEmail } from './src/services/serverMonitor.ts';
+import { GovFilingService } from './src/services/govFilingService.ts';
 
 
 const app = express();
@@ -4013,7 +4014,358 @@ app.get(['/health', '/healthz'], (_req: Request, res: Response) => {
   res.status(200).json({ status: 'healthy', uptime: Math.floor(process.uptime()) });
 });
 
-// Explicit 404 for unhandled API routes (prevents returning index.html for failed /api requests)
+// ==========================================
+// 15. GOVERNMENT E-FILING (GST & ITR) APIs
+// Option 2: 100% Legal & Free Government Schema Offline Utility Bridge
+// ==========================================
+
+// Get all government filing records
+app.get('/api/gov-filing/records', async (_req: Request, res: Response) => {
+  try {
+    const filings = await GovFilingService.getAllFilings();
+    res.json(filings);
+  } catch (err: any) {
+    res.status(500).json({ error: 'Failed to fetch filing records: ' + err.message });
+  }
+});
+
+// Fetch pre-aggregated client data for filing wizard
+app.get('/api/gov-filing/client-data/:clientId', async (req: Request, res: Response) => {
+  try {
+    const { clientId } = req.params;
+    const clientList = await db.select().from(clients).where(eq(clients.id, clientId)).limit(1);
+    if (clientList.length === 0) {
+      return res.status(404).json({ error: 'Client not found.' });
+    }
+    const client = clientList[0];
+
+    // Find active or recent monthly request
+    const mRequests = await db
+      .select()
+      .from(monthlyRequests)
+      .where(eq(monthlyRequests.clientId, clientId))
+      .orderBy(desc(monthlyRequests.year), desc(monthlyRequests.monthNumber));
+
+    const activeReq = mRequests[0];
+    let extractedSales: any[] = [];
+    let extractedPurchases: any[] = [];
+    let lineItemsList: any[] = [];
+
+    if (activeReq) {
+      const allDocs = await db.select().from(extractedDocuments).where(eq(extractedDocuments.monthlyRequestId, activeReq.id));
+      extractedSales = allDocs.filter(d => d.docType === 'sales_invoice');
+      extractedPurchases = allDocs.filter(d => d.docType === 'purchase_invoice');
+
+      const docIds = allDocs.map(d => d.id);
+      if (docIds.length > 0) {
+        lineItemsList = await db.select().from(extractedLineItems).where(sql`${extractedLineItems.documentUnitId} IN ${docIds}`);
+      }
+    }
+
+    // Compute sales aggregates
+    let salesTaxable = 0;
+    let salesIgst = 0;
+    let salesCgst = 0;
+    let salesSgst = 0;
+    let salesCess = 0;
+    let salesTotal = 0;
+
+    extractedSales.forEach(inv => {
+      salesTaxable += Number(inv.taxableAmount || 0);
+      salesIgst += Number(inv.igstAmount || 0);
+      salesCgst += Number(inv.cgstAmount || 0);
+      salesSgst += Number(inv.sgstAmount || 0);
+      salesCess += Number(inv.cessAmount || 0);
+      salesTotal += Number(inv.totalAmount || 0);
+    });
+
+    // Compute purchase/ITC aggregates
+    let itcTaxable = 0;
+    let itcIgst = 0;
+    let itcCgst = 0;
+    let itcSgst = 0;
+    let itcCess = 0;
+    let itcTotal = 0;
+
+    extractedPurchases.forEach(inv => {
+      itcTaxable += Number(inv.taxableAmount || 0);
+      itcIgst += Number(inv.igstAmount || 0);
+      itcCgst += Number(inv.cgstAmount || 0);
+      itcSgst += Number(inv.sgstAmount || 0);
+      itcCess += Number(inv.cessAmount || 0);
+      itcTotal += Number(inv.totalAmount || 0);
+    });
+
+    // Extract PAN from GSTIN (chars 3 to 12)
+    const panFromGstin = client.gstin && client.gstin.length === 15 ? client.gstin.substring(2, 12).toUpperCase() : '';
+
+    res.json({
+      client: {
+        id: client.id,
+        businessName: client.businessName,
+        contactPerson: client.contactPerson,
+        gstin: client.gstin,
+        pan: panFromGstin,
+        phone: client.registeredPhone,
+        email: client.email,
+        address: client.address || 'Commercial premises, Mumbai, Maharashtra',
+        stateCode: client.gstin ? client.gstin.substring(0, 2) : '27',
+        expectedBankAccounts: client.expectedBankAccounts || [],
+      },
+      activeRequest: activeReq || null,
+      aggregates: {
+        sales: {
+          invoiceCount: extractedSales.length,
+          taxable: Math.round(salesTaxable * 100) / 100,
+          igst: Math.round(salesIgst * 100) / 100,
+          cgst: Math.round(salesCgst * 100) / 100,
+          sgst: Math.round(salesSgst * 100) / 100,
+          cess: Math.round(salesCess * 100) / 100,
+          total: Math.round(salesTotal * 100) / 100,
+        },
+        purchases: {
+          invoiceCount: extractedPurchases.length,
+          taxable: Math.round(itcTaxable * 100) / 100,
+          igst: Math.round(itcIgst * 100) / 100,
+          cgst: Math.round(itcCgst * 100) / 100,
+          sgst: Math.round(itcSgst * 100) / 100,
+          cess: Math.round(itcCess * 100) / 100,
+          total: Math.round(itcTotal * 100) / 100,
+        },
+      },
+      salesInvoices: extractedSales.map(s => {
+        const lines = lineItemsList.filter(l => l.documentUnitId === s.id);
+        return {
+          id: s.id,
+          docNumber: s.docNumber,
+          docDate: s.docDate,
+          buyerName: s.buyerName,
+          buyerGstin: s.buyerGstin,
+          placeOfSupply: s.placeOfSupply,
+          taxableAmount: s.taxableAmount,
+          cgstAmount: s.cgstAmount,
+          sgstAmount: s.sgstAmount,
+          igstAmount: s.igstAmount,
+          cessAmount: s.cessAmount,
+          totalAmount: s.totalAmount,
+          reverseCharge: s.reverseCharge,
+          lineItems: lines.map(l => ({
+            itemDescription: l.itemDescription,
+            hsnSac: l.hsnSac,
+            quantity: l.quantity,
+            rate: l.rate,
+            taxableValue: l.taxableValue,
+            taxRatePercent: l.taxRatePercent,
+            cgstAmount: l.cgstAmount,
+            sgstAmount: l.sgstAmount,
+            igstAmount: l.igstAmount,
+            totalAmount: l.totalAmount,
+          })),
+        };
+      }),
+    });
+  } catch (err: any) {
+    res.status(500).json({ error: 'Failed to fetch client filing data: ' + err.message });
+  }
+});
+
+// Validate GSTR-1 parameters
+app.post('/api/gov-filing/validate-gstr1', async (req: Request, res: Response) => {
+  try {
+    const result = GovFilingService.validateGstr1(req.body);
+    res.json(result);
+  } catch (err: any) {
+    res.status(500).json({ error: 'Validation failed: ' + err.message });
+  }
+});
+
+// Generate GSTR-1 Government JSON
+app.post('/api/gov-filing/generate-gstr1', async (req: Request, res: Response) => {
+  try {
+    const { clientId, clientName, gstin, reportingMonth, monthNumber, year, invoices, grossTurnoverPrevYear } = req.body;
+    if (!gstin || !reportingMonth) {
+      return res.status(400).json({ error: 'GSTIN and reporting month are required.' });
+    }
+
+    const result = await GovFilingService.generateGstr1({
+      clientId: clientId || 'cli_manual',
+      clientName: clientName || 'Client Business',
+      gstin,
+      reportingMonth,
+      monthNumber: Number(monthNumber || 8),
+      year: Number(year || 2026),
+      invoices: invoices || [],
+      grossTurnoverPrevYear: Number(grossTurnoverPrevYear || 4500000),
+    });
+
+    res.json(result);
+  } catch (err: any) {
+    res.status(500).json({ error: 'Failed to generate GSTR-1 JSON: ' + err.message });
+  }
+});
+
+// Generate GSTR-3B Government JSON
+app.post('/api/gov-filing/generate-gstr3b', async (req: Request, res: Response) => {
+  try {
+    const {
+      clientId,
+      clientName,
+      gstin,
+      reportingMonth,
+      monthNumber,
+      year,
+      outwardTaxable,
+      outwardIgst,
+      outwardCgst,
+      outwardSgst,
+      itcIgst,
+      itcCgst,
+      itcSgst,
+    } = req.body;
+
+    if (!gstin || !reportingMonth) {
+      return res.status(400).json({ error: 'GSTIN and reporting month are required.' });
+    }
+
+    const result = await GovFilingService.generateGstr3b({
+      clientId: clientId || 'cli_manual',
+      clientName: clientName || 'Client Business',
+      gstin,
+      reportingMonth,
+      monthNumber: Number(monthNumber || 8),
+      year: Number(year || 2026),
+      outwardTaxable: Number(outwardTaxable || 0),
+      outwardIgst: Number(outwardIgst || 0),
+      outwardCgst: Number(outwardCgst || 0),
+      outwardSgst: Number(outwardSgst || 0),
+      itcIgst: Number(itcIgst || 0),
+      itcCgst: Number(itcCgst || 0),
+      itcSgst: Number(itcSgst || 0),
+    });
+
+    res.json(result);
+  } catch (err: any) {
+    res.status(500).json({ error: 'Failed to generate GSTR-3B JSON: ' + err.message });
+  }
+});
+
+// Generate ITR-1 Government JSON
+app.post('/api/gov-filing/generate-itr1', async (req: Request, res: Response) => {
+  try {
+    const { clientId, clientName, itrData } = req.body;
+    if (!itrData || !itrData.assessee || !itrData.assessee.pan) {
+      return res.status(400).json({ error: 'Valid Assessee PAN and income particulars are required for ITR-1.' });
+    }
+
+    const result = await GovFilingService.generateItr1({
+      clientId: clientId || 'cli_manual',
+      clientName: clientName || `${itrData.assessee.firstName} ${itrData.assessee.surName}`,
+      itrData,
+    });
+
+    res.json(result);
+  } catch (err: any) {
+    res.status(500).json({ error: 'Failed to generate ITR-1 JSON: ' + err.message });
+  }
+});
+
+// Generate ITR-4 Government JSON
+app.post('/api/gov-filing/generate-itr4', async (req: Request, res: Response) => {
+  try {
+    const { clientId, clientName, itrData } = req.body;
+    if (!itrData || !itrData.assessee || !itrData.assessee.pan) {
+      return res.status(400).json({ error: 'Valid Assessee PAN and presumptive particulars are required for ITR-4.' });
+    }
+
+    const result = await GovFilingService.generateItr4({
+      clientId: clientId || 'cli_manual',
+      clientName: clientName || itrData.assessee.businessName || `${itrData.assessee.firstName} ${itrData.assessee.surName}`,
+      itrData,
+    });
+
+    res.json(result);
+  } catch (err: any) {
+    res.status(500).json({ error: 'Failed to generate ITR-4 JSON: ' + err.message });
+  }
+});
+
+// Record Filing Status (ARN / Ack No / DSC)
+app.post('/api/gov-filing/record-status', async (req: Request, res: Response) => {
+  try {
+    const { id, status, arnNumber, filingDate, filedBy, notes } = req.body;
+    if (!id) {
+      return res.status(400).json({ error: 'Filing ID is required.' });
+    }
+
+    const updated = await GovFilingService.recordFilingStatus(id, {
+      status,
+      arnNumber,
+      filingDate,
+      filedBy,
+      notes,
+    });
+
+    if (!updated) {
+      return res.status(404).json({ error: 'Filing record not found.' });
+    }
+
+    res.json(updated);
+  } catch (err: any) {
+    res.status(500).json({ error: 'Failed to record filing status: ' + err.message });
+  }
+});
+
+// Download Government JSON Return File
+app.get('/api/gov-filing/download/:filename', (req: Request, res: Response) => {
+  try {
+    const { filename } = req.params;
+    const filePath = GovFilingService.getReturnFilePath(filename);
+
+    if (!filePath || !fs.existsSync(filePath)) {
+      return res.status(404).json({ error: 'Government return JSON file not found on disk.' });
+    }
+
+    res.setHeader('Content-Type', 'application/json');
+    res.setHeader('Content-Disposition', `attachment; filename="${path.basename(filePath)}"`);
+    fs.createReadStream(filePath).pipe(res);
+  } catch (err: any) {
+    res.status(500).json({ error: 'Download error: ' + err.message });
+  }
+});
+
+// Official Government Portal Links & filing guide metadata
+app.get('/api/gov-filing/portal-links', (_req: Request, res: Response) => {
+  res.json({
+    gst: {
+      loginUrl: 'https://services.gst.gov.in/services/login',
+      returnsDashboardUrl: 'https://return.gst.gov.in/returns/auth/dashboard',
+      offlineUtilityDownload: 'https://www.gst.gov.in/download/returns',
+      steps: [
+        { step: 1, title: 'Download Return JSON', desc: 'Click "Download Validated Return JSON (.json)" from QuinceCA AI.' },
+        { step: 2, title: 'Open GST Portal', desc: 'Log in at return.gst.gov.in with taxpayer credentials and complete Captcha.' },
+        { step: 3, title: 'Go to Return Dashboard', desc: 'Navigate to Services > Returns > Returns Dashboard. Select Financial Year & Return Filing Period.' },
+        { step: 4, title: 'Select Prepare Offline', desc: 'Under GSTR-1 or GSTR-3B tile, click "PREPARE OFFLINE" button.' },
+        { step: 5, title: 'Upload QuinceCA JSON', desc: 'Under the "Upload" tab, choose the downloaded JSON file. System confirms "Your request has been accepted successfully".' },
+        { step: 6, title: 'Generate Summary & File', desc: 'Click "Generate Summary", preview values against QuinceCA calculation, and File with DSC or EVC (Aadhaar OTP).' },
+      ],
+    },
+    itr: {
+      loginUrl: 'https://eportal.incometax.gov.in/iec/foservices/#/login',
+      eFilingUrl: 'https://eportal.incometax.gov.in/iec/foservices/#/dashboard',
+      offlineUtilityDownload: 'https://www.incometax.gov.in/iec/foportal/downloads',
+      steps: [
+        { step: 1, title: 'Download ITR JSON', desc: 'Click "Download Official ITR JSON (.json)" from QuinceCA AI.' },
+        { step: 2, title: 'Login to e-Filing Portal', desc: 'Access incometax.gov.in and log in with PAN & Password (2FA with OTP).' },
+        { step: 3, title: 'Navigate to File Income Tax Return', desc: 'Go to e-File > Income Tax Returns > File Income Tax Return.' },
+        { step: 4, title: 'Select Assessment Year & Mode', desc: 'Select Assessment Year (e.g. 2025-26) > Filing Mode: "Offline (JSON Upload)".' },
+        { step: 5, title: 'Upload JSON File', desc: 'Upload the JSON file downloaded from QuinceCA AI. Department validates schema and shows "Validation Successful".' },
+        { step: 6, title: 'Proceed to e-Verify', desc: 'Verify the return instantly using Aadhaar OTP, Net Banking, or Digital Signature Certificate (DSC).' },
+      ],
+    },
+  });
+});
+
+
 app.all('/api/*', (req: Request, res: Response) => {
   res.status(404).json({ error: `API route not found: ${req.method} ${req.originalUrl}` });
 });

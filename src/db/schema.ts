@@ -337,6 +337,31 @@ export const auditNotifications = pgTable('audit_notifications', {
   createdAt: timestamp('created_at').defaultNow().notNull(),
 });
 
+// 11. Government E-Filings (GST & ITR Returns)
+export const govtFilings = pgTable('govt_filings', {
+  id: text('id').primaryKey(),
+  clientId: text('client_id').notNull(),
+  clientName: text('client_name').notNull(),
+  identifier: text('identifier').notNull(), // GSTIN or PAN
+  returnType: text('return_type').notNull(), // 'GSTR-1' | 'GSTR-3B' | 'ITR-1' | 'ITR-4'
+  financialYear: text('financial_year').notNull(),
+  returnPeriod: text('return_period').notNull(),
+  status: text('status').notNull().default('JSON Generated'),
+  arnNumber: text('arn_number'),
+  filingDate: text('filing_date'),
+  filedBy: text('filed_by'),
+  totalTaxableValue: numeric('total_taxable_value', { precision: 15, scale: 2 }),
+  totalTaxLiability: numeric('total_tax_liability', { precision: 15, scale: 2 }),
+  totalItcClaimed: numeric('total_itc_claimed', { precision: 15, scale: 2 }),
+  jsonFileName: text('json_file_name'),
+  jsonPayload: jsonb('json_payload').$type<Record<string, any>>(),
+  driveFileId: text('drive_file_id'),
+  driveWebViewLink: text('drive_web_view_link'),
+  notes: text('notes'),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+  updatedAt: timestamp('updated_at').defaultNow().notNull(),
+});
+
 // Relations
 export const clientsRelations = relations(clients, ({ many }) => ({
   monthlyRequests: many(monthlyRequests),

@@ -520,6 +520,49 @@ export const StaffReviewModal: React.FC<StaffReviewModalProps> = ({
               <span className="sm:hidden">ZIP</span>
             </a>
 
+            {/* 1-Click Government GST Return JSON Export */}
+            <button
+              onClick={async () => {
+                try {
+                  setIsSubmitting(true);
+                  const res = await fetch('/api/gov-filing/generate-gstr1', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                      clientId: request.clientId,
+                      clientName: request.clientName,
+                      gstin: request.clientGstin,
+                      reportingMonth: request.reportingMonth,
+                      monthNumber: request.monthNumber || 8,
+                      year: request.year || 2026,
+                      invoices: details?.extractedDocuments?.filter(d => d.docType === 'sales_invoice') || [],
+                    }),
+                  });
+                  if (res.ok) {
+                    const data = await res.json();
+                    window.location.href = `/api/gov-filing/download/${data.record.jsonFileName}`;
+                    setMessage({
+                      type: 'success',
+                      text: `Official GSTR-1 JSON (${data.record.jsonFileName}) compiled and downloaded! Ready for direct upload to gst.gov.in.`,
+                    });
+                  } else {
+                    const errData = await res.json();
+                    setMessage({ type: 'error', text: errData.error || 'Failed to export GSTR-1 JSON' });
+                  }
+                } catch (err: any) {
+                  setMessage({ type: 'error', text: 'Error generating return: ' + err.message });
+                } finally {
+                  setIsSubmitting(false);
+                }
+              }}
+              className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold rounded-lg flex items-center space-x-1.5 transition shadow-xs cursor-pointer"
+              title="1-Click Export Validated Official GST Return JSON for Govt Portal Upload"
+            >
+              <FileCode2 className="w-3.5 h-3.5 text-indigo-200" />
+              <span className="hidden sm:inline">Export Govt JSON</span>
+              <span className="sm:hidden">Gov JSON</span>
+            </button>
+
             {/* Direct 1-Click Google Drive Access (Dedicated per Client) */}
             <a
               href={

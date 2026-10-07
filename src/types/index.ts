@@ -372,3 +372,54 @@ export interface AuthUser {
   assignedClientIds?: string[];
   lastLogin?: string;
 }
+
+export type GovtReturnType = 'GSTR-1' | 'GSTR-3B' | 'ITR-1' | 'ITR-4';
+
+export type GovtFilingStatus =
+  | 'Draft'
+  | 'Validated'
+  | 'JSON Generated'
+  | 'Uploaded to Portal'
+  | 'Filed with EVC/DSC';
+
+export interface GovtValidationCheck {
+  code: string;
+  title: string;
+  status: 'passed' | 'warning' | 'failed';
+  message: string;
+  details?: string;
+}
+
+export interface GovtValidationResult {
+  isValid: boolean;
+  score: number;
+  checks: GovtValidationCheck[];
+  summary: {
+    passedCount: number;
+    warningCount: number;
+    failedCount: number;
+  };
+}
+
+export interface GovtFilingRecord {
+  id: string;
+  clientId: string;
+  clientName: string;
+  identifier: string; // GSTIN or PAN
+  returnType: GovtReturnType;
+  financialYear: string; // e.g. "2025-26"
+  returnPeriod: string; // e.g. "082026", "August 2026", "AY 2025-26"
+  status: GovtFilingStatus;
+  arnNumber?: string; // Application Reference Number or Ack No
+  filingDate?: string;
+  filedBy?: string;
+  totalTaxableValue?: number;
+  totalTaxLiability?: number;
+  totalItcClaimed?: number;
+  jsonFileName?: string;
+  jsonPayload?: any;
+  notes?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
