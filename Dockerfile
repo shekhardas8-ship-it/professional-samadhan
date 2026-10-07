@@ -1,4 +1,4 @@
-# Production Dockerfile for Professional Samadhan GST Platform
+# Production Dockerfile for QuinceCA GST Platform
 FROM node:20-slim
 
 # Install system dependencies if required for canvas/tesseract

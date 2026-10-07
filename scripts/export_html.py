@@ -2,7 +2,7 @@
 """
 scripts/export_html.py
 Standalone Python script to generate high-grade, printable, offline-capable
-HTML GST Working Papers & Audit Packs for Professional Samadhan CA Firm.
+HTML GST Working Papers & Audit Packs for QuinceCA CA Firm.
 
 Usage:
     python3 scripts/export_html.py --request-id req_apex_aug2026_01 --output /path/to/output.html
@@ -31,7 +31,7 @@ def generate_html_report(data):
     purchase_lines = data.get("purchaseLineItems", [])
     bank_txns = data.get("bankTransactions", [])
     exceptions = data.get("exceptions", [])
-    generated_by = data.get("generatedBy", "Professional Samadhan GST Desk")
+    generated_by = data.get("generatedBy", "QuinceCA GST Desk")
 
     total_sales_taxable = sum(float(i.get("taxableAmount", 0) or 0) for i in sales_invoices)
     total_sales_gross = sum(float(i.get("totalAmount", 0) or 0) for i in sales_invoices)
@@ -54,7 +54,7 @@ def generate_html_report(data):
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>GST Working Paper - {client.get('businessName', 'Client')} - Professional Samadhan</title>
+  <title>GST Working Paper - {client.get('businessName', 'Client')} - QuinceCA</title>
   <style>
     body {{
       font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif;
@@ -108,7 +108,7 @@ def generate_html_report(data):
   <div class="container">
     <div class="header">
       <div>
-        <h1>Professional Samadhan — Chartered Accountants</h1>
+        <h1>QuinceCA — Chartered Accountants</h1>
         <div>GST Working Paper &amp; Statutory Audit Pack (Period: {request.get('reportingMonth', 'N/A')})</div>
       </div>
       <div style="text-align: right;">
@@ -172,7 +172,7 @@ def generate_html_report(data):
 
     <div style="margin-top: 30px; border-top: 1px dashed #cbd5e1; padding-top: 16px; font-size: 11px; color: #64748b; display: flex; justify-content: space-between;">
       <span>Prepared by: {generated_by}</span>
-      <span>Professional Samadhan • Statutory Working Paper Generated: {datetime.now().strftime('%d-%b-%Y %H:%M')}</span>
+      <span>QuinceCA • Statutory Working Paper Generated: {datetime.now().strftime('%d-%b-%Y %H:%M')}</span>
     </div>
   </div>
 </body>

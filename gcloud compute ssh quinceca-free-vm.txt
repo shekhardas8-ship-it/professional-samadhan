@@ -1,0 +1,1 @@
+gcloud compute ssh quinceca-free-vm --zone=us-central1-a

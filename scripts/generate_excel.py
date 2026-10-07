@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Professional Samadhan - Standalone Python Excel Generator
+QuinceCA - Standalone Python Excel Generator
 Generates client-specific, 10-sheet GST workbook with formula injection prevention,
 frozen headers, and audit trails.
 """
@@ -38,7 +38,7 @@ def generate_workbook(data_path, output_path):
     # Sheet 1: Summary
     ws_summary = wb.create_sheet(title="Summary & Checklist")
     ws_summary.append(["Parameter", "Value / Detail", "Status"])
-    ws_summary.append(["CA Firm", "Professional Samadhan Chartered Accountants", "Official Working Paper"])
+    ws_summary.append(["CA Firm", "QuinceCA Chartered Accountants", "Official Working Paper"])
     ws_summary.append(["Client Business", sanitize(data.get("businessName")), "Verified"])
     ws_summary.append(["GSTIN", sanitize(data.get("gstin")), "Statutory Record"])
     ws_summary.append(["Reporting Month", sanitize(data.get("reportingMonth")), f"Version v{data.get('version', 1)}"])

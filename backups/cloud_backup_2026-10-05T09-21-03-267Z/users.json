@@ -1,0 +1,46 @@
+[
+  {
+    "id": "ca_rajesh_01",
+    "email": "suraj.dutta@professionalsamadhan.in",
+    "display_name": "CA Suraj Dutta (FCA)",
+    "role": "ca_admin",
+    "phone": "+919820011111",
+    "active": true,
+    "assigned_client_ids": [
+      "cli_apex_01",
+      "cli_bluebell_02",
+      "cli_zenith_03",
+      "cli_zenith_04"
+    ],
+    "created_at": "2026-09-27T08:01:37.476Z",
+    "updated_at": "2026-09-27T08:01:37.476Z"
+  },
+  {
+    "id": "staff_pooja_02",
+    "email": "pooja.verma@professionalsamadhan.in",
+    "display_name": "Diya (Senior Associate)",
+    "role": "staff",
+    "phone": "+917431915191",
+    "active": true,
+    "assigned_client_ids": [
+      "cli_apex_01",
+      "cli_bluebell_02"
+    ],
+    "created_at": "2026-09-27T08:01:37.476Z",
+    "updated_at": "2026-09-29T22:24:51.126Z"
+  },
+  {
+    "id": "staff_amit_03",
+    "email": "amit.patel@professionalsamadhan.in",
+    "display_name": "Mukesh Kumar (ACA)",
+    "role": "ca_admin",
+    "phone": "+918510913757",
+    "active": true,
+    "assigned_client_ids": [
+      "cli_zenith_03",
+      "cli_zenith_04"
+    ],
+    "created_at": "2026-09-27T08:01:37.476Z",
+    "updated_at": "2026-09-29T22:27:23.968Z"
+  }
+]

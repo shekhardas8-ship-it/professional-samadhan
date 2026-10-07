@@ -1,15 +1,15 @@
-# Professional Samadhan - GST Document Collection & Review Application
+# QuinceCA - GST Document Collection & Review Application
 ## Complete Beginner-Friendly Installation, Architecture & Operations Manual
 
 ---
 
 ### 1. System Overview & Architecture
 
-"Professional Samadhan" is a production-grade Chartered Accountant (CA) firm document collection, OCR extraction, reconciliation, and client confirmation platform.
+"QuinceCA" is a production-grade Chartered Accountant (CA) firm document collection, OCR extraction, reconciliation, and client confirmation platform.
 
 ```
 +---------------------------------------------------------------------------------------------------------+
-|                                    PROFESSIONAL SAMADHAN ARCHITECTURE                                   |
+|                                           QUINCECA ARCHITECTURE                                         |
 +---------------------------------------------------------------------------------------------------------+
 |                                                                                                         |
 |   +--------------------------+    +---------------------------+    +--------------------------------+   |

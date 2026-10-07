@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Professional Samadhan - Local Document Extraction Engine
+QuinceCA - Local Document Extraction Engine
 Supports:
 1. Native PDF text extraction using PyPDF2 / pdfplumber.
 2. Local Scanned OCR via PaddleOCR (Zero cloud API costs, 100% private on-premise).
@@ -80,7 +80,7 @@ def classify_and_parse(text, client_gstin, filename):
     }
 
 def main():
-    parser = argparse.ArgumentParser(description="Professional Samadhan Document Extractor")
+    parser = argparse.ArgumentParser(description="QuinceCA Document Extractor")
     parser.add_argument("--file", required=True, help="Path to input document")
     parser.add_argument("--client-gstin", required=True, help="Client GSTIN")
     args = parser.parse_args()

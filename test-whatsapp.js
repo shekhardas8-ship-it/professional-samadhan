@@ -29,7 +29,7 @@ async function testWhatsApp() {
         messaging_product: 'whatsapp',
         to: targetPhone,
         type: 'text',
-        text: { body: 'Test from Professional Samadhan GST Platform' },
+        text: { body: 'Test from QuinceCA GST Platform' },
       }),
     });
 

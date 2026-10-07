@@ -1,5 +1,5 @@
 {
-  "name": "Professional Samadhan - GST Collection & Review",
+  "name": "QuinceCA - GST Collection & Review",
   "description": "GST document collection, OCR extraction, reconciliation, Excel workbook generator, and client confirmation portal for Chartered Accountants.",
   "requestFramePermissions": [],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]

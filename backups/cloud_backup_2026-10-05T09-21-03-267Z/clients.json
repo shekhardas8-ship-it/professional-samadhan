@@ -1,0 +1,70 @@
+[
+  {
+    "id": "cli_zcejzs8",
+    "business_name": "Briopex Therapeutics Pvt Ltd",
+    "contact_person": "Mr. Soumen ",
+    "gstin": "07DWAPK0131H1Z1",
+    "registered_phone": "+91 7003067587",
+    "email": "briopex.therapeutics@gmail.com",
+    "assigned_staff_id": "staff_pooja_02",
+    "assigned_staff_name": "Pooja Verma (Senior Associate)",
+    "active": true,
+    "required_checklist": [
+      "sales_invoices",
+      "purchase_invoices",
+      "bank_statements"
+    ],
+    "expected_bank_accounts": [],
+    "whatsapp_consent": true,
+    "whatsapp_consent_date": "2026-10-05T01:54:30.120Z",
+    "reminder_cadence_days": 3,
+    "max_reminders": 3,
+    "reminders_paused": false,
+    "created_at": "2026-10-05T01:54:30.120Z",
+    "updated_at": "2026-10-05T02:11:00.694Z",
+    "cin": null,
+    "address": null,
+    "directors": [
+      {
+        "id": "dir_1791185605729",
+        "din": "11923673",
+        "name": "SN Biswas",
+        "email": "sn_biswas@yahoo.com",
+        "phone": "+91 836 811 8104",
+        "panNumber": "AFXPB3201J",
+        "panUploaded": true,
+        "aadharNumber": "9590 9979 8018",
+        "aadharUploaded": true,
+        "dinDocUploaded": true,
+        "bankDocUploaded": true
+      },
+      {
+        "id": "dir_1791185895041",
+        "din": "11923672",
+        "name": "Sarmila Biswas",
+        "email": "sarmila.sarkarmom@gmail.com",
+        "phone": "+91 9968256614",
+        "panNumber": "AODPB3433K",
+        "panUploaded": true,
+        "aadharNumber": "5743 9799 7614",
+        "aadharUploaded": true,
+        "dinDocUploaded": true,
+        "bankDocUploaded": true
+      }
+    ],
+    "attached_documents": [
+      {
+        "id": "att_1791186060694",
+        "docKey": "coa",
+        "status": "verified",
+        "docName": "COA (Certificate of Incorporation / Assessment)",
+        "fileName": "COA__Certificate_of_Incorporation___Assessment__Briopex.pdf",
+        "fileSize": "1.4 MB",
+        "uploadedAt": "2026-10-05",
+        "categoryNumber": 1
+      }
+    ],
+    "google_drive_folder_id": null,
+    "google_drive_url": null
+  }
+]
