@@ -1,5 +1,5 @@
 import crypto from 'crypto';
-// Directly import lib/pdf-parse.js to bypass index.js debug block that looks for non-existent test file in ESM
+// @ts-ignore
 import pdfParse from 'pdf-parse/lib/pdf-parse.js';
 import ExcelJS from 'exceljs';
 import Tesseract from 'tesseract.js';
@@ -53,6 +53,7 @@ export interface ExtractedDocDto {
     debitAmount: number;
     creditAmount: number;
     balance?: number;
+    documentPassword?: string;
   }>;
   rawText: string;
   extractionConfidence: number;
@@ -93,6 +94,25 @@ export function isValidGstinFormat(gstin: string | undefined): boolean {
   return regex.test(gstin.trim());
 }
 
+// Custom robust page renderer for PDF.js to ensure spaces between words on same horizontal line
+export function robustPdfPageRenderer(pageData: any) {
+  return pageData.getTextContent({ normalizeWhitespace: true, disableCombineTextItems: false })
+    .then((textContent: any) => {
+      let lastY: any;
+      let text = '';
+      for (const item of textContent.items) {
+        if (lastY === item.transform[5] || !lastY) {
+          const needSpace = text.length > 0 && !text.endsWith(' ') && !text.endsWith('\n');
+          text += (needSpace ? ' ' : '') + item.str;
+        } else {
+          text += '\n' + item.str;
+        }
+        lastY = item.transform[5];
+      }
+      return text;
+    });
+}
+
 /**
  * Intelligent Document Extraction Engine
  * Supports:
@@ -106,6 +126,8 @@ export function isValidGstinFormat(gstin: string | undefined): boolean {
  * 100% Precision Multimodal Document Extraction via Google Gemini
  * Analyzes PDFs and Images directly down to pixels and bytes.
  */
+let geminiVisionCooldownUntil = 0;
+
 async function extractWithGeminiVision(
   buffer: Buffer,
   filename: string,
@@ -115,7 +137,7 @@ async function extractWithGeminiVision(
   targetCategory?: string
 ): Promise<ExtractedDocDto[] | null> {
   const apiKey = (process.env.GEMINI_API_KEY || '').trim();
-  if (!apiKey) return null;
+  if (!apiKey || Date.now() < geminiVisionCooldownUntil) return null;
 
   try {
     const ai = new GoogleGenAI({ apiKey });
@@ -136,7 +158,7 @@ Extract all relevant details and output valid JSON ONLY matching this schema:
   "docType": "sales_invoice" | "purchase_invoice" | "bank_statement" | "debit_note" | "credit_note" | "other_uncertain",
   "isGstChallan": boolean,
   "docNumber": string,
-  "docDate": "YYYY-MM-DD",
+  "docDate": "DD-MM-YYYY",
   "supplierName": string,
   "supplierGstin": string,
   "supplierAddress": string,
@@ -193,7 +215,7 @@ Guidelines:
     let response: any;
     try {
       response = await ai.models.generateContent({
-        model: 'gemini-3.8-flash',
+        model: 'gemini-2.0-flash',
         contents: [
           { text: prompt },
           {
@@ -208,9 +230,9 @@ Guidelines:
         },
       });
     } catch (modelErr: any) {
-      // Fallback attempt with gemini-2.5-flash or gemini-2.0-flash
+      // Fallback attempt with gemini-1.5-flash
       response = await ai.models.generateContent({
-        model: 'gemini-2.5-flash',
+        model: 'gemini-1.5-flash',
         contents: [
           { text: prompt },
           {
@@ -297,7 +319,13 @@ Guidelines:
       }
     }];
   } catch (err: any) {
-    console.warn(`[GEMINI VISION OCR] Notice for ${filename}:`, err?.message || err);
+    const errMsg = String(err?.message || err);
+    if (errMsg.includes('404') || errMsg.includes('NOT_FOUND') || errMsg.includes('401') || errMsg.includes('403') || errMsg.includes('API_KEY')) {
+      geminiVisionCooldownUntil = Date.now() + 5 * 60 * 1000;
+      console.warn(`[GEMINI VISION OCR] API unavailable (${errMsg.slice(0, 100)}). Cooling down for 5 mins to allow fast local batch processing.`);
+    } else {
+      console.warn(`[GEMINI VISION OCR] Notice for ${filename}:`, errMsg);
+    }
     return null;
   }
 }
@@ -371,9 +399,23 @@ export async function extractDocumentContent(
   } else if (isPdf) {
     scanMethod = 'pdf_parse';
     try {
-      const options: any = {};
-      if (password) options.password = password;
-      const parsed = await pdfParse(buffer, options);
+      const options: any = { pagerender: robustPdfPageRenderer };
+      if (password && password.trim()) options.password = password.trim();
+      let parsed: any;
+      try {
+        parsed = await pdfParse(buffer, options);
+      } catch (firstErr: any) {
+        // If password was provided, try uppercase/lowercase candidates
+        if (password && password.trim()) {
+          for (const cand of [password.trim().toUpperCase(), password.trim().toLowerCase()]) {
+            try {
+              parsed = await pdfParse(buffer, { ...options, password: cand });
+              if (parsed?.text?.trim()) break;
+            } catch (_) {}
+          }
+        }
+        if (!parsed) throw firstErr;
+      }
       if (parsed && parsed.text && parsed.text.trim()) {
         cleanText = sanitizePostgresText(parsed.text);
       }
@@ -416,7 +458,7 @@ export async function extractDocumentContent(
     cleanText = sanitizePostgresText(buffer.toString('utf-8'));
   }
 
-  const detectedDoc = parseDocumentTextOrScan(cleanText, filename, clientGstin, scanMethod, clientBusinessName, targetCategory);
+  const detectedDoc = parseDocumentTextOrScan(cleanText, filename, clientGstin, scanMethod, clientBusinessName, targetCategory, password);
   return [detectedDoc];
 }
 
@@ -463,7 +505,7 @@ function parseCsvDocument(
     return [{
       docType: 'bank_statement',
       docNumber: `STMT-${filename.replace(/\.[^/.]+$/, '')}`,
-      docDate: transactions[transactions.length - 1]?.transactionDate || new Date().toISOString().slice(0, 10),
+      docDate: normalizeDate(transactions[transactions.length - 1]?.transactionDate || ''),
       taxableAmount: 0,
       cgstAmount: 0,
       sgstAmount: 0,
@@ -488,7 +530,8 @@ function parseDocumentTextOrScan(
   clientGstin: string,
   scanMethod: string,
   clientBusinessName?: string,
-  targetCategory?: string
+  targetCategory?: string,
+  documentPassword?: string
 ): ExtractedDocDto {
   const lowerText = text.toLowerCase();
   const lowerFilename = filename.toLowerCase();
@@ -518,12 +561,23 @@ function parseDocumentTextOrScan(
     lowerFilename.includes('stmt') ||
     lowerFilename.includes('passbook') ||
     lowerFilename.includes('bank_stmt') ||
+    lowerFilename.includes('bank') ||
     lowerFilename.includes('acct statement') ||
+    lowerFilename.includes('sbi') ||
+    lowerFilename.includes('hdfc') ||
+    lowerFilename.includes('icici') ||
+    lowerFilename.includes('axis') ||
+    lowerFilename.includes('kotak') ||
     lowerText.includes('account statement') ||
     lowerText.includes('statement of account') ||
     lowerText.includes('bank statement') ||
     lowerText.includes('passbook') ||
-    (lowerText.includes('account number') && lowerText.includes('closing balance') && !isInvoiceMarker);
+    lowerText.includes('transaction date') ||
+    lowerText.includes('value date') ||
+    lowerText.includes('withdrawal amt') ||
+    lowerText.includes('deposit amt') ||
+    lowerText.includes('closing balance') ||
+    (lowerText.includes('account number') && (lowerText.includes('balance') || lowerText.includes('debit') || lowerText.includes('credit')) && !isInvoiceMarker);
 
   // Credit / Debit Note markers
   const isCreditNote = combinedLower.includes('credit note') || combinedLower.includes('cr-note') || combinedLower.includes('cr note');
@@ -603,12 +657,12 @@ function parseDocumentTextOrScan(
   if (shouldParseAsBankStatement) {
     const bankName = detectBankName(text, filename);
     const accNo = detectAccountNumber(text, filename);
-    const transactions = extractBankTransactionsFromText(text, bankName, accNo);
+    const transactions = extractBankTransactionsFromText(text, bankName, accNo, documentPassword);
 
     return {
       docType: 'bank_statement',
       docNumber: `STMT-${accNo.slice(-4) || 'ACC'}`,
-      docDate: transactions.length > 0 ? transactions[transactions.length - 1].transactionDate : new Date().toISOString().slice(0, 10),
+      docDate: transactions.length > 0 ? normalizeDate(transactions[transactions.length - 1].transactionDate) : normalizeDate(''),
       taxableAmount: 0,
       cgstAmount: 0,
       sgstAmount: 0,
@@ -618,8 +672,13 @@ function parseDocumentTextOrScan(
       lineItems: [],
       bankTransactions: transactions,
       rawText: sanitizePostgresText(text.slice(0, 800)) || `Bank Statement: ${filename}`,
-      extractionConfidence: transactions.length > 0 ? 94.0 : 80.0,
+      extractionConfidence: transactions.length > 0 ? 95.0 : 80.0,
       scanMethod,
+      additionalFields: {
+        documentPassword: documentPassword || undefined,
+        bankName,
+        accountNumber: accNo,
+      },
     };
   }
 
@@ -671,7 +730,7 @@ function parseDocumentTextOrScan(
   const gstinList = extractGstinList(text);
   const docNumber = extractDocNumber(text, filename, 'INV');
   const docDate = extractDocDate(text);
-  const { taxable, cgst, sgst, igst, total } = extractInvoiceAmounts(text);
+  const { taxable, cgst, sgst, igst, total, isRcm } = extractInvoiceAmounts(text);
 
   const cleanClientGstin = (clientGstin || '').trim().toUpperCase();
   const cleanClientName = (clientBusinessName || '').trim().toLowerCase();
@@ -818,7 +877,15 @@ function parseDocumentTextOrScan(
     buyerName,
     buyerGstin,
     placeOfSupply,
-    reverseCharge: combinedLower.includes('reverse charge: yes'),
+    reverseCharge:
+      Boolean(isRcm) ||
+      combinedLower.includes('reverse charge: yes') ||
+      combinedLower.includes('reverse charge : yes') ||
+      combinedLower.includes('reverse charge: y') ||
+      combinedLower.includes('reverse charge : y') ||
+      combinedLower.includes('tax summary (rcm)') ||
+      combinedLower.includes('reverse charge mechanism') ||
+      (combinedLower.includes('porter') && combinedLower.includes('tax summary')),
     currency: 'INR',
     taxableAmount: taxable,
     cgstAmount: cgst,
@@ -847,20 +914,42 @@ function extractDocumentPartyGstins(
   const gstinList = extractGstinList(text);
   const cleanClientGstin = (clientGstin || '').trim().toUpperCase();
 
+  // Strip copy notices like "ORIGINAL FOR RECIPIENT" before checking buyer regex so "RECIPIENT" at top isn't confused with customer
+  const textWithoutCopyNotices = text.replace(/(?:original|duplicate|triplicate)\s+for\s+(?:recipient|transporter|supplier)/gi, ' ');
+
   // 1. Search for Buyer / Recipient / Billed To GSTIN using contextual regex
   let detectedBuyerGstin = '';
-  const buyerGstinRegex = /(?:bill\s*to|billed\s*to|ship\s*to|shipped\s*to|buyer|consignee|customer|recipient|gstin\s*of\s*recipient)[\s\S]{0,180}?([0-9]{2}[A-Z]{5}[0-9]{4}[A-Z]{1}[1-9A-Z]{1}Z[0-9A-Z]{1})/i;
-  const buyerMatch = text.match(buyerGstinRegex);
+  const buyerGstinRegex = /(?:customer\s*details|bill\s*to|billed\s*to|ship\s*to|shipped\s*to|buyer|consignee|customer\s*registered\s*name|name\s*of\s*recipient|recipient\s*name)[\s\S]{0,250}?([0-9]{2}[A-Z]{5}[0-9]{4}[A-Z]{1}[1-9A-Z]{1}Z[0-9A-Z]{1})/i;
+  const buyerMatch = textWithoutCopyNotices.match(buyerGstinRegex);
   if (buyerMatch && buyerMatch[1]) {
     detectedBuyerGstin = buyerMatch[1].toUpperCase();
   }
 
   // 2. Search for Seller / Supplier / Sold By GSTIN using contextual regex
   let detectedSupplierGstin = '';
-  const sellerGstinRegex = /(?:sold\s*by|seller|supplier|billed\s*from|consignor|vendor|taxpayer)[\s\S]{0,180}?([0-9]{2}[A-Z]{5}[0-9]{4}[A-Z]{1}[1-9A-Z]{1}Z[0-9A-Z]{1})/i;
-  const sellerMatch = text.match(sellerGstinRegex);
+  const sellerGstinRegex = /(?:sold\s*by|seller|supplier|billed\s*from|consignor|vendor|taxpayer)[\s\S]{0,250}?([0-9]{2}[A-Z]{5}[0-9]{4}[A-Z]{1}[1-9A-Z]{1}Z[0-9A-Z]{1})/i;
+  const sellerMatch = textWithoutCopyNotices.match(sellerGstinRegex);
   if (sellerMatch && sellerMatch[1]) {
     detectedSupplierGstin = sellerMatch[1].toUpperCase();
+  }
+
+  // Fallback checking section content against gstinList
+  if (!detectedBuyerGstin && gstinList.length > 0) {
+    const buyerSectionMatch = textWithoutCopyNotices.match(/(?:customer\s*details|invoice\s*to|bill\s*to|billed\s*to|ship\s*to|shipped\s*to|buyer|consignee|customer\s*registered\s*name)[\s\S]{0,250}/i);
+    if (buyerSectionMatch) {
+      const bText = buyerSectionMatch[0].replace(/\s+/g, '').toUpperCase();
+      const found = gstinList.find(g => bText.includes(g));
+      if (found) detectedBuyerGstin = found;
+    }
+  }
+
+  if (!detectedSupplierGstin && gstinList.length > 0) {
+    const sellerSectionMatch = textWithoutCopyNotices.match(/(?:sold\s*by|seller|supplier|billed\s*from|consignor|vendor)[\s\S]{0,250}/i);
+    if (sellerSectionMatch) {
+      const sText = sellerSectionMatch[0].replace(/\s+/g, '').toUpperCase();
+      const found = gstinList.find(g => sText.includes(g));
+      if (found) detectedSupplierGstin = found;
+    }
   }
 
   let supplierGstin = detectedSupplierGstin;
@@ -878,9 +967,9 @@ function extractDocumentPartyGstins(
         supplierGstin = gstinList[0];
       }
     }
-    if (!buyerGstin) {
+    if (!buyerGstin || buyerGstin === supplierGstin) {
       const other = gstinList.find(g => g !== supplierGstin && g !== cleanClientGstin);
-      buyerGstin = other || 'Unregistered (B2C)';
+      buyerGstin = other || (gstinList.length > 1 && gstinList[0] === supplierGstin ? gstinList[1] : 'Unregistered (B2C)');
     }
 
     // Strictly prevent identical buyer & supplier GSTIN on outward sales
@@ -898,7 +987,9 @@ function extractDocumentPartyGstins(
   } else {
     // For Purchase slip/bill: Buyer MUST be the client (claiming ITC)
     if (!buyerGstin) {
-      if (cleanClientGstin) {
+      if (cleanClientGstin && gstinList.includes(cleanClientGstin)) {
+        buyerGstin = cleanClientGstin;
+      } else if (cleanClientGstin) {
         buyerGstin = cleanClientGstin;
       } else if (detectedSupplierGstin) {
         const other = gstinList.find(g => g !== detectedSupplierGstin);
@@ -909,7 +1000,7 @@ function extractDocumentPartyGstins(
         buyerGstin = cleanClientGstin;
       }
     }
-    if (!supplierGstin) {
+    if (!supplierGstin || supplierGstin === buyerGstin) {
       const other = gstinList.find(g => g !== buyerGstin && g !== cleanClientGstin);
       supplierGstin = other || (gstinList.length > 0 && gstinList[0] !== buyerGstin ? gstinList[0] : 'Vendor Supplier');
     }
@@ -934,9 +1025,30 @@ function extractDocumentPartyGstins(
 // ==========================================
 
 function extractGstinList(text: string): string[] {
-  const gstinRegex = /[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z]{1}[1-9A-Z]{1}Z[0-9A-Z]{1}/g;
+  const list = new Set<string>();
+  const gstinRegex = /\b[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z]{1}[1-9A-Z]{1}Z[0-9A-Z]{1}\b/gi;
   const matches = text.match(gstinRegex) || [];
-  return Array.from(new Set(matches));
+  for (const m of matches) list.add(m.toUpperCase());
+
+  // Spaced GSTIN e.g. "07 AAFCG 9846 E 2 ZC" or "07 DWAPK 0131 H 1 Z 1"
+  const spacedRegex = /([0-9]{2})\s*([A-Z]{5})\s*([0-9]{4})\s*([A-Z]{1})\s*([1-9A-Z]{1})\s*(?:Z|z)\s*([0-9A-Z]{1})/g;
+  for (const sm of text.matchAll(spacedRegex)) {
+    const combined = `${sm[1]}${sm[2]}${sm[3]}${sm[4]}${sm[5]}Z${sm[6]}`.toUpperCase();
+    if (isValidGstinFormat(combined)) {
+      list.add(combined);
+    }
+  }
+
+  // Dash-separated GSTIN e.g. "07-DWAPK-0131-H-1-Z-1"
+  const dashRegex = /([0-9]{2})[\s\-]+([A-Z]{5})[\s\-]+([0-9]{4})[\s\-]+([A-Z]{1})[\s\-]+([1-9A-Z]{1})[\s\-]+(?:Z|z)[\s\-]+([0-9A-Z]{1})/gi;
+  for (const dm of text.matchAll(dashRegex)) {
+    const combined = `${dm[1]}${dm[2]}${dm[3]}${dm[4]}${dm[5]}Z${dm[6]}`.toUpperCase();
+    if (isValidGstinFormat(combined)) {
+      list.add(combined);
+    }
+  }
+
+  return Array.from(list);
 }
 
 function detectBankName(text: string, filename: string): string {
@@ -970,77 +1082,166 @@ function detectAccountNumber(text: string, filename: string): string {
 function extractBankTransactionsFromText(
   text: string,
   bankName: string,
-  accountNumber: string
+  accountNumber: string,
+  providedPassword?: string
 ): Array<{
   bankName: string;
   accountNumber: string;
   transactionDate: string;
+  valueDate?: string;
   narration: string;
+  referenceNumber?: string;
   debitAmount: number;
   creditAmount: number;
   balance: number;
+  documentPassword?: string;
 }> {
   const lines = text.split(/\r?\n/).map(l => l.trim()).filter(l => l.length > 0);
   const transactions: any[] = [];
-  const dateRegex = /\b(\d{1,2}[\/\-.]\d{1,2}[\/\-.]\d{2,4}|\d{1,2}-[A-Za-z]{3}-\d{2,4})\b/;
 
-  for (const line of lines) {
-    const dateMatch = line.match(dateRegex);
-    if (!dateMatch) continue;
+  // Matches dates: DD/MM/YYYY, DD-MM-YYYY, DD.MM.YYYY, DD Mon YYYY, DD-Mon-YYYY, DD-Mon-YY, YYYY-MM-DD
+  const datePattern = /\b(\d{1,2}[\/\-.](?:[A-Za-z]{3}|\d{1,2})[\/\-.]\d{2,4}|\d{1,2}\s+[A-Za-z]{3,4}\s+\d{2,4}|\d{4}[\/\-.]\d{1,2}[\/\-.]\d{1,2})\b/;
 
-    // Check if line contains monetary amounts (e.g. 1,234.50 or 5000.00)
-    const amountMatches = line.match(/([0-9,]+\.\d{2})/g);
-    if (amountMatches && amountMatches.length >= 1) {
-      const txDate = normalizeDate(dateMatch[1]);
-      const numbers = amountMatches.map(m => parseFloat(m.replace(/,/g, ''))).filter(n => !isNaN(n));
+  // Matches monetary amounts: e.g. 1,234.50 or 5000.00 or 50,000
+  const amountPattern = /(?:₹|rs\.?|inr)?\s*([0-9]{1,3}(?:,[0-9]{2,3})*(?:\.[0-9]{2})|\b[0-9]+(?:\.[0-9]{2})\b|\b[0-9]{1,3}(?:,[0-9]{3})+\b)/gi;
 
-      // Remove date and numbers from narration string
-      let narration = line.replace(dateMatch[0], '').trim();
-      for (const m of amountMatches) {
-        narration = narration.replace(m, '').trim();
-      }
-      narration = narration.replace(/[\t,;|]+/g, ' ').trim() || 'Bank Transaction';
+  let currentTx: any = null;
 
-      let debit = 0;
-      let credit = 0;
-      let balance = 0;
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    const lower = line.toLowerCase();
 
-      if (numbers.length >= 3) {
-        debit = numbers[0];
-        credit = numbers[1];
-        balance = numbers[2];
-      } else if (numbers.length === 2) {
-        const lowerLine = line.toLowerCase();
-        if (lowerLine.includes('cr') || lowerLine.includes('deposit')) {
-          credit = numbers[0];
-        } else {
-          debit = numbers[0];
-        }
-        balance = numbers[1];
-      } else if (numbers.length === 1) {
-        const lowerLine = line.toLowerCase();
-        if (lowerLine.includes('cr') || lowerLine.includes('deposit') || lowerLine.includes('by transfer')) {
-          credit = numbers[0];
-        } else {
-          debit = numbers[0];
+    // Skip common non-transaction headers/footers
+    if (
+      lower.startsWith('page ') ||
+      lower.includes('opening balance') ||
+      lower.includes('balance on') ||
+      (lower.includes('description') && (lower.includes('debit') || lower.includes('credit') || lower.includes('balance'))) ||
+      (lower.includes('particulars') && (lower.includes('dr') || lower.includes('cr') || lower.includes('balance')))
+    ) {
+      continue;
+    }
+
+    const dateMatch = line.match(datePattern);
+
+    if (dateMatch) {
+      // Find all currency amounts in this line
+      const amountsFound: number[] = [];
+      const rawAmounts = Array.from(line.matchAll(amountPattern));
+      for (const m of rawAmounts) {
+        const val = parseFloat(m[1].replace(/,/g, ''));
+        if (!isNaN(val) && val >= 0) {
+          // If pure integer without comma and matches a year (e.g. 2026), skip
+          if (!m[1].includes('.') && !m[1].includes(',') && val >= 2020 && val <= 2035) continue;
+          amountsFound.push(val);
         }
       }
 
-      transactions.push({
-        bankName,
-        accountNumber,
-        transactionDate: txDate,
-        narration: sanitizePostgresText(narration.slice(0, 150)),
-        debitAmount: debit,
-        creditAmount: credit,
-        balance,
-      });
+      // Check if amounts are on the NEXT line (multiline statement row)
+      let nextLineAmounts: number[] = [];
+      if (amountsFound.length === 0 && i + 1 < lines.length && !lines[i + 1].match(datePattern)) {
+        const nextRaw = Array.from(lines[i + 1].matchAll(amountPattern));
+        for (const m of nextRaw) {
+          const val = parseFloat(m[1].replace(/,/g, ''));
+          if (!isNaN(val) && val >= 0) {
+            if (!m[1].includes('.') && !m[1].includes(',') && val >= 2020 && val <= 2035) continue;
+            nextLineAmounts.push(val);
+          }
+        }
+      }
 
-      if (transactions.length >= 50) break; // Limit to 50 parsed transactions per file
+      const activeAmounts = amountsFound.length > 0 ? amountsFound : nextLineAmounts;
+
+      if (activeAmounts.length >= 1) {
+        if (currentTx) {
+          transactions.push(currentTx);
+        }
+
+        const txDate = normalizeDate(dateMatch[1]);
+
+        // Clean narration
+        let narration = line.replace(dateMatch[0], '');
+        for (const m of rawAmounts) {
+          narration = narration.replace(m[0], '');
+        }
+        narration = narration.replace(/[|;\t]+/g, ' ').replace(/\s{2,}/g, ' ').trim();
+
+        // Extract reference number (UPI / NEFT / IMPS / CHQ / UTR)
+        let refNo = '';
+        const refMatch = line.match(/(?:UPI\s*\/?[A-Za-z0-9_\-]+|NEFT\s*\/?[A-Za-z0-9_\-]+|IMPS\s*\/?[A-Za-z0-9_\-]+|CHQ(?:\s*NO)?\.?\s*[0-9]+|\b(?:REF|TRX|UTR)[:.\s]*[A-Za-z0-9]+)/i);
+        if (refMatch) {
+          refNo = refMatch[0].trim();
+        }
+
+        let debit = 0;
+        let credit = 0;
+        let balance = 0;
+
+        const combinedText = (line + ' ' + (amountsFound.length === 0 && i + 1 < lines.length ? lines[i + 1] : '')).toLowerCase();
+        const isCreditKeyword = combinedText.includes('cr') || combinedText.includes('credit') || combinedText.includes('deposit') || combinedText.includes('by transfer') || combinedText.includes('refund') || combinedText.includes('salary') || combinedText.includes('interest');
+        const isDebitKeyword = combinedText.includes('dr') || combinedText.includes('debit') || combinedText.includes('withdrawal') || combinedText.includes('to transfer') || combinedText.includes('payment') || combinedText.includes('pos ') || combinedText.includes('atm') || combinedText.includes('upi/');
+
+        if (activeAmounts.length >= 3) {
+          if (activeAmounts[0] > 0 && activeAmounts[1] === 0) {
+            debit = activeAmounts[0];
+            balance = activeAmounts[2];
+          } else if (activeAmounts[1] > 0 && activeAmounts[0] === 0) {
+            credit = activeAmounts[1];
+            balance = activeAmounts[2];
+          } else {
+            if (isCreditKeyword && !isDebitKeyword) {
+              credit = activeAmounts[0];
+            } else {
+              debit = activeAmounts[0];
+            }
+            balance = activeAmounts[2] || activeAmounts[1];
+          }
+        } else if (activeAmounts.length === 2) {
+          if (isCreditKeyword && !isDebitKeyword) {
+            credit = activeAmounts[0];
+          } else {
+            debit = activeAmounts[0];
+          }
+          balance = activeAmounts[1];
+        } else if (activeAmounts.length === 1) {
+          if (isCreditKeyword && !isDebitKeyword) {
+            credit = activeAmounts[0];
+          } else {
+            debit = activeAmounts[0];
+          }
+        }
+
+        currentTx = {
+          bankName,
+          accountNumber,
+          transactionDate: txDate,
+          narration: sanitizePostgresText(narration.slice(0, 180)) || 'Bank Transaction',
+          referenceNumber: refNo || undefined,
+          debitAmount: debit,
+          creditAmount: credit,
+          balance: balance || undefined,
+          documentPassword: providedPassword || undefined,
+        };
+
+        if (transactions.length >= 100) break;
+        continue;
+      }
+    }
+
+    // Multiline narration continuation: if no date on line, append to current transaction
+    if (currentTx && !dateMatch && line.length > 2 && !lower.includes('statement') && !lower.includes('account number')) {
+      const textOnly = line.replace(/[0-9,.\s]/g, '');
+      if (textOnly.length > 2 && currentTx.narration.length < 150) {
+        currentTx.narration = sanitizePostgresText(`${currentTx.narration} ${line}`.slice(0, 180));
+      }
     }
   }
 
-  // If no detailed table rows were parsed (e.g. scanned image or concise summary), provide a clean real record
+  if (currentTx) {
+    transactions.push(currentTx);
+  }
+
+  // If no detailed table rows were parsed, provide a clean real record with password attached
   if (transactions.length === 0) {
     transactions.push({
       bankName,
@@ -1050,6 +1251,7 @@ function extractBankTransactionsFromText(
       debitAmount: 0,
       creditAmount: 0,
       balance: 0,
+      documentPassword: providedPassword || undefined,
     });
   }
 
@@ -1057,77 +1259,181 @@ function extractBankTransactionsFromText(
 }
 
 function extractDocNumber(text: string, filename: string, prefix: string): string {
-  // If filename has ORD, CRN, INV, or SST patterns
-  const fnMatch = filename.match(/(?:ORD\d+|CRN\d+|INV-?\d+|SST[_\-]?\d+[\-_]\d+)/i);
+  const stopWords = new Set([
+    'AND', 'DATE', 'DATED', 'ING', 'OF', 'FOR', 'TO', 'THE', 'FROM', 'DETAILS',
+    'SOLVED', 'SOLD', 'BILL', 'INVOICE', 'SUPPLY', 'MEMO', 'ORIGINAL', 'DUPLICATE',
+    'TAX', 'CASH', 'REVERSE', 'CHARGE', 'BUYER', 'SELLER', 'PAGE', 'NOT', 'AVAILABLE',
+  ]);
 
   const patterns = [
     /(?:tax\s*invoice\s*number|tax\s*invoice\s*no\.?)\s*[:#\-]?\s*([A-Za-z0-9\/\-_]{3,35})/i,
     /(?:invoice\s*number|invoice\s*no\.?|inv\s*no\.?|invoice\s*#)\s*[:#\-]?\s*([A-Za-z0-9\/\-_]{3,35})/i,
     /(?:bill\s*number|bill\s*no\.?)\s*[:#\-]?\s*([A-Za-z0-9\/\-_]{3,35})/i,
     /(?:consignment\s*note\s*number|consignment\s*no\.?)\s*[:#\-]?\s*([A-Za-z0-9\/\-_]{3,35})/i,
+    // Spaced invoice numbers e.g. "Invoice Number : B 382693 T 26227431"
+    /(?:invoice\s*number|invoice\s*no\.?|inv\s*no\.?|tax\s*invoice\s*no\.?)\s*[:#\-]?\s*([A-Z0-9]{1,4}\s+[0-9]{4,10}\s+[A-Z0-9]{1,4}\s+[0-9]{4,10})/i,
   ];
-
-  const stopWords = new Set([
-    'AND', 'DATE', 'DATED', 'ING', 'OF', 'FOR', 'TO', 'THE', 'FROM', 'DETAILS',
-    'SOLVED', 'SOLD', 'BILL', 'INVOICE', 'SUPPLY', 'MEMO', 'ORIGINAL', 'DUPLICATE',
-    'TAX', 'CASH', 'REVERSE', 'CHARGE', 'BUYER', 'SELLER', 'PAGE', 'NOT', 'AVAILABLE'
-  ]);
 
   for (const regex of patterns) {
     const matches = Array.from(text.matchAll(new RegExp(regex.source, 'gi')));
     for (const match of matches) {
       let val = match[1]?.trim();
       if (!val) continue;
+      if (/^[A-Za-z0-9\s]{6,35}$/.test(val) && val.includes(' ')) {
+        val = val.replace(/\s+/g, '');
+      }
       val = val.replace(/^[#:\-\s\/]+/, '').replace(/[,;]+$/, '').trim();
+      val = val.replace(/(?:invoice|dated?|bill|gstin|pos|order|due|tax)$/i, '').trim();
+
       const upper = val.toUpperCase();
       if (stopWords.has(upper) || upper.startsWith('/BILL') || upper.startsWith('BILL/')) continue;
-      // Skip if it looks like a pure date (DD-MM-YYYY or YYYY-MM-DD)
-      if (/^\d{1,4}[-\/.]\d{1,2}[-\/.]\d{2,4}$/.test(val)) continue;
-      // Must contain at least one digit or hyphen
+      if (/^\d{1,4}[-\/. ]\d{1,2}[-\/. ]\d{2,4}$/.test(val)) continue;
       if (/[0-9]/.test(val) && val.length >= 3) {
         return val;
       }
     }
   }
 
-  // 2. Try Order ID or Reference if invoice number not found
+  // 2. Try Order ID or Reference in text
   const orderMatch = text.match(/(?:order\s*id|order\s*number|order\s*no\.?)\s*[:#\-]?\s*([A-Za-z0-9\/\-_]{6,35})/i);
   if (orderMatch && orderMatch[1]) {
     const val = orderMatch[1].trim();
     if (/[0-9]/.test(val)) return `ORD-${val}`;
   }
 
-  if (fnMatch) return fnMatch[0];
+  // 3. Fallback to filename match only if text extraction failed
+  const fnMatch = filename.match(/(?:ORD\d+|CRN\d+|INV-?\d+|SST[_\-]?\d+[\-_]\d+(?:[\-_]\d+)?)/i);
+  if (fnMatch) return fnMatch[0].replace(/_/g, '/');
 
   // Try extracting from filename
   const cleanName = filename.replace(/\.[^/.]+$/, '').replace(/[^a-zA-Z0-9_\-]/g, '_');
   return `${prefix}/${cleanName.slice(0, 15)}`;
 }
 
-function extractDocDate(text: string): string {
-  const match = text.match(/(?:invoice\s*date|dated|bill\s*date|date)\s*[:.\-]?\s*(\d{1,2}[\/\-.]\d{1,2}[\/\-.]\d{2,4}|\d{4}[\/\-.]\d{1,2}[\/\-.]\d{1,2})/i);
-  if (match && match[1]) return normalizeDate(match[1]);
+const MONTH_NAMES_REGEX = 'jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|aug(?:ust)?|sep(?:t|tember)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?';
 
-  const generalDate = text.match(/\b(\d{1,2}[\/\-.]\d{1,2}[\/\-.]\d{2,4})\b/);
-  if (generalDate && generalDate[1]) return normalizeDate(generalDate[1]);
-
-  return new Date().toISOString().slice(0, 10);
-}
-
-function normalizeDate(rawDate: string): string {
+export function normalizeDate(rawDate: string): string {
   try {
-    const clean = rawDate.replace(/\./g, '-').replace(/\//g, '-');
-    const parts = clean.split('-');
+    if (!rawDate) return '';
+    // Clean extra characters, commas, and normalize spacing around dashes/slashes/dots
+    let clean = rawDate.replace(/,/g, ' ').replace(/\s*([/\-.])\s*/g, '$1').trim();
+    // Remove ordinal suffixes: 1st, 2nd, 3rd, 4th -> 1, 2, 3, 4
+    clean = clean.replace(/(\d{1,2})(?:st|nd|rd|th)\b/i, '$1');
+    // Replace dots and slashes with hyphens
+    clean = clean.replace(/[./]/g, '-');
+
+    const monthMap: Record<string, string> = {
+      jan: '01', january: '01',
+      feb: '02', february: '02',
+      mar: '03', march: '03',
+      apr: '04', april: '04',
+      may: '05',
+      jun: '06', june: '06',
+      jul: '07', july: '07',
+      aug: '08', august: '08',
+      sep: '09', sept: '09', september: '09',
+      oct: '10', october: '10',
+      nov: '11', november: '11',
+      dec: '12', december: '12',
+    };
+
+    // Pattern: DD-Mon-YYYY or DD Mon YYYY (e.g. 10 Aug 2026, 01-Aug-2026, 18-Aug-26, 04 Oct 2026)
+    const alphaMatch = clean.match(/^(\d{1,2})[\s\-]+([a-zA-Z]+)[\s\-]+(\d{2,4})$/);
+    if (alphaMatch) {
+      const day = alphaMatch[1].padStart(2, '0');
+      const mStr = alphaMatch[2].toLowerCase();
+      const month = monthMap[mStr] || monthMap[mStr.slice(0, 3)] || '01';
+      let year = alphaMatch[3];
+      if (year.length === 2) year = '20' + year;
+      return `${day}-${month}-${year}`;
+    }
+
+    // Pattern: Mon-DD-YYYY or Mon DD YYYY (e.g. Aug 10, 2026)
+    const alphaFirstMatch = clean.match(/^([a-zA-Z]+)[\s\-]+(\d{1,2})[\s\-]+(\d{2,4})$/);
+    if (alphaFirstMatch) {
+      const mStr = alphaFirstMatch[1].toLowerCase();
+      const month = monthMap[mStr] || monthMap[mStr.slice(0, 3)] || '01';
+      const day = alphaFirstMatch[2].padStart(2, '0');
+      let year = alphaFirstMatch[3];
+      if (year.length === 2) year = '20' + year;
+      return `${day}-${month}-${year}`;
+    }
+
+    // Pattern: Numeric parts
+    const parts = clean.split(/[\s\-]+/);
     if (parts.length === 3) {
+      // YYYY-MM-DD -> DD-MM-YYYY
       if (parts[0].length === 4) {
-        return `${parts[0]}-${parts[1].padStart(2, '0')}-${parts[2].padStart(2, '0')}`;
+        const year = parts[0];
+        const month = parts[1].padStart(2, '0');
+        const day = parts[2].padStart(2, '0');
+        return `${day}-${month}-${year}`;
       } else {
+        // DD-MM-YYYY or DD-MM-YY
+        const day = parts[0].padStart(2, '0');
+        const mKey = parts[1].toLowerCase();
+        const month = monthMap[mKey] || monthMap[mKey.slice(0, 3)] || parts[1].padStart(2, '0');
         const year = parts[2].length === 2 ? '20' + parts[2] : parts[2];
-        return `${year}-${parts[1].padStart(2, '0')}-${parts[0].padStart(2, '0')}`;
+        return `${day}-${month}-${year}`;
       }
     }
   } catch {}
-  return new Date().toISOString().slice(0, 10);
+  const d = new Date();
+  return `${String(d.getDate()).padStart(2, '0')}-${String(d.getMonth() + 1).padStart(2, '0')}-${d.getFullYear()}`;
+}
+
+export function extractDocDate(text: string): string {
+  // 1. Explicit invoice date labels (e.g. "Invoice Date: 10 Aug 2026", "Dated: 18-Aug-26", "Date\n: 01- Aug -2026")
+  const explicitRegex = new RegExp(
+    `(?:invoice\\s*date|date\\s*of\\s*invoice|bill\\s*date|tax\\s*invoice\\s*date|inv\\s*date|dated|date)\\s*[:.\\-]?\\s*` +
+    `(` +
+    `\\d{1,2}(?:st|nd|rd|th)?[\\s\\-.]+(?:${MONTH_NAMES_REGEX})[\\s\\-.]+(?:\\d{4}|\\d{2})|` +
+    `(?:${MONTH_NAMES_REGEX})[\\s\\-.]+\\d{1,2}(?:st|nd|rd|th)?[\\s\\-.,]+(?:\\d{4}|\\d{2})|` +
+    `\\d{1,2}[\\/\\-.]\\d{1,2}[\\/\\-.]\\d{2,4}|` +
+    `\\d{4}[\\/\\-.]\\d{1,2}[\\/\\-.]\\d{1,2}` +
+    `)`,
+    'i'
+  );
+
+  const match = text.match(explicitRegex);
+  if (match && match[1]) {
+    return normalizeDate(match[1]);
+  }
+
+  // 2. Multiline labels where "Invoice" is on one line and "Date" or ":" is on the next line
+  const multilineMatch = text.match(
+    /(?:invoice[\s\r\n]+date|date[\s\r\n]+of[\s\r\n]+invoice|bill[\s\r\n]+date)[\s\r\n]*[:.\-]?[\s\r\n]*([0-9a-zA-Z\s\-.,\/]{6,25})/i
+  );
+  if (multilineMatch && multilineMatch[1]) {
+    const candidate = multilineMatch[1].trim().split(/[\r\n]/)[0].trim();
+    const dMatch = candidate.match(
+      new RegExp(
+        `(\\d{1,2}(?:st|nd|rd|th)?[\\s\\-.]+(?:${MONTH_NAMES_REGEX})[\\s\\-.]+(?:\\d{4}|\\d{2})|\\d{1,2}[\\/\\-.]\\d{1,2}[\\/\\-.]\\d{2,4}|\\d{4}[\\/\\-.]\\d{1,2}[\\/\\-.]\\d{1,2})`,
+        'i'
+      )
+    );
+    if (dMatch && dMatch[1]) return normalizeDate(dMatch[1]);
+  }
+
+  // 3. Fallback: general alphanumeric date anywhere in the document
+  const generalAlpha = text.match(
+    new RegExp(
+      `\\b(\\d{1,2}(?:st|nd|rd|th)?[\\s\\-.]+(?:${MONTH_NAMES_REGEX})[\\s\\-.]+(?:\\d{4}|\\d{2}))\\b`,
+      'i'
+    )
+  );
+  if (generalAlpha && generalAlpha[1]) return normalizeDate(generalAlpha[1]);
+
+  // 4. Fallback: general numeric date (DD-MM-YYYY or DD/MM/YYYY)
+  const generalDate = text.match(/\b(\d{1,2}[\/\-.]\d{1,2}[\/\-.]\d{2,4})\b/);
+  if (generalDate && generalDate[1]) return normalizeDate(generalDate[1]);
+
+  // 5. Fallback: ISO date (YYYY-MM-DD)
+  const isoDate = text.match(/\b(\d{4}[\/\-.]\d{1,2}[\/\-.]\d{1,2})\b/);
+  if (isoDate && isoDate[1]) return normalizeDate(isoDate[1]);
+
+  const d = new Date();
+  return `${String(d.getDate()).padStart(2, '0')}-${String(d.getMonth() + 1).padStart(2, '0')}-${d.getFullYear()}`;
 }
 
 function extractInvoiceAmounts(text: string): {
@@ -1136,99 +1442,176 @@ function extractInvoiceAmounts(text: string): {
   sgst: number;
   igst: number;
   total: number;
+  isRcm?: boolean;
 } {
   let total = 0;
   let taxable = 0;
   let cgst = 0;
   let sgst = 0;
   let igst = 0;
+  let isRcm = false;
 
-  // 1. Check Flipkart Grand Total pattern: "Grand Total ₹ 5273.00" or "Grand Total ₹ 899.00"
-  const grandTotalMatch = text.match(/grand\s*total\s*[:\-]?\s*(?:₹|rs\.?|inr)?\s*([0-9,]+(?:\.[0-9]{2})?)/i);
-  if (grandTotalMatch) {
-    total = parseFloat(grandTotalMatch[1].replace(/,/g, ''));
-  }
+  const textLower = text.toLowerCase();
 
-  // 2. Check Amazon TOTAL summary row: "TOTAL: ₹46.14 ₹969.00" or "TOTAL: ₹1,021.88 ₹6,699.00"
-  const amazonTotalMatch = text.match(/TOTAL\s*:\s*(?:₹|rs\.?|inr)?\s*([0-9,]+\.\d{2})\s*(?:₹|rs\.?|inr)?\s*([0-9,]+\.\d{2})/i);
-  if (amazonTotalMatch) {
-    const grandAmt = parseFloat(amazonTotalMatch[2].replace(/,/g, ''));
-    if (grandAmt > 0) {
-      total = grandAmt;
+  // 1. Porter / GTA / Consignment Note Tax Summary
+  const isLogisticsOrPorter =
+    textLower.includes('porter') ||
+    textLower.includes('consignment note') ||
+    textLower.includes('tax summary (rcm)') ||
+    textLower.includes('trip fare') ||
+    textLower.includes('net fare');
+
+  if (isLogisticsOrPorter) {
+    if (textLower.includes('tax summary (rcm)') || textLower.includes('reverse charge mechanism') || textLower.includes('goods transport agency') || textLower.includes('porter')) {
+      isRcm = true;
+    }
+    const porterTaxableMatch = text.match(/(?:taxable\s*value|sub\s*total|net\s*fare)\s*[:\-]?\s*(?:₹|rs\.?|inr)?\s*([0-9,]+\.\d{2})/i);
+    const porterCgstMatch = text.match(/cgst\s*(?:\([0-9.]+\s*%\))?\s*[:\-]?\s*(?:₹|rs\.?|inr)?\s*([0-9,]+\.\d{2})/i);
+    const porterSgstMatch = text.match(/(?:sgst\s*(?:\/\s*utgst)?|utgst)\s*(?:\([0-9.]+\s*%\))?\s*[:\-]?\s*(?:₹|rs\.?|inr)?\s*([0-9,]+\.\d{2})/i);
+    const porterIgstMatch = text.match(/igst\s*(?:\([0-9.]+\s*%\))?\s*[:\-]?\s*(?:₹|rs\.?|inr)?\s*([0-9,]+\.\d{2})/i);
+    const porterTotalMatch = text.match(/(?:total\s*amount|net\s*fare|trip\s*fare)\s*[:\-]?\s*(?:₹|rs\.?|inr)?\s*([0-9,]+\.\d{2})/i);
+
+    if (porterCgstMatch || porterSgstMatch) {
+      const c = porterCgstMatch ? parseFloat(porterCgstMatch[1].replace(/,/g, '')) : 0;
+      const s = porterSgstMatch ? parseFloat(porterSgstMatch[1].replace(/,/g, '')) : 0;
+      const ig = porterIgstMatch ? parseFloat(porterIgstMatch[1].replace(/,/g, '')) : 0;
+      if (c > 0 || s > 0 || ig > 0) {
+        cgst = c;
+        sgst = s;
+        igst = ig;
+      }
+    }
+    if (porterTaxableMatch) {
+      taxable = parseFloat(porterTaxableMatch[1].replace(/,/g, ''));
+    }
+    if (porterTotalMatch) {
+      total = parseFloat(porterTotalMatch[1].replace(/,/g, ''));
+    }
+    if (total === 0 && taxable > 0) {
+      total = taxable;
+    }
+    // If no tax breakdown was printed on the GTA consignment note, apply standard GTA 5% RCM (2.5% CGST + 2.5% SGST)
+    if (cgst === 0 && sgst === 0 && igst === 0 && isRcm && taxable > 0) {
+      cgst = Math.round((taxable * 0.025) * 100) / 100;
+      sgst = Math.round((taxable * 0.025) * 100) / 100;
     }
   }
 
-  // 3. Check Blinkit row: "Total \t 2 \t 92.29 \t 92.29 \t 1210.00"
-  const blinkitMatch = text.match(/Total\s+(?:[0-9]+)\s+([0-9,.]+\.\d{2})\s+([0-9,.]+\.\d{2})\s+([0-9,.]+\.\d{2})/i);
-  if (blinkitMatch) {
-    cgst = parseFloat(blinkitMatch[1].replace(/,/g, ''));
-    sgst = parseFloat(blinkitMatch[2].replace(/,/g, ''));
-    total = parseFloat(blinkitMatch[3].replace(/,/g, ''));
-    taxable = Math.round((total - (cgst + sgst)) * 100) / 100;
+  // 2. Blinkit row
+  if (cgst === 0 && sgst === 0 && (textLower.includes('blink') || textLower.includes('forwardinvoice'))) {
+    const blinkitMatch = text.match(/(?:Total\s+(?:[0-9.]+\s+)?|Sr\s*\.\s*no[\s\S]*?Total\s+(?:[0-9.]+\s+)?)([0-9,.]+\.\d{2})\s+([0-9,.]+\.\d{2})\s+([0-9,.]+\.\d{2})/i);
+    if (blinkitMatch) {
+      const c = parseFloat(blinkitMatch[1].replace(/,/g, ''));
+      const s = parseFloat(blinkitMatch[2].replace(/,/g, ''));
+      const tot = parseFloat(blinkitMatch[3].replace(/,/g, ''));
+      if (tot > 0 && c > 0 && s > 0) {
+        cgst = c;
+        sgst = s;
+        total = tot;
+        taxable = Math.round((tot - (c + s)) * 100) / 100;
+      }
+    }
   }
 
-  // 4. Check Flipkart GTA row: "Total 1.0 ₹113.00 ₹95.76 ₹17.24 ₹113.00" or "Total 1.0 ₹575.00 ₹487.29 ₹87.71 ₹575.00"
-  const flipkartGTA = text.match(/Total\s+([0-9.]+)\s+(?:₹?\s*)?([0-9,.]+\.\d{2})\s+(?:₹?\s*)?([0-9,.]+\.\d{2})\s+(?:₹?\s*)?([0-9,.]+\.\d{2})\s+(?:₹?\s*)?([0-9,.]+\.\d{2})/i);
-  if (flipkartGTA) {
-    taxable = parseFloat(flipkartGTA[3].replace(/,/g, ''));
-    igst = parseFloat(flipkartGTA[4].replace(/,/g, ''));
-    total = parseFloat(flipkartGTA[5].replace(/,/g, ''));
+  // 3. Flipkart Summary Row:
+  // Can have 5 numbers: "Total 1 1086.00 0.00 920.34 165.66 1086.00" [Gross, Discount, Taxable, Tax, Total]
+  // Or 4 numbers: "Total 1.0 ₹113.00 ₹95.76 ₹17.24 ₹113.00" [Gross, Taxable, Tax, Total]
+  if (textLower.includes('flipkart')) {
+    const fk5 = text.match(/Total\s+(?:[0-9.]+\s+)?(?:₹?\s*)?([0-9,.]+\.\d{2})\s+(?:₹?\s*)?([0-9,.]+\.\d{2})\s+(?:₹?\s*)?([0-9,.]+\.\d{2})\s+(?:₹?\s*)?([0-9,.]+\.\d{2})\s+(?:₹?\s*)?([0-9,.]+\.\d{2})/i);
+    if (fk5) {
+      const t = parseFloat(fk5[3].replace(/,/g, ''));
+      const tax = parseFloat(fk5[4].replace(/,/g, ''));
+      const tot = parseFloat(fk5[5].replace(/,/g, ''));
+      if (Math.abs((t + tax) - tot) <= 0.05) {
+        taxable = t;
+        igst = tax;
+        total = tot;
+      }
+    } else {
+      const fk4 = text.match(/Total\s+(?:[0-9.]+\s+)?(?:₹?\s*)?([0-9,.]+\.\d{2})\s+(?:₹?\s*)?([0-9,.]+\.\d{2})\s+(?:₹?\s*)?([0-9,.]+\.\d{2})\s+(?:₹?\s*)?([0-9,.]+\.\d{2})/i);
+      if (fk4) {
+        const t = parseFloat(fk4[2].replace(/,/g, ''));
+        const tax = parseFloat(fk4[3].replace(/,/g, ''));
+        const tot = parseFloat(fk4[4].replace(/,/g, ''));
+        if (Math.abs((t + tax) - tot) <= 0.05) {
+          taxable = t;
+          igst = tax;
+          total = tot;
+        }
+      }
+    }
   }
 
-  // 5. Grand Total (e.g. Shib Sankar Textiles): "Grand Total 5.00 Pcs. ` 10,185.00"
+  // 4. Shib Sankar Textiles / Multi-line tax table:
+  const sstTableMatch = text.match(/(?:Tax\s*Rate[\s\S]*?Taxable\s*Amt\.?[\s\S]*?IGST\s*Amt\.?[\s\S]*?Total\s*Tax)[\s\r\n]+(?:[0-9]+%)\s+([0-9,.]+\.\d{2})\s+([0-9,.]+\.\d{2})/i);
+  if (sstTableMatch) {
+    if (taxable === 0) taxable = parseFloat(sstTableMatch[1].replace(/,/g, ''));
+    if (igst === 0) igst = parseFloat(sstTableMatch[2].replace(/,/g, ''));
+  }
+  if (igst === 0) {
+    const sstIgstMatch = text.match(/(?:add\s*:\s*)?igst\s*@\s*[0-9.]+\s*%\s*([0-9,.]+\.\d{2})/i);
+    if (sstIgstMatch) igst = parseFloat(sstIgstMatch[1].replace(/,/g, ''));
+  }
   const sstGrandTotalMatch = text.match(/Grand\s*Total\s+(?:[0-9.]+\s*(?:Pcs\.?|units?|items?))?\s*[`₹Rs.]*\s*([0-9,]+\.\d{2})/i);
   if (sstGrandTotalMatch) {
     const gTot = parseFloat(sstGrandTotalMatch[1].replace(/,/g, ''));
     if (gTot > total) total = gTot;
   }
 
-  // 6. Tax table (Shib Sankar Textiles): "Tax Rate Taxable Amt. IGST Amt. Total Tax \n 5% 9,700.00 485.00"
-  const taxTableMatch = text.match(/Taxable\s*Amt\.?\s+IGST\s*Amt\.?\s+Total\s*Tax\s*[\r\n]+\s*(?:[0-9]+%)\s+([0-9,.]+\.\d{2})\s+([0-9,.]+\.\d{2})/i);
-  if (taxTableMatch) {
-    taxable = parseFloat(taxTableMatch[1].replace(/,/g, ''));
-    igst = parseFloat(taxTableMatch[2].replace(/,/g, ''));
-  }
-
-  // 7. Single total with optional currency symbol: "Total 11800.00" or "Total ₹ 5273.00"
-  // 7. Single total with optional currency symbol: "Total 11800.00" or "Total Challan Amount: 10000.00"
+  // 5. Check Amazon TOTAL summary row: "TOTAL: ₹46.14 ₹969.00"
   if (total === 0) {
-    const singleTotalMatch = text.match(/(?:total\s*(?:challan\s*)?amount|invoice\s*total|net\s*payable|amount\s*payable|grand\s*total|total\s*paid|total)\s*[:\-]?\s*(?:₹|rs\.?|inr)?\s*([0-9,]+(?:\.[0-9]{2})?)/i);
-    if (singleTotalMatch) {
-      total = parseFloat(singleTotalMatch[1].replace(/,/g, ''));
+    const amazonTotalMatch = text.match(/TOTAL\s*:\s*(?:₹|rs\.?|inr)?\s*([0-9,]+\.\d{2})\s*(?:₹|rs\.?|inr)?\s*([0-9,]+\.\d{2})/i);
+    if (amazonTotalMatch) {
+      const grandAmt = parseFloat(amazonTotalMatch[2].replace(/,/g, ''));
+      if (grandAmt > 0) total = grandAmt;
     }
   }
 
-  // 5. Taxable value: Check "Taxable Value ₹ 4468.64" or "Net Amount ... ₹922.86"
-  if (taxable === 0) {
-    const taxableMatch = text.match(/(?:taxable\s*value|taxable\s*amount|net\s*amount|sub\s*total)\s*[:\-]?\s*(?:₹|rs\.?|inr)?\s*([0-9,]+(?:\.[0-9]{2})?)/i);
-    if (taxableMatch) {
-      taxable = parseFloat(taxableMatch[1].replace(/,/g, ''));
+  // 6. Check Flipkart Grand Total pattern
+  if (total === 0) {
+    const grandTotalMatch = text.match(/grand\s*total\s*[:\-]?\s*(?:₹|rs\.?|inr)?\s*([0-9,]+(?:\.[0-9]{2})?)/i);
+    if (grandTotalMatch) {
+      total = parseFloat(grandTotalMatch[1].replace(/,/g, ''));
     }
   }
 
-  // 6. Taxes: IGST, CGST, SGST (including statutory heads like Central Tax 0005, State Tax 0006)
-  if (igst === 0) {
-    const igstMatch = text.match(/(?:integrated\s*tax|igst)(?:\s*\([0-9]+\))?(?:\s*₹|\s*[:\-]?\s*(?:₹|rs\.?|inr)?)\s*([0-9,]+\.\d{2})/i);
-    if (igstMatch) {
-      igst = parseFloat(igstMatch[1].replace(/,/g, ''));
-    }
-  }
-
+  // 7. General CGST (including percentage e.g. "CGST 9.0% ₹ 900.00" or "CGST (9%) 900.00" with \u00A0)
   if (cgst === 0) {
-    const cgstMatch = text.match(/(?:central\s*tax|cgst)(?:\s*\([0-9]+\))?(?:\s*₹|\s*[:\-]?\s*(?:₹|rs\.?|inr)?)\s*([0-9,]+\.\d{2})/i);
-    if (cgstMatch) {
-      cgst = parseFloat(cgstMatch[1].replace(/,/g, ''));
-    }
+    const cgstMatch = text.match(
+      /(?:central\s*gst|central\s*tax|cgst)(?:[\s\u00A0]*(?:@\s*)?(?:\([0-9.]+\s*%?\)|[0-9.]+\s*%))?[\s\u00A0]*[:\-]?(?:[\s\u00A0]*(?:₹|rs\.?|inr|`))?[\s\u00A0]*([0-9,]+\.\d{2})/i
+    );
+    if (cgstMatch) cgst = parseFloat(cgstMatch[1].replace(/,/g, ''));
   }
 
+  // 8. General SGST (including percentage e.g. "SGST 9.0% ₹ 900.00")
   if (sgst === 0) {
-    const sgstMatch = text.match(/(?:state\s*tax|sgst|utgst)(?:\s*\([0-9]+\))?(?:\s*₹|\s*[:\-]?\s*(?:₹|rs\.?|inr)?)\s*([0-9,]+\.\d{2})/i);
-    if (sgstMatch) {
-      sgst = parseFloat(sgstMatch[1].replace(/,/g, ''));
-    }
+    const sgstMatch = text.match(
+      /(?:state\s*gst|state\s*tax|sgst\s*(?:\/\s*utgst)?|utgst)(?:[\s\u00A0]*(?:@\s*)?(?:\([0-9.]+\s*%?\)|[0-9.]+\s*%))?[\s\u00A0]*[:\-]?(?:[\s\u00A0]*(?:₹|rs\.?|inr|`))?[\s\u00A0]*([0-9,]+\.\d{2})/i
+    );
+    if (sgstMatch) sgst = parseFloat(sgstMatch[1].replace(/,/g, ''));
   }
 
-  // 7. Check 3 space-separated numbers at end of line: "4468.64 804.35 5273.00"
+  // 9. General IGST
+  if (igst === 0) {
+    const igstMatch = text.match(
+      /(?:integrated\s*gst|integrated\s*tax|igst)(?:[\s\u00A0]*(?:@\s*)?(?:\([0-9.]+\s*%?\)|[0-9.]+\s*%))?[\s\u00A0]*[:\-]?(?:[\s\u00A0]*(?:₹|rs\.?|inr|`))?[\s\u00A0]*([0-9,]+\.\d{2})/i
+    );
+    if (igstMatch) igst = parseFloat(igstMatch[1].replace(/,/g, ''));
+  }
+
+  // 10. General Total
+  if (total === 0) {
+    const singleTotalMatch = text.match(/(?:total\s*(?:challan\s*)?amount|invoice\s*total|net\s*payable|amount\s*payable|grand\s*total|total\s*paid|total)\s*[:\-]?\s*(?:₹|rs\.?|inr|`)?\s*([0-9,]+(?:\.[0-9]{2})?)/i);
+    if (singleTotalMatch) total = parseFloat(singleTotalMatch[1].replace(/,/g, ''));
+  }
+
+  // 11. General Taxable
+  if (taxable === 0) {
+    const taxableMatch = text.match(/(?:taxable\s*value|taxable\s*amount|net\s*amount|sub\s*total)\s*[:\-]?\s*(?:₹|rs\.?|inr|`)?\s*([0-9,]+(?:\.[0-9]{2})?)/i);
+    if (taxableMatch) taxable = parseFloat(taxableMatch[1].replace(/,/g, ''));
+  }
+
+  // 12. 3 space-separated numbers at end of line: "4468.64 804.35 5273.00"
   if (taxable === 0 || (cgst === 0 && sgst === 0 && igst === 0)) {
     const m3 = text.match(/([0-9,]+\.\d{2})\s+([0-9,]+\.\d{2})\s+([0-9,]+\.\d{2})\s*$/m);
     if (m3) {
@@ -1239,7 +1622,7 @@ function extractInvoiceAmounts(text: string): {
         if (taxable === 0) taxable = v1;
         if (total === 0) total = v3;
         if (igst === 0 && cgst === 0 && sgst === 0) {
-          if (text.toLowerCase().includes('igst')) igst = v2;
+          if (textLower.includes('igst')) igst = v2;
           else {
             cgst = Math.round((v2 / 2) * 100) / 100;
             sgst = Math.round((v2 / 2) * 100) / 100;
@@ -1249,7 +1632,7 @@ function extractInvoiceAmounts(text: string): {
     }
   }
 
-  // 8. Check 4 space-separated numbers: "761.86 68.57 68.57 899.00"
+  // 13. 4 space-separated numbers: "761.86 68.57 68.57 899.00"
   if (taxable === 0 || (cgst === 0 && sgst === 0 && igst === 0)) {
     const m4 = text.match(/([0-9,]+\.\d{2})\s+([0-9,]+\.\d{2})\s+([0-9,]+\.\d{2})\s+([0-9,]+\.\d{2})\s*$/m);
     if (m4) {
@@ -1266,13 +1649,11 @@ function extractInvoiceAmounts(text: string): {
     }
   }
 
-  // Mathematical reconciliation: If total is missing but taxable and tax are known
+  // 14. Mathematical reconciliation
   if (total === 0 && taxable > 0) {
     const taxSum = (cgst + sgst + igst);
     total = Math.round((taxable + taxSum) * 100) / 100;
   }
-
-  // If taxable is missing but total and tax are known:
   if (total > 0 && taxable === 0) {
     const taxSum = (cgst + sgst + igst);
     if (taxSum > 0 && total > taxSum) {
@@ -1282,16 +1663,34 @@ function extractInvoiceAmounts(text: string): {
     }
   }
 
-  return { taxable, cgst, sgst, igst, total };
+  // 15. Fallback deduction when total > taxable and difference matches standard GST rate
+  if (total > taxable && taxable > 0 && cgst === 0 && sgst === 0 && igst === 0) {
+    const diff = Math.round((total - taxable) * 100) / 100;
+    const rates = [0.18, 0.12, 0.05, 0.28];
+    for (const r of rates) {
+      if (Math.abs(diff - Math.round(taxable * r * 100) / 100) <= 1.0) {
+        if (textLower.includes('igst') || textLower.includes('integrated')) {
+          igst = diff;
+        } else {
+          cgst = Math.round((diff / 2) * 100) / 100;
+          sgst = Math.round((diff - cgst) * 100) / 100;
+        }
+        break;
+      }
+    }
+  }
+
+  return { taxable, cgst, sgst, igst, total, isRcm };
 }
 
 function extractPartyNameFromText(text: string, type: 'supplier' | 'buyer'): string | null {
-  const textLower = text.toLowerCase();
-  const lines = text.split(/\r?\n/).map(l => l.trim()).filter(l => l.length > 0);
+  const normalizedText = text.replace(/\s+/g, ' ');
+  const textLower = normalizedText.toLowerCase();
+  const lines = text.split(/\r?\n/).map(l => l.replace(/\s+/g, ' ').trim()).filter(l => l.length > 0);
 
   if (type === 'supplier') {
-    // 1. Check known marketplace vendor brands
-    if (textLower.includes('blink commerce')) return 'Blink Commerce Private Limited';
+    // 1. Check known marketplace vendor brands / GSTINs
+    if (textLower.includes('blink commerce') || textLower.includes('blinkit') || textLower.includes('bcpl - delhi') || textLower.includes('07aafcg9846e2zc')) return 'Blink Commerce Private Limited';
     if (textLower.includes('flipkart internet')) return 'Flipkart Internet Private Limited';
     if (textLower.includes('instakart services')) return 'Instakart Services Private Limited';
     if (textLower.includes('flipkart india')) return 'Flipkart India Private Limited';
@@ -1303,18 +1702,18 @@ function extractPartyNameFromText(text: string, type: 'supplier' | 'buyer'): str
     if (textLower.includes('hammad hussain')) return 'Hammad Hussain';
     if (textLower.includes('anita') && (textLower.includes('new delhi') || textLower.includes('f-75'))) return 'ANITA';
     if (textLower.includes('hr systems')) return 'HR SYSTEMS';
-    if (textLower.includes('shib sankar textiles')) return 'SHIB SANKAR TEXTILES';
-    if (textLower.includes('consignor name : nuqaat studio') || textLower.includes('consignment note')) return 'Porter / Logistics Partner';
+    if (textLower.includes('shib sankar textiles') || textLower.includes('shib sankar') || textLower.includes('19aitpp7397j1z0')) return 'SHIB SANKAR TEXTILES';
+    if (textLower.includes('consignor name : nuqaat studio') || textLower.includes('consignment note') || textLower.includes('porter') || textLower.includes('smartshift logistics') || textLower.includes('07aagcr8772d1z4')) return 'Porter / Logistics Partner';
 
     for (let i = 0; i < lines.length; i++) {
       const l = lines[i].toLowerCase();
-      if (l.startsWith('sold by') || l.includes('sold by :') || l.includes('sold by:')) {
-        const afterColon = lines[i].split(/sold by\s*[:\-]?/i)[1]?.trim();
+      if (l.startsWith('sold by') || l.includes('sold by :') || l.includes('sold by:') || l.includes('sold by / seller')) {
+        const afterColon = lines[i].split(/sold\s*by(?:\s*\/\s*seller)?\s*[:\-]?/i)[1]?.trim();
         if (afterColon && afterColon.length > 2 && afterColon !== '*') return afterColon.replace(/,$/, '').trim();
         if (lines[i + 1] && lines[i + 1] !== '*' && lines[i + 1].length > 2) return lines[i + 1].replace(/\*$/, '').replace(/,$/, '').trim();
       }
       if (l.startsWith('billed from') || l.includes('billed from:')) {
-        const afterColon = lines[i].split(/billed from\s*[:\-]?/i)[1]?.trim();
+        const afterColon = lines[i].split(/billed\s*from\s*[:\-]?/i)[1]?.trim();
         if (afterColon && afterColon.length > 2) return afterColon;
         if (lines[i + 1] && lines[i + 1].length > 2) return lines[i + 1].trim();
       }
@@ -1371,9 +1770,9 @@ function extractLineItemsFromText(
       continue;
     }
 
-    // Flipkart Product: lines following "Product Title" or having HSN/SAC
-    if (line.includes('HSN/SAC:') || line.includes('HSN:')) {
-      const hsnMatch = line.match(/(?:HSN\/SAC|HSN)\s*[:]?\s*([0-9]{4,8})/i);
+    // Lines having HSN/SAC or HSN or SAC:
+    if (line.includes('HSN/SAC:') || line.includes('HSN:') || line.includes('SAC:') || line.includes('SAC :') || line.includes('HSN :')) {
+      const hsnMatch = line.match(/(?:HSN\/SAC|HSN|SAC)\s*[:]?\s*([0-9]{4,8})/i);
       const hsn = hsnMatch ? hsnMatch[1] : '9983';
 
       let desc = '';
@@ -1385,10 +1784,63 @@ function extractLineItemsFromText(
       }
 
       if (!desc) {
+        // Look 1-3 lines before for the item title
+        for (let j = Math.max(0, i - 3); j < i; j++) {
+          const candidate = lines[j];
+          if (
+            candidate.length > 2 &&
+            !candidate.startsWith('#') &&
+            !candidate.startsWith('Item') &&
+            !candidate.includes('Rate') &&
+            !candidate.includes('Taxable') &&
+            !/^[0-9,.\s]+(?:NOS|PCS|units?|items?|kg|gm|\(18%\)|\(12%\)|\(5%\)|\(28%\))?/i.test(candidate) &&
+            !/^[0-9,.]+\s+[0-9,.]+/i.test(candidate)
+          ) {
+            desc = desc ? (desc + ' ' + candidate) : candidate;
+          }
+        }
+      }
+
+      if (!desc) {
         if (lines[i - 1] && !lines[i - 1].includes('Product') && !lines[i - 1].includes('Title') && lines[i - 1].length > 3) {
           desc = lines[i - 1];
-        } else if (lines[i + 1] && lines[i + 1].length > 3 && !lines[i + 1].includes('₹') && !lines[i + 1].includes('Warranty')) {
+        } else if (lines[i + 1] && lines[i + 1].length > 3 && !lines[i + 1].includes('₹') && !lines[i + 1].includes('Warranty') && !lines[i + 1].includes('NOS')) {
           desc = lines[i + 1];
+        }
+      }
+
+      let itemRate: number | undefined;
+      let itemQty: number | undefined;
+      let itemUnit: string | undefined;
+      let itemTaxable = 0;
+      let itemTaxRate = 18;
+      let itemCgst = 0;
+      let itemSgst = 0;
+      let itemIgst = 0;
+      let itemTotal = 0;
+
+      // Look at lines immediately following the SAC line for item amounts:
+      // Pattern: "15,000.00 3 NOS 45,000.00 8,100.00 (18%) 53,100.00"
+      for (let next = i + 1; next <= Math.min(lines.length - 1, i + 3); next++) {
+        const rowMatch = lines[next].match(
+          /([0-9,]+\.\d{2})\s+([0-9.]+)\s+([A-Za-z]+)?\s*([0-9,]+\.\d{2})\s+([0-9,]+\.\d{2})\s*(?:\(([0-9.]+)%?\))?\s*([0-9,]+\.\d{2})/
+        );
+        if (rowMatch) {
+          itemRate = parseFloat(rowMatch[1].replace(/,/g, ''));
+          itemQty = parseFloat(rowMatch[2].replace(/,/g, ''));
+          itemUnit = rowMatch[3]?.trim() || undefined;
+          itemTaxable = parseFloat(rowMatch[4].replace(/,/g, ''));
+          const taxAmt = parseFloat(rowMatch[5].replace(/,/g, ''));
+          itemTaxRate = rowMatch[6] ? parseFloat(rowMatch[6]) : 18;
+          itemTotal = parseFloat(rowMatch[7].replace(/,/g, ''));
+
+          if (igst > 0) {
+            itemIgst = taxAmt;
+          } else {
+            itemCgst = Math.round((taxAmt / 2) * 100) / 100;
+            itemSgst = Math.round((taxAmt - itemCgst) * 100) / 100;
+          }
+          break;
         }
       }
 
@@ -1396,14 +1848,41 @@ function extractLineItemsFromText(
         items.push({
           itemDescription: sanitizePostgresText(desc.slice(0, 150)),
           hsnSac: hsn,
-          taxableValue: taxable,
-          taxRatePercent: 18,
-          cgstAmount: cgst,
-          sgstAmount: sgst,
-          igstAmount: igst,
-          totalAmount: total,
+          rate: itemRate,
+          quantity: itemQty,
+          unit: itemUnit,
+          taxableValue: itemTaxable > 0 ? itemTaxable : taxable,
+          taxRatePercent: itemTaxRate,
+          cgstAmount: itemCgst > 0 ? itemCgst : (itemTaxable > 0 ? 0 : cgst),
+          sgstAmount: itemSgst > 0 ? itemSgst : (itemTaxable > 0 ? 0 : sgst),
+          igstAmount: itemIgst > 0 ? itemIgst : (itemTaxable > 0 ? 0 : igst),
+          totalAmount: itemTotal > 0 ? itemTotal : total,
         });
       }
+    }
+  }
+
+  if (items.length === 1 && items[0].taxableValue === 0) {
+    items[0].taxableValue = taxable;
+    items[0].cgstAmount = cgst;
+    items[0].sgstAmount = sgst;
+    items[0].igstAmount = igst;
+    items[0].totalAmount = total;
+  } else if (items.length > 1) {
+    const sumTaxable = items.reduce((s, it) => s + (it.taxableValue || 0), 0);
+    if (Math.abs(sumTaxable - taxable) > 1.0) {
+      const eachTaxable = Math.round((taxable / items.length) * 100) / 100;
+      const eachTotal = Math.round((total / items.length) * 100) / 100;
+      const eachCgst = Math.round((cgst / items.length) * 100) / 100;
+      const eachSgst = Math.round((sgst / items.length) * 100) / 100;
+      const eachIgst = Math.round((igst / items.length) * 100) / 100;
+      items.forEach((it, idx) => {
+        it.taxableValue = idx === items.length - 1 ? Math.round((taxable - eachTaxable * (items.length - 1)) * 100) / 100 : eachTaxable;
+        it.totalAmount = idx === items.length - 1 ? Math.round((total - eachTotal * (items.length - 1)) * 100) / 100 : eachTotal;
+        it.cgstAmount = idx === items.length - 1 ? Math.round((cgst - eachCgst * (items.length - 1)) * 100) / 100 : eachCgst;
+        it.sgstAmount = idx === items.length - 1 ? Math.round((sgst - eachSgst * (items.length - 1)) * 100) / 100 : eachSgst;
+        it.igstAmount = idx === items.length - 1 ? Math.round((igst - eachIgst * (items.length - 1)) * 100) / 100 : eachIgst;
+      });
     }
   }
 
@@ -1428,6 +1907,7 @@ function createFallbackDoc(type: any, text: string, filename: string, clientBusi
   return {
     docType: type,
     docNumber: `DOC-${filename.replace(/\.[^/.]+$/, '').slice(0, 10)}`,
+    docDate: extractDocDate(text),
     supplierName: clientBusinessName || 'Client',
     buyerName: 'Buyer / Customer',
     taxableAmount: 0,
@@ -1452,7 +1932,7 @@ export async function testPdfPasswordStatus(
   mimeType: string,
   filename: string,
   providedPassword?: string
-): Promise<{ isLocked: boolean; scanNotes: string | null }> {
+): Promise<{ isLocked: boolean; scanNotes: string | null; unlockedPassword?: string }> {
   const ext = filename.split('.').pop()?.toLowerCase();
   const isPdf = ext === 'pdf' || (mimeType && mimeType.includes('pdf'));
   if (!isPdf) {
@@ -1461,7 +1941,7 @@ export async function testPdfPasswordStatus(
 
   // 1. Try reading without a password
   try {
-    await pdfParse(buffer);
+    await pdfParse(buffer, { pagerender: robustPdfPageRenderer });
     return { isLocked: false, scanNotes: null };
   } catch (err: any) {
     const msg = (err?.message || '').toLowerCase();
@@ -1470,14 +1950,20 @@ export async function testPdfPasswordStatus(
       return { isLocked: false, scanNotes: null };
     }
 
-    // PDF is genuinely password-protected. Try provided password:
+    // PDF is genuinely password-protected. Try provided password candidates:
     if (providedPassword && providedPassword.trim()) {
-      try {
-        await (pdfParse as any)(buffer, { password: providedPassword.trim() });
-        return { isLocked: false, scanNotes: 'Protected PDF unlocked with provided password' };
-      } catch (_) {
-        return { isLocked: true, scanNotes: 'Protected PDF (Password incorrect)' };
+      const candidates = [
+        providedPassword.trim(),
+        providedPassword.trim().toUpperCase(),
+        providedPassword.trim().toLowerCase(),
+      ];
+      for (const cand of candidates) {
+        try {
+          await (pdfParse as any)(buffer, { password: cand, pagerender: robustPdfPageRenderer });
+          return { isLocked: false, scanNotes: 'Protected PDF unlocked with provided password', unlockedPassword: cand };
+        } catch (_) {}
       }
+      return { isLocked: true, scanNotes: 'Protected PDF (Password incorrect)' };
     }
 
     return { isLocked: true, scanNotes: 'Protected PDF (Password required to unlock)' };

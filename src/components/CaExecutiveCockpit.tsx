@@ -25,6 +25,8 @@ import {
   Plus,
   ShieldCheck,
   ExternalLink,
+  RefreshCw,
+  Globe,
 } from 'lucide-react';
 import {
   INITIAL_CLIENTS_DATA,
@@ -34,9 +36,21 @@ import {
   INITIAL_ACCUMULATED_TASKS_7_DAYS,
   ATTACHED_DOC_TEMPLATES,
 } from '../services/frontPageDataService.ts';
+import {
+  getStoredComplianceCalendar,
+  syncStatutoryPortals,
+  REGULATORY_PORTALS,
+} from '../services/statutoryComplianceService.ts';
+import { DashboardPreferences } from '../services/dashboardPreferencesService.ts';
+import { FirmBrandingConfig } from '../services/brandingService.ts';
+import { AuthUser, ComplianceCalendarItem } from '../types/index.ts';
 
-interface CaExecutiveCockpitProps {
+export interface CaExecutiveCockpitProps {
   requests: MonthlyRequest[];
+  currentUser?: AuthUser | null;
+  firmBranding?: FirmBrandingConfig;
+  preferences?: DashboardPreferences;
+  isEmbedded?: boolean;
   onNavigateTab: (tab: string) => void;
   onTriggerSchedule: () => Promise<void>;
   onOpenNewClientModal: () => void;
@@ -46,6 +60,10 @@ interface CaExecutiveCockpitProps {
 
 export const CaExecutiveCockpit: React.FC<CaExecutiveCockpitProps> = ({
   requests,
+  currentUser,
+  firmBranding,
+  preferences,
+  isEmbedded = false,
   onNavigateTab,
   onTriggerSchedule,
   onOpenNewClientModal,
@@ -53,7 +71,7 @@ export const CaExecutiveCockpit: React.FC<CaExecutiveCockpitProps> = ({
   isActionLoading,
 }) => {
   // Front page state for highlighted client in Directory & KYC subsection
-  const [activeKycClientId, setActiveKycClientId] = useState<string>('cli_briopox_01');
+  const [activeKycClientId, setActiveKycClientId] = useState<string>('cli_social_corn_01');
   const [isAddDirectorModalOpen, setIsAddDirectorModalOpen] = useState(false);
   const [newDirectorName, setNewDirectorName] = useState('');
   const [newDirectorPhone, setNewDirectorPhone] = useState('+91 ');
@@ -75,6 +93,42 @@ export const CaExecutiveCockpit: React.FC<CaExecutiveCockpitProps> = ({
   });
 
   const activeClient = clients.find((c: any) => c.id === activeKycClientId) || clients[0];
+
+  // Dynamic compliance calendar items across all 11 regulatory portals
+  const [calendarItems, setCalendarItems] = useState<ComplianceCalendarItem[]>(() => {
+    return getStoredComplianceCalendar();
+  });
+  const [selectedPortalCategory, setSelectedPortalCategory] = useState<string>('all');
+  const [isSyncingPortals, setIsSyncingPortals] = useState<boolean>(false);
+  const [syncStatusMsg, setSyncStatusMsg] = useState<string>('');
+
+  React.useEffect(() => {
+    const handleSync = () => {
+      setCalendarItems(getStoredComplianceCalendar());
+    };
+    window.addEventListener('ps_data_updated', handleSync);
+    window.addEventListener('storage', handleSync);
+    return () => {
+      window.removeEventListener('ps_data_updated', handleSync);
+      window.removeEventListener('storage', handleSync);
+    };
+  }, []);
+
+  const handleSyncPortalsNow = async () => {
+    setIsSyncingPortals(true);
+    setSyncStatusMsg('Syncing 11 portals...');
+    try {
+      const res = await syncStatutoryPortals();
+      setCalendarItems(res.items);
+      setSyncStatusMsg(`Synced ${res.total} deadlines across 11 portals`);
+      setTimeout(() => setSyncStatusMsg(''), 4000);
+    } catch {
+      setSyncStatusMsg('Synced (cached)');
+      setTimeout(() => setSyncStatusMsg(''), 3000);
+    } finally {
+      setIsSyncingPortals(false);
+    }
+  };
 
   const handleAddDirector = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -132,77 +186,82 @@ export const CaExecutiveCockpit: React.FC<CaExecutiveCockpitProps> = ({
   const currentPeriod = requests[0]?.reportingMonth || 'August 2026';
   const pending7DayTasksCount = INITIAL_ACCUMULATED_TASKS_7_DAYS.length;
 
-  return (
-    <div className="space-y-7 animate-in fade-in duration-300">
-      {/* 1. Executive Chartered Accountant Banner */}
-      <div className="theme-banner text-white rounded-3xl p-6 sm:p-8 shadow-xl border relative overflow-hidden">
-        <div className="absolute right-0 bottom-0 pointer-events-none opacity-[0.05] select-none translate-x-10 translate-y-10">
-          <img src="/logo.jpg" alt="" className="w-80 h-80 object-contain filter grayscale contrast-125" />
-        </div>
+  const isCompact = preferences?.density === 'compact';
 
-        <div className="relative z-10 flex flex-col lg:flex-row lg:items-center lg:justify-between gap-6">
-          <div className="flex items-center space-x-4">
-            <img
-              src="/logo.jpg"
-              alt="Professional Samadhan"
-              className="w-16 h-16 rounded-2xl object-cover shadow-xl border-2 border-white/20 shrink-0"
-            />
-            <div>
-              <div className="flex items-center space-x-2">
-                <span className="text-xs uppercase tracking-wider theme-accent-text font-bold">
-                  Professional Samadhan • Chartered Accountants
-                </span>
-                <span className="text-[10px] px-2 py-0.5 rounded-full theme-badge border font-semibold">
-                  Practice Cockpit
-                </span>
+  return (
+    <div className={`${isCompact ? 'space-y-5' : 'space-y-7'} animate-in fade-in duration-300`}>
+      {/* 1. Executive Chartered Accountant Banner */}
+      {!isEmbedded && (
+        <div className={`theme-banner text-white rounded-3xl ${isCompact ? 'p-4 sm:p-5' : 'p-6 sm:p-8'} shadow-xl border relative overflow-hidden`}>
+          <div className="absolute right-0 bottom-0 pointer-events-none opacity-[0.05] select-none translate-x-10 translate-y-10">
+            <img src={firmBranding?.logoUrl || "/logo.jpg"} alt="" className="w-80 h-80 object-contain filter grayscale contrast-125" />
+          </div>
+
+          <div className="relative z-10 flex flex-col lg:flex-row lg:items-center lg:justify-between gap-6">
+            <div className="flex items-center space-x-4">
+              <img
+                src={firmBranding?.logoUrl || "/logo.jpg"}
+                alt="QuinceCA"
+                className="w-16 h-16 rounded-2xl object-cover shadow-xl border-2 border-white/20 shrink-0"
+              />
+              <div>
+                <div className="flex items-center space-x-2">
+                  <span className="text-xs uppercase tracking-wider theme-accent-text font-bold">
+                    {firmBranding?.firmName || 'QuinceCA • Chartered Accountants'}
+                  </span>
+                  <span className="text-[10px] px-2 py-0.5 rounded-full theme-badge border font-semibold">
+                    Practice Cockpit
+                  </span>
+                </div>
+                <h1 className="text-2xl sm:text-3xl font-extrabold tracking-tight mt-1 text-white">
+                  {currentUser?.displayName || firmBranding?.tagline || 'CA Suraj Dutta (FCA)'}
+                </h1>
+                <p className="text-xs sm:text-sm text-slate-300 mt-1 flex items-center gap-2">
+                  <Calendar className="w-3.5 h-3.5 text-teal-300" />
+                  <span>Active Statutory Period: <strong>{currentPeriod}</strong></span>
+                  <span>•</span>
+                  <span>Portfolio: <strong>{totalClients} Corporate & GST Clients</strong></span>
+                </p>
               </div>
-              <h1 className="text-2xl sm:text-3xl font-extrabold tracking-tight mt-1 text-white">
-                CA Suraj Dutta (FCA)
-              </h1>
-              <p className="text-xs sm:text-sm text-slate-300 mt-1 flex items-center gap-2">
-                <Calendar className="w-3.5 h-3.5 text-teal-300" />
-                <span>Active Statutory Period: <strong>{currentPeriod}</strong></span>
-                <span>•</span>
-                <span>Portfolio: <strong>{totalClients} Corporate & GST Clients</strong></span>
-              </p>
+            </div>
+
+            {/* Quick Actions */}
+            <div className="flex flex-wrap items-center gap-3">
+              <button
+                onClick={onOpenNewClientModal}
+                className="px-4 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white text-xs sm:text-sm font-bold rounded-xl shadow-md transition flex items-center space-x-2"
+                title="Register a new business under practice management"
+              >
+                <PlusCircle className="w-4 h-4" />
+                <span>Onboard Client</span>
+              </button>
+
+              <button
+                onClick={onTriggerSchedule}
+                disabled={isActionLoading}
+                className="px-4 py-2.5 theme-btn-primary text-white text-xs sm:text-sm font-bold rounded-xl shadow-md transition flex items-center space-x-2"
+                title="Trigger automatic 1st-of-month GST intake schedule"
+              >
+                <Play className="w-4 h-4" />
+                <span>{isActionLoading ? 'Processing...' : 'Run 1st-of-Month Intake'}</span>
+              </button>
             </div>
           </div>
-
-          {/* Quick Actions */}
-          <div className="flex flex-wrap items-center gap-3">
-            <button
-              onClick={onOpenNewClientModal}
-              className="px-4 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white text-xs sm:text-sm font-bold rounded-xl shadow-md transition flex items-center space-x-2"
-              title="Register a new business under practice management"
-            >
-              <PlusCircle className="w-4 h-4" />
-              <span>Onboard Client</span>
-            </button>
-
-            <button
-              onClick={onTriggerSchedule}
-              disabled={isActionLoading}
-              className="px-4 py-2.5 theme-btn-primary text-white text-xs sm:text-sm font-bold rounded-xl shadow-md transition flex items-center space-x-2"
-              title="Trigger automatic 1st-of-month GST intake schedule"
-            >
-              <Play className="w-4 h-4" />
-              <span>{isActionLoading ? 'Processing...' : 'Run 1st-of-Month Intake'}</span>
-            </button>
-          </div>
         </div>
-      </div>
+      )}
 
       {/* 2. Top Navigation & Section Selector (Matching the 6 top boxes in wireframe) */}
-      <div>
-        <div className="flex items-center justify-between mb-3 px-1">
-          <div className="flex items-center space-x-2">
-            <Sparkles className="w-4 h-4 text-teal-600" />
-            <h2 className="text-sm font-bold text-slate-800 uppercase tracking-wider">
-              Core Practice Modules & Statutory Sections
-            </h2>
+      {(!preferences || preferences.showTopModuleCards) && (
+        <div>
+          <div className="flex items-center justify-between mb-3 px-1">
+            <div className="flex items-center space-x-2">
+              <Sparkles className="w-4 h-4 text-teal-600" />
+              <h2 className="text-sm font-bold text-slate-800 uppercase tracking-wider">
+                Core Practice Modules & Statutory Sections
+              </h2>
+            </div>
+            <span className="text-xs text-slate-400">Direct Navigation</span>
           </div>
-          <span className="text-xs text-slate-400">Direct Navigation</span>
-        </div>
 
         <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
           {/* 1. Client Directory & KYC */}
@@ -320,40 +379,63 @@ export const CaExecutiveCockpit: React.FC<CaExecutiveCockpitProps> = ({
           </div>
         </div>
       </div>
+      )}
 
       {/* 3. Three-Column Spotlight Subsections (Directly matching wireframe diagram structure) */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 items-start">
-        {/* COLUMN 1: Client Directory & KYC (Briopox Pvt Ltd Wireframe Structure) */}
-        <div className="bg-white rounded-3xl border border-slate-200 p-5 shadow-sm space-y-4 hover:border-teal-400 transition-all">
-          {/* Header */}
-          <div className="flex items-center justify-between pb-3 border-b border-slate-100">
-            <div>
-              <span className="text-[10px] font-bold text-teal-700 uppercase tracking-wider block">
-                Subsection 1
-              </span>
-              <h3 className="text-base font-black text-slate-900 flex items-center gap-1.5">
-                <Building2 className="w-4 h-4 text-teal-600" />
-                <span>Client Directory & kyc.</span>
-              </h3>
+      {((!preferences || preferences.showClientKycSpotlight) ||
+        (!preferences || preferences.showAdhocCatalog) ||
+        (!preferences || preferences.showComplianceCalendar)) && (
+        <div className={`grid grid-cols-1 ${
+          ((!preferences || preferences.showClientKycSpotlight ? 1 : 0) +
+           (!preferences || preferences.showAdhocCatalog ? 1 : 0) +
+           (!preferences || preferences.showComplianceCalendar ? 1 : 0)) === 3
+            ? 'lg:grid-cols-3'
+            : ((!preferences || preferences.showClientKycSpotlight ? 1 : 0) +
+               (!preferences || preferences.showAdhocCatalog ? 1 : 0) +
+               (!preferences || preferences.showComplianceCalendar ? 1 : 0)) === 2
+            ? 'md:grid-cols-2'
+            : 'grid-cols-1'
+        } gap-6 items-start`}>
+          {/* COLUMN 1: Client Directory & KYC (Briopox Pvt Ltd Wireframe Structure) */}
+          {(!preferences || preferences.showClientKycSpotlight) && (
+          <div className={`bg-white rounded-3xl border border-slate-200 ${isCompact ? 'p-3.5 space-y-3' : 'p-5 space-y-4'} shadow-sm hover:border-teal-400 transition-all`}>
+            {/* Header */}
+            <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+              <div>
+                <span className="text-[10px] font-bold text-teal-700 uppercase tracking-wider block">
+                  Subsection 1
+                </span>
+                <h3 className="text-base font-black text-slate-900 flex items-center gap-1.5">
+                  <Building2 className="w-4 h-4 text-teal-600" />
+                  <span>Client Directory & kyc.</span>
+                </h3>
+              </div>
+
+              <button
+                onClick={() => onNavigateTab('clients')}
+                className="text-xs text-teal-700 hover:text-teal-900 font-bold flex items-center gap-0.5"
+              >
+                <span>Full View</span>
+                <ArrowRight className="w-3 h-3" />
+              </button>
             </div>
 
-            <button
-              onClick={() => onNavigateTab('clients')}
-              className="text-xs text-teal-700 hover:text-teal-900 font-bold flex items-center gap-0.5"
-            >
-              <span>Full View</span>
-              <ArrowRight className="w-3 h-3" />
-            </button>
-          </div>
-
-          {/* Client Details Box */}
-          <div className="bg-slate-50/80 rounded-2xl p-4 border border-slate-200/80 space-y-2.5 text-xs">
-            <div className="flex items-center justify-between">
-              <span className="font-semibold text-slate-500">Client:</span>
-              <span className="font-black text-slate-900 bg-white px-2.5 py-0.5 rounded-lg border border-slate-200">
-                {activeClient.businessName}
-              </span>
-            </div>
+            {/* Client Details Box */}
+            <div className="bg-slate-50/80 rounded-2xl p-4 border border-slate-200/80 space-y-2.5 text-xs">
+              <div className="flex items-center justify-between">
+                <span className="font-semibold text-slate-500">Client:</span>
+                <select
+                  value={activeClient.id}
+                  onChange={e => setActiveKycClientId(e.target.value)}
+                  className="font-black text-slate-900 bg-white px-2.5 py-0.5 rounded-lg border border-slate-200 text-xs cursor-pointer hover:border-teal-400 focus:outline-none"
+                >
+                  {clients.map((c: any) => (
+                    <option key={c.id} value={c.id}>
+                      {c.businessName || c.displayName}
+                    </option>
+                  ))}
+                </select>
+              </div>
 
             <div className="flex items-center justify-between">
               <span className="font-semibold text-slate-500">CIN:</span>
@@ -469,9 +551,11 @@ export const CaExecutiveCockpit: React.FC<CaExecutiveCockpitProps> = ({
             </div>
           </div>
         </div>
+        )}
 
         {/* COLUMN 2: Adhoc Request (Wireframe List of Services) */}
-        <div className="bg-white rounded-3xl border border-slate-200 p-5 shadow-sm space-y-4 hover:border-purple-400 transition-all">
+        {(!preferences || preferences.showAdhocCatalog) && (
+        <div className={`bg-white rounded-3xl border border-slate-200 ${isCompact ? 'p-3.5 space-y-3' : 'p-5 space-y-4'} shadow-sm hover:border-purple-400 transition-all`}>
           {/* Header */}
           <div className="flex items-center justify-between pb-3 border-b border-slate-100">
             <div>
@@ -571,70 +655,213 @@ export const CaExecutiveCockpit: React.FC<CaExecutiveCockpitProps> = ({
             <span>Launch New Adhoc Request</span>
           </button>
         </div>
+        )}
 
-        {/* COLUMN 3: Compliance Calendar (auto generate) (Wireframe List of 11 Dates) */}
-        <div className="bg-white rounded-3xl border border-slate-200 p-5 shadow-sm space-y-4 hover:border-emerald-400 transition-all">
+        {/* COLUMN 3: Compliance Calendar (auto generate & 11 Government Portals Synchronized) */}
+        {(!preferences || preferences.showComplianceCalendar) && (
+        <div className={`bg-white rounded-3xl border border-slate-200 ${isCompact ? 'p-3.5 space-y-3' : 'p-5 space-y-3.5'} shadow-sm hover:border-emerald-400 transition-all`}>
           {/* Header */}
-          <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+          <div className="flex items-center justify-between pb-2.5 border-b border-slate-100">
             <div>
-              <span className="text-[10px] font-bold text-emerald-700 uppercase tracking-wider block">
-                Subsection 3
-              </span>
-              <h3 className="text-base font-black text-slate-900 flex items-center gap-1.5">
+              <div className="flex items-center gap-1.5">
+                <span className="text-[10px] font-bold text-emerald-700 uppercase tracking-wider block">
+                  Subsection 3
+                </span>
+                <span className="inline-flex items-center gap-1 px-1.5 py-0.2 rounded-full text-[9px] font-extrabold bg-emerald-50 text-emerald-700 border border-emerald-200">
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
+                  <span>11 Portals Synced</span>
+                </span>
+              </div>
+              <h3 className="text-base font-black text-slate-900 flex items-center gap-1.5 mt-0.5">
                 <CalendarDays className="w-4 h-4 text-emerald-600" />
                 <span>Compliance Calendar</span>
               </h3>
               <p className="text-[11px] text-emerald-800 font-bold">(auto generate)</p>
             </div>
 
-            <button
-              onClick={() => onNavigateTab('compliance-calendar')}
-              className="text-xs text-emerald-700 hover:text-emerald-900 font-bold flex items-center gap-0.5"
-            >
-              <span>Full Calendar</span>
-              <ArrowRight className="w-3 h-3" />
-            </button>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={handleSyncPortalsNow}
+                disabled={isSyncingPortals}
+                title="Sync now across all 11 government statutory portals"
+                className="p-1.5 rounded-lg bg-slate-50 hover:bg-emerald-50 text-slate-600 hover:text-emerald-700 border border-slate-200 hover:border-emerald-300 transition"
+              >
+                <RefreshCw className={`w-3.5 h-3.5 ${isSyncingPortals ? 'animate-spin text-emerald-600' : ''}`} />
+              </button>
+
+              <button
+                onClick={() => onNavigateTab('compliance-calendar')}
+                className="text-xs text-emerald-700 hover:text-emerald-900 font-bold flex items-center gap-0.5"
+              >
+                <span>Full Calendar</span>
+                <ArrowRight className="w-3 h-3" />
+              </button>
+            </div>
           </div>
 
-          {/* Statutory Dates List (Exact dates from the wireframe) */}
-          <div className="bg-slate-50/80 rounded-2xl p-4 border border-slate-200/80 space-y-2 text-xs max-h-[460px] overflow-y-auto">
-            {INITIAL_COMPLIANCE_CALENDAR.map((item) => (
-              <div
-                key={item.id}
-                className="py-1.5 px-2 bg-white rounded-xl border border-slate-200/70 hover:border-emerald-400 transition flex items-center justify-between gap-2"
-              >
-                <div className="flex items-center space-x-2">
-                  <span className="w-2 h-2 rounded-full bg-emerald-500 shrink-0"></span>
-                  <span className="font-bold text-slate-900">
-                    {item.displayDate} — {item.eventTitle}
-                  </span>
-                </div>
+          {/* Sync notification message */}
+          {syncStatusMsg && (
+            <div className="text-[11px] font-semibold text-emerald-800 bg-emerald-50/80 px-2.5 py-1 rounded-lg border border-emerald-200/60 animate-in fade-in">
+              {syncStatusMsg}
+            </div>
+          )}
 
-                <span className={`text-[9px] font-bold px-1.5 py-0.2 rounded shrink-0 ${
-                  item.category === 'GST'
-                    ? 'bg-blue-50 text-blue-700'
-                    : item.category === 'TDS'
-                    ? 'bg-amber-50 text-amber-700'
-                    : 'bg-purple-50 text-purple-700'
-                }`}>
-                  {item.category}
-                </span>
-              </div>
+          {/* Quick Authority Filter Chips */}
+          <div className="flex items-center gap-1 overflow-x-auto pb-1 text-[10px] font-bold no-scrollbar">
+            {[
+              { id: 'all', label: 'All 11 Portals' },
+              { id: 'GST', label: 'GST' },
+              { id: 'Income Tax', label: 'Income Tax' },
+              { id: 'TDS', label: 'TDS' },
+              { id: 'ROC', label: 'MCA / ROC' },
+              { id: 'EPFO', label: 'EPFO' },
+              { id: 'ESIC', label: 'ESIC' },
+              { id: 'RBI', label: 'RBI' },
+              { id: 'IP India', label: 'IP India' },
+              { id: 'CBIC', label: 'CBIC' },
+              { id: 'DPIIT', label: 'DPIIT' },
+            ].map(chip => (
+              <button
+                key={chip.id}
+                onClick={() => setSelectedPortalCategory(chip.id)}
+                className={`px-2 py-0.5 rounded-md whitespace-nowrap transition border ${
+                  selectedPortalCategory === chip.id
+                    ? 'bg-emerald-600 text-white border-emerald-600 shadow-xs'
+                    : 'bg-slate-50 hover:bg-slate-100 text-slate-600 border-slate-200'
+                }`}
+              >
+                {chip.label}
+              </button>
             ))}
           </div>
 
+          {/* Statutory Dates List with live portal links */}
+          <div className="bg-slate-50/80 rounded-2xl p-3 border border-slate-200/80 space-y-2 text-xs max-h-[440px] overflow-y-auto">
+            {calendarItems
+              .filter(item => {
+                if (selectedPortalCategory === 'all') return true;
+                if (selectedPortalCategory === 'Income Tax') {
+                  return item.category === 'Income Tax' || item.category === 'TDS' || item.category === 'Audit';
+                }
+                return item.category === selectedPortalCategory;
+              })
+              .map((item) => {
+                const isOverdue = item.status === 'Overdue';
+                const isUrgent = item.status === 'Urgent';
+                const isCompleted = item.status === 'Completed';
+
+                return (
+                  <div
+                    key={item.id}
+                    className={`py-2 px-2.5 bg-white rounded-xl border transition flex flex-col gap-1.5 shadow-2xs ${
+                      isOverdue
+                        ? 'border-rose-300 bg-rose-50/20'
+                        : isUrgent
+                        ? 'border-amber-300 bg-amber-50/10'
+                        : isCompleted
+                        ? 'border-slate-200 opacity-70'
+                        : 'border-slate-200/70 hover:border-emerald-400'
+                    }`}
+                  >
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="flex items-center space-x-2 min-w-0">
+                        <span className={`w-2 h-2 rounded-full shrink-0 ${
+                          isOverdue
+                            ? 'bg-rose-500 animate-pulse ring-2 ring-rose-200'
+                            : isUrgent
+                            ? 'bg-amber-500 animate-pulse ring-2 ring-amber-200'
+                            : isCompleted
+                            ? 'bg-emerald-600'
+                            : 'bg-emerald-500'
+                        }`} />
+                        <span className="font-bold text-slate-900 truncate">
+                          {item.displayDate} — {item.eventTitle}
+                        </span>
+                      </div>
+
+                      <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded shrink-0 ${
+                        item.category === 'GST'
+                          ? 'bg-blue-50 text-blue-700 border border-blue-200'
+                          : item.category === 'TDS'
+                          ? 'bg-amber-50 text-amber-700 border border-amber-200'
+                          : item.category === 'ROC'
+                          ? 'bg-indigo-50 text-indigo-700 border border-indigo-200'
+                          : item.category === 'EPFO'
+                          ? 'bg-teal-50 text-teal-700 border border-teal-200'
+                          : item.category === 'ESIC'
+                          ? 'bg-yellow-50 text-yellow-800 border border-yellow-200'
+                          : item.category === 'RBI'
+                          ? 'bg-purple-50 text-purple-700 border border-purple-200'
+                          : item.category === 'IP India'
+                          ? 'bg-violet-50 text-violet-700 border border-violet-200'
+                          : item.category === 'CBIC'
+                          ? 'bg-rose-50 text-rose-700 border border-rose-200'
+                          : item.category === 'DPIIT'
+                          ? 'bg-cyan-50 text-cyan-700 border border-cyan-200'
+                          : 'bg-emerald-50 text-emerald-700 border border-emerald-200'
+                      }`}>
+                        {item.category}
+                      </span>
+                    </div>
+
+                    {/* Sub-bar: Portal link and form tag */}
+                    <div className="flex items-center justify-between text-[10px] text-slate-500 pt-0.5 border-t border-slate-100">
+                      <div className="flex items-center gap-1.5">
+                        {item.portalUrl ? (
+                          <a
+                            href={item.portalUrl}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="inline-flex items-center gap-0.5 text-teal-700 hover:text-teal-900 font-semibold underline underline-offset-2 hover:no-underline"
+                            title={`Open official portal: ${item.portalDomain || item.portalName}`}
+                          >
+                            <span>{item.portalDomain || item.portalName}</span>
+                            <ExternalLink className="w-2.5 h-2.5" />
+                          </a>
+                        ) : (
+                          <span className="font-semibold text-slate-600">{item.portalName || 'Gov Portal'}</span>
+                        )}
+                        {item.formNumber && (
+                          <span className="text-slate-400 font-mono">• {item.formNumber}</span>
+                        )}
+                      </div>
+
+                      <div>
+                        {isOverdue && (
+                          <span className="text-rose-600 font-bold">Overdue</span>
+                        )}
+                        {isUrgent && (
+                          <span className="text-amber-700 font-bold">Due in {item.daysRemaining}d</span>
+                        )}
+                        {!isOverdue && !isUrgent && !isCompleted && typeof item.daysRemaining === 'number' && (
+                          <span className="text-slate-500">{item.daysRemaining} days left</span>
+                        )}
+                        {isCompleted && (
+                          <span className="text-emerald-700 font-semibold">Filed ✓</span>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+          </div>
+
           <button
-            onClick={() => onNavigateTab('compliance-calendar')}
-            className="w-full py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-bold shadow-sm transition flex items-center justify-center space-x-2"
+            onClick={handleSyncPortalsNow}
+            disabled={isSyncingPortals}
+            className="w-full py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-bold shadow-sm transition flex items-center justify-center space-x-2 disabled:opacity-75"
           >
-            <Sparkles className="w-4 h-4" />
-            <span>Auto Generate Monthly Schedule</span>
+            <Sparkles className={`w-4 h-4 ${isSyncingPortals ? 'animate-spin' : ''}`} />
+            <span>{isSyncingPortals ? 'Syncing 11 Government Portals...' : 'Auto Generate Monthly Schedule'}</span>
           </button>
         </div>
+        )}
       </div>
+      )}
 
       {/* 4. Priority Action Items (Focus for the Chartered Accountant) */}
-      <div className="bg-white rounded-2xl border border-slate-200 p-6 shadow-sm">
+      {(!preferences || preferences.showPartnerActionItems) && (
+      <div className={`bg-white rounded-2xl border border-slate-200 ${isCompact ? 'p-4' : 'p-6'} shadow-sm`}>
         <div className="flex items-center justify-between mb-4">
           <div className="flex items-center space-x-2">
             <Sparkles className="w-4 h-4 text-amber-500" />
@@ -649,7 +876,10 @@ export const CaExecutiveCockpit: React.FC<CaExecutiveCockpitProps> = ({
         </div>
 
         <div className="divide-y divide-slate-100">
-          {requests.slice(0, 3).map(req => (
+          {(requests && requests.length > 0 ? requests.slice(0, 4) : [
+            { id: 'req_sc', clientName: 'Social Corn', clientGstin: '07DWAPK0131H1Z1', reportingMonth: 'September 2026', status: 'Needs Review' },
+            { id: 'req_ds', clientName: 'dsfdsf', clientGstin: '29AAAGM0289C1ZF', reportingMonth: 'September 2026', status: 'Requested' },
+          ]).map(req => (
             <div
               key={req.id}
               onClick={() => onNavigateTab('gst-pipeline')}
@@ -677,6 +907,7 @@ export const CaExecutiveCockpit: React.FC<CaExecutiveCockpitProps> = ({
           ))}
         </div>
       </div>
+      )}
 
       {/* 5. Add Director Modal */}
       {isAddDirectorModalOpen && (

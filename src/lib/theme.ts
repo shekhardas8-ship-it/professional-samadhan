@@ -29,7 +29,7 @@ export const PALETTES: ColorPalette[] = [
   {
     id: 'professional-teal',
     name: 'Professional Teal',
-    description: 'Official brand palette matching the Professional Samadhan emblem',
+    description: 'Official brand palette matching the QuinceCA emblem',
     colors: ['#052528', '#0B4D53', '#117077', '#14B8A6', '#F0FDFA'],
     vars: {
       primary: '#0B4D53',

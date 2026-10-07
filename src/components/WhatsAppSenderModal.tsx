@@ -49,7 +49,7 @@ Please upload documents here: ${uploadLink}
 If there were no transactions or no debit/credit notes, please confirm this in the portal.
 
 Regards,
-Team Professional Samadhan`;
+Team QuinceCA`;
 
   const reminderMessage = `Dear ${request.contactPerson || 'Client'},
 
@@ -63,7 +63,7 @@ Please upload them here: ${uploadLink}
 If an item is not applicable, please confirm in the portal.
 
 Regards,
-Team Professional Samadhan`;
+Team QuinceCA`;
 
   const [messageText, setMessageText] = useState(
     actionType === 'initial' ? initialMessage : reminderMessage

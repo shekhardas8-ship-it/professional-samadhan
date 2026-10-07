@@ -160,7 +160,7 @@ export const SetupGuideView: React.FC<SetupGuideViewProps> = ({ onBack }) => {
         <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6 space-y-4">
           <h3 className="font-bold text-slate-900 text-base">Cost Transparency & Paid vs. Free Breakdown</h3>
           <p className="text-xs text-slate-600">
-            Professional Samadhan was architected specifically to eliminate mandatory monthly SaaS subscription fees.
+            QuinceCA was architected specifically to eliminate mandatory monthly SaaS subscription fees.
           </p>
 
           <div className="overflow-x-auto">

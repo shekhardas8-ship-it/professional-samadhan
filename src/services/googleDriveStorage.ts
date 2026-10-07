@@ -28,8 +28,25 @@ class GoogleDriveService {
 
       let auth: any = null;
 
+      // 0. Check OAuth 2.0 credentials (Direct personal @gmail.com & Google Workspace)
+      if (
+        process.env.GOOGLE_DRIVE_CLIENT_ID &&
+        process.env.GOOGLE_DRIVE_CLIENT_SECRET &&
+        process.env.GOOGLE_DRIVE_REFRESH_TOKEN
+      ) {
+        const oauth2Client = new google.auth.OAuth2(
+          process.env.GOOGLE_DRIVE_CLIENT_ID,
+          process.env.GOOGLE_DRIVE_CLIENT_SECRET,
+          'https://developers.google.com/oauthplayground'
+        );
+        oauth2Client.setCredentials({
+          refresh_token: process.env.GOOGLE_DRIVE_REFRESH_TOKEN,
+        });
+        auth = oauth2Client;
+        console.log('[GoogleDriveService] Initialized using OAuth 2.0 User Delegation.');
+      }
       // 1. Check if raw JSON credentials provided
-      if (process.env.GOOGLE_SERVICE_ACCOUNT_KEY) {
+      else if (process.env.GOOGLE_SERVICE_ACCOUNT_KEY) {
         const rawKey = process.env.GOOGLE_SERVICE_ACCOUNT_KEY.trim();
         let credentials: any;
         if (rawKey.startsWith('{')) {

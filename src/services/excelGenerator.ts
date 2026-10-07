@@ -2,7 +2,7 @@
 import ExcelJS from 'exceljs';
 import path from 'path';
 import fs from 'fs';
-import { sanitizeExcelValue } from './extractor.ts';
+import { sanitizeExcelValue, normalizeDate } from './extractor.ts';
 
 export interface WorkbookGenerationData {
   client: {
@@ -119,7 +119,7 @@ export interface WorkbookGenerationData {
 
 export async function generateClientExcelWorkbook(data: WorkbookGenerationData): Promise<{ buffer: Buffer; filename: string }> {
   const wb = new ExcelJS.Workbook();
-  wb.creator = 'Professional Samadhan CA Firm';
+  wb.creator = 'QuinceCA CA Firm';
   wb.lastModifiedBy = data.generatedBy;
   wb.created = new Date();
   wb.modified = new Date();
@@ -162,7 +162,7 @@ export async function generateClientExcelWorkbook(data: WorkbookGenerationData):
     { header: 'Status / Verification Note', key: 'note', width: 40 },
   ];
 
-  wsSummary.addRow(['CA FIRM', 'PROFESSIONAL SAMADHAN CHARTERED ACCOUNTANTS', 'Official Statutory Working Paper']);
+  wsSummary.addRow(['CA FIRM', 'QUINCECA CHARTERED ACCOUNTANTS', 'Official Statutory Working Paper']);
   wsSummary.addRow(['Client Business Name', sanitizeExcelValue(data.client.businessName), `Client ID: ${data.client.id}`]);
   wsSummary.addRow(['Client GSTIN', sanitizeExcelValue(data.client.gstin), 'Preserved as text']);
   wsSummary.addRow(['Reporting Month / Period', data.request.reportingMonth, `Version: v${data.request.version}`]);
@@ -203,7 +203,7 @@ export async function generateClientExcelWorkbook(data: WorkbookGenerationData):
     wsSales.addRow({
       id: s.id,
       docNumber: sanitizeExcelValue(s.docNumber),
-      docDate: s.docDate || '',
+      docDate: s.docDate ? normalizeDate(s.docDate) : '',
       buyerName: sanitizeExcelValue(s.buyerName),
       buyerGstin: sanitizeExcelValue(s.buyerGstin),
       pos: s.placeOfSupply || '27-Maharashtra',
@@ -276,7 +276,7 @@ export async function generateClientExcelWorkbook(data: WorkbookGenerationData):
     wsPurchase.addRow({
       id: p.id,
       docNumber: sanitizeExcelValue(p.docNumber),
-      docDate: p.docDate || '',
+      docDate: p.docDate ? normalizeDate(p.docDate) : '',
       supName: sanitizeExcelValue(p.supplierName),
       supGstin: sanitizeExcelValue(p.supplierGstin),
       pos: p.placeOfSupply || '27-Maharashtra',
@@ -335,7 +335,7 @@ export async function generateClientExcelWorkbook(data: WorkbookGenerationData):
     wsDebit.addRow({
       id: d.id,
       docNumber: sanitizeExcelValue(d.docNumber),
-      date: d.docDate,
+      date: d.docDate ? normalizeDate(d.docDate) : '',
       origRef: sanitizeExcelValue(d.originalInvoiceRef),
       gstin: sanitizeExcelValue(d.buyerGstin || d.supplierGstin),
       taxable: Number(d.taxableAmount || 0),
@@ -358,7 +358,7 @@ export async function generateClientExcelWorkbook(data: WorkbookGenerationData):
     wsCredit.addRow({
       id: c.id,
       docNumber: sanitizeExcelValue(c.docNumber),
-      date: c.docDate,
+      date: c.docDate ? normalizeDate(c.docDate) : '',
       origRef: sanitizeExcelValue(c.originalInvoiceRef),
       gstin: sanitizeExcelValue(c.buyerGstin || c.supplierGstin),
       taxable: Number(c.taxableAmount || 0),

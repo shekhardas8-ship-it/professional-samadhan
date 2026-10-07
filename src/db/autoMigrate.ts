@@ -275,6 +275,34 @@ export async function ensureTablesExist() {
 
   try {
     await pool.query(ddl);
+    // Backward-compatible schema evolution for statutory compliance calendar multi-portal metadata
+    await pool.query(`
+      ALTER TABLE compliance_calendar ADD COLUMN IF NOT EXISTS portal_name TEXT;
+      ALTER TABLE compliance_calendar ADD COLUMN IF NOT EXISTS portal_domain TEXT;
+      ALTER TABLE compliance_calendar ADD COLUMN IF NOT EXISTS portal_url TEXT;
+      ALTER TABLE compliance_calendar ADD COLUMN IF NOT EXISTS form_number TEXT;
+      ALTER TABLE compliance_calendar ADD COLUMN IF NOT EXISTS act_law TEXT;
+      ALTER TABLE compliance_calendar ADD COLUMN IF NOT EXISTS frequency TEXT;
+      ALTER TABLE compliance_calendar ADD COLUMN IF NOT EXISTS last_synced_at TEXT;
+
+      -- Two-Tier Validation Exceptions: Staff Doer vs Senior Partner Approval
+      ALTER TABLE validation_exceptions ADD COLUMN IF NOT EXISTS resolved_by_name TEXT;
+      ALTER TABLE validation_exceptions ADD COLUMN IF NOT EXISTS resolved_by_role TEXT;
+      ALTER TABLE validation_exceptions ADD COLUMN IF NOT EXISTS resolved_at TIMESTAMP;
+      ALTER TABLE validation_exceptions ADD COLUMN IF NOT EXISTS senior_approved_by TEXT;
+      ALTER TABLE validation_exceptions ADD COLUMN IF NOT EXISTS senior_approved_by_name TEXT;
+      ALTER TABLE validation_exceptions ADD COLUMN IF NOT EXISTS senior_approved_at TIMESTAMP;
+      ALTER TABLE validation_exceptions ADD COLUMN IF NOT EXISTS approval_status TEXT DEFAULT 'none';
+      ALTER TABLE validation_exceptions ADD COLUMN IF NOT EXISTS correction_category TEXT DEFAULT 'arithmetic';
+
+      -- Clean up old erroneous passwords attached to standard invoices (passwords only belong to bank statements)
+      UPDATE document_files
+      SET document_password = NULL,
+          scan_notes = REGEXP_REPLACE(scan_notes, '^Password:\\s*[^|]+(\\s*\\|\\s*)?', '')
+      WHERE original_filename !~* '(bank|statement|passbook|hdfc|sbi|icici|axis|kotak|canara|pnb|acct)'
+        AND status != 'password_protected'
+        AND document_password IS NOT NULL;
+    `);
     console.log('[AutoMigrate] PostgreSQL tables verified/created successfully.');
   } catch (err: any) {
     console.error('[AutoMigrate] Error initializing tables:', err.message);

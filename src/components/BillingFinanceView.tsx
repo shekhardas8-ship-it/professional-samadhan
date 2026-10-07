@@ -50,8 +50,29 @@ export const BillingFinanceView: React.FC<BillingFinanceViewProps> = ({ onBack }
 
   const persistInvoices = (updated: BillingInvoiceItem[]) => {
     setInvoices(updated);
-    localStorage.setItem('ps_billing_invoices', JSON.stringify(updated));
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('ps_billing_invoices', JSON.stringify(updated));
+      window.dispatchEvent(new Event('ps_data_updated'));
+    }
   };
+
+  React.useEffect(() => {
+    const handleSync = () => {
+      const saved = localStorage.getItem('ps_billing_invoices');
+      if (saved) {
+        try {
+          const parsed = JSON.parse(saved);
+          if (Array.isArray(parsed)) setInvoices(parsed);
+        } catch {}
+      }
+    };
+    window.addEventListener('ps_data_updated', handleSync);
+    window.addEventListener('storage', handleSync);
+    return () => {
+      window.removeEventListener('ps_data_updated', handleSync);
+      window.removeEventListener('storage', handleSync);
+    };
+  }, []);
 
   const handleCreateInvoice = async (e: React.FormEvent) => {
     e.preventDefault();

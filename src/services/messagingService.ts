@@ -26,7 +26,7 @@ Please upload documents here: ${params.secureUploadLink}
 If there were no transactions or no debit/credit notes, please confirm this in the portal.
 
 Regards,
-Team Professional Samadhan`;
+Team QuinceCA`;
 }
 
 export function generateReminderMessage(params: {
@@ -46,7 +46,7 @@ Please upload them here: ${params.secureUploadLink}
 If an item is not applicable, please confirm in the portal.
 
 Regards,
-Team Professional Samadhan`;
+Team QuinceCA`;
 }
 
 export function generateWorkbookReviewMessage(params: {
@@ -63,7 +63,33 @@ Please review your sales, purchases, and bank entries, and provide your formal c
 ${params.reviewLink}
 
 Regards,
-Team Professional Samadhan`;
+Team QuinceCA`;
+}
+
+export function generateMissingInvoicesReminderMessage(params: {
+  clientName: string;
+  businessName: string;
+  reportingMonth: string;
+  missingInvoices: string[];
+  gapSummary?: string;
+  secureUploadLink: string;
+}): string {
+  const missingListText = params.missingInvoices.map(inv => `• ${inv}`).join('\n');
+  return `Dear ${params.clientName || 'Valued Client'},
+
+While auditing your sales invoices for *${params.businessName || 'your business'}* for *${params.reportingMonth}*, our team noticed an invoice sequence gap with missing invoice(s):
+
+${missingListText}
+${params.gapSummary ? `\n(${params.gapSummary})\n` : ''}
+Kindly upload or send the missing invoice(s) so that your outward supply register (GSTR-1) and serial number range declarations are complete and audit-ready:
+
+👉 Upload here: ${params.secureUploadLink}
+
+(Note: If any of these invoice numbers were cancelled, spoiled, or skipped, please reply to inform us so we can declare them under Cancelled Invoices in GSTR-1).
+
+Warm regards,
+Team Professional Samadhan & QuinceCA
+Chartered Accountants`;
 }
 
 export function generateUploadAcknowledgementMessage(params: {
@@ -97,12 +123,12 @@ ${params.filesSummaryText}
 ${missingListText}
 
 Please upload the missing documents here:
-${params.secureUploadLink || 'https://professionalsamadhan.in/client-portal'}
+${params.secureUploadLink || 'https://quinceca.com/client-portal'}
 
 (If there were no transactions or no purchases for any item, please confirm Nil in the portal).
 
 Regards,
-Team Professional Samadhan
+Team QuinceCA
 Chartered Accountants`;
   }
 
@@ -117,7 +143,7 @@ ${params.filesSummaryText}
 Our GST audit team is now compiling your GST working paper and draft GSTR-1/3B calculations.
 
 Regards,
-Team Professional Samadhan
+Team QuinceCA
 Chartered Accountants`;
 }
 

@@ -31,7 +31,7 @@ export const WhatsAppDeviceLinkModal: React.FC<WhatsAppDeviceLinkModalProps> = (
   const [pairingCode, setPairingCode] = useState<string | null>(null);
   const [copiedCode, setCopiedCode] = useState(false);
   const [testPhone, setTestPhone] = useState('+91 98738 75138');
-  const [testMessage, setTestMessage] = useState('Hello from Professional Samadhan GST Platform! 1-time WhatsApp automation is active.');
+  const [testMessage, setTestMessage] = useState('Hello from QuinceCA GST Platform! 1-time WhatsApp automation is active.');
   const [testResult, setTestResult] = useState<{ success: boolean; message: string } | null>(null);
 
   const fetchStatus = async () => {

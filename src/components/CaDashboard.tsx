@@ -194,7 +194,7 @@ export const CaDashboard: React.FC<CaDashboardProps> = ({
         <div className="flex items-center space-x-4 relative z-10">
           <img
             src="/logo.jpg"
-            alt="Professional Samadhan"
+            alt="QuinceCA"
             className="w-14 h-14 rounded-xl object-cover shadow-md border border-white/20 shrink-0"
           />
           <div>
@@ -207,7 +207,7 @@ export const CaDashboard: React.FC<CaDashboardProps> = ({
                 <span>Back to Cockpit</span>
               </button>
             )}
-            <span className="text-xs uppercase tracking-wider theme-accent-text font-semibold">Professional Samadhan • Chartered Accountants</span>
+            <span className="text-xs uppercase tracking-wider theme-accent-text font-semibold">QuinceCA • Chartered Accountants</span>
             <h1 className="text-2xl font-bold tracking-tight mt-0.5">GST Document Collection & Filing Pipeline</h1>
             <p className="text-sm text-slate-300 mt-1">
               Period: <strong>August 2026</strong> (Scheduled 1st of month at 9:00 AM IST. Automatic year rollover enabled).

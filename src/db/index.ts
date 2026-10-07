@@ -51,6 +51,8 @@ export const ensureSchemaColumns = async (p: Pool) => {
       ALTER TABLE document_files ADD COLUMN IF NOT EXISTS file_data text;
       ALTER TABLE document_files ADD COLUMN IF NOT EXISTS drive_file_id text;
       ALTER TABLE document_files ADD COLUMN IF NOT EXISTS drive_web_view_link text;
+      ALTER TABLE document_files ADD COLUMN IF NOT EXISTS document_password text;
+      ALTER TABLE bank_transactions ADD COLUMN IF NOT EXISTS document_password text;
     `);
   } catch (err: any) {
     console.warn('[PostgreSQL Schema Sync Warning]:', err?.message || err);

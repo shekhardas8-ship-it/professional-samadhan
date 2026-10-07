@@ -49,7 +49,7 @@ export const requireAuth = async (
       } else {
         req.user = {
           uid: decoded.uid,
-          email: decoded.email || 'user@professionalsamadhan.com',
+          email: decoded.email || 'user@quinceca.com',
           role: 'ca_admin', // Default initial logged in user as CA admin
           displayName: decoded.name || 'CA Admin',
           assignedClientIds: [],
@@ -69,7 +69,7 @@ export const requireAuth = async (
 
     req.user = {
       uid: staffUserIdHeader || 'staff-default',
-      email: userRec[0]?.email || (staffRoleHeader === 'ca_admin' ? 'suraj.dutta@professionalsamadhan.in' : 'pooja.verma@professionalsamadhan.in'),
+      email: userRec[0]?.email || (staffRoleHeader === 'ca_admin' ? 'suraj.dutta@quinceca.com' : 'pooja.verma@quinceca.com'),
       role: staffRoleHeader,
       displayName: userRec[0]?.displayName || (staffRoleHeader === 'ca_admin' ? 'CA Suraj Dutta (FCA)' : 'Pooja Verma (Senior Associate)'),
       assignedClientIds: userRec[0]?.assignedClientIds || ['cli_bluebell_02', 'cli_apex_01'],
@@ -80,7 +80,7 @@ export const requireAuth = async (
   // Fallback default CA user for preview convenience if no header
   req.user = {
     uid: 'ca_rajesh_01',
-    email: 'suraj.dutta@professionalsamadhan.in',
+    email: 'suraj.dutta@quinceca.com',
     role: 'ca_admin',
     displayName: 'CA Suraj Dutta (FCA)',
     assignedClientIds: [],
@@ -111,7 +111,7 @@ export const requireClientUploadAuth = async (
 
     const reqData = requests[0];
     if (new Date(reqData.tokenExpiresAt) < new Date()) {
-      return res.status(403).json({ error: 'This secure upload link has expired. Please contact Professional Samadhan.' });
+      return res.status(403).json({ error: 'This secure upload link has expired. Please contact QuinceCA.' });
     }
 
     const clientRec = await db

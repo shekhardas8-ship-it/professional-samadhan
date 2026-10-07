@@ -16,13 +16,13 @@ import { generateSecureToken } from '../services/scheduler.ts';
 import { generateMonthlyRequestMessage, createWhatsAppDeepLink } from '../services/messagingService.ts';
 
 export async function seedInitialData() {
-  console.log('Seeding initial data for Professional Samadhan...');
+  console.log('Seeding initial data for QuinceCA...');
 
   // 1. Seed Users
   await db.insert(users).values([
     {
       id: 'ca_rajesh_01',
-      email: 'rajesh.sharma@professionalsamadhan.in',
+      email: 'rajesh.sharma@quinceca.com',
       displayName: 'CA Rajesh Sharma (FCA)',
       role: 'ca_admin',
       phone: '+919820011111',
@@ -31,7 +31,7 @@ export async function seedInitialData() {
     },
     {
       id: 'staff_pooja_02',
-      email: 'pooja.verma@professionalsamadhan.in',
+      email: 'pooja.verma@quinceca.com',
       displayName: 'Pooja Verma (Senior Associate)',
       role: 'staff',
       phone: '+919820022222',
@@ -40,7 +40,7 @@ export async function seedInitialData() {
     },
     {
       id: 'staff_amit_03',
-      email: 'amit.patel@professionalsamadhan.in',
+      email: 'amit.patel@quinceca.com',
       displayName: 'Amit Patel (GST Assistant)',
       role: 'staff',
       phone: '+919820033333',
@@ -546,7 +546,7 @@ export async function seedInitialData() {
       recipient: '+919820112345',
       messageBody: generateMonthlyRequestMessage({
         reportingMonth: 'August 2026',
-        secureUploadLink: `https://professionalsamadhan.in/client-portal?token=${tokenApex}`,
+        secureUploadLink: `https://quinceca.com/client-portal?token=${tokenApex}`,
       }),
       status: 'prepared',
       details: { mode: 'manual', note: 'Prepared on 1st Aug 2026 9:00 AM Asia/Kolkata' },
@@ -558,7 +558,7 @@ export async function seedInitialData() {
       eventType: 'workbook_generated',
       channel: 'whatsapp_manual',
       recipient: '+919825067890',
-      messageBody: `Dear Anita Desai,\n\nYour GST working paper and compiled Excel workbook (v1) for August 2026 is now ready for your review.\nPlease review and approve: https://professionalsamadhan.in/client-portal?token=${tokenBluebell}`,
+      messageBody: `Dear Anita Desai,\n\nYour GST working paper and compiled Excel workbook (v1) for August 2026 is now ready for your review.\nPlease review and approve: https://quinceca.com/client-portal?token=${tokenBluebell}`,
       status: 'prepared',
       details: { mode: 'manual', version: 1 },
     },

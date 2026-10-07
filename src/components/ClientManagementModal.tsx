@@ -25,9 +25,11 @@ import {
 interface ClientManagementModalProps {
   isOpen: boolean;
   onClose: () => void;
-  onClientAddedOrUpdated: () => void;
+  onClientAddedOrUpdated?: () => void;
+  onSuccess?: () => void;
   selectedClientIds?: string[];
   initialEditClientId?: string | null;
+  editClientId?: string | null;
   onClearEditClientId?: () => void;
 }
 
@@ -35,19 +37,40 @@ export const ClientManagementModal: React.FC<ClientManagementModalProps> = ({
   isOpen,
   onClose,
   onClientAddedOrUpdated,
+  onSuccess,
   selectedClientIds = [],
   initialEditClientId = null,
+  editClientId = null,
   onClearEditClientId,
 }) => {
+  const targetEditId = initialEditClientId || editClientId || null;
   const [activeTab, setActiveTab] = useState<'directory' | 'single' | 'staff_users' | 'bulk' | 'batch'>(
-    initialEditClientId ? 'single' : selectedClientIds.length > 0 ? 'batch' : 'directory'
+    targetEditId ? 'single' : selectedClientIds.length > 0 ? 'batch' : 'directory'
   );
 
   // Loaded clients and users lists
   const [clientList, setClientList] = useState<any[]>([]);
   const [staffUsers, setStaffUsers] = useState<any[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
-  const [editingClientId, setEditingClientId] = useState<string | null>(initialEditClientId);
+  const [editingClientId, setEditingClientId] = useState<string | null>(targetEditId);
+
+  // Safe callback dispatcher that never throws "is not a function"
+  const notifyClientChanged = () => {
+    if (typeof onClientAddedOrUpdated === 'function') {
+      try {
+        onClientAddedOrUpdated();
+      } catch (err) {
+        console.warn('onClientAddedOrUpdated error:', err);
+      }
+    }
+    if (typeof onSuccess === 'function') {
+      try {
+        onSuccess();
+      } catch (err) {
+        console.warn('onSuccess error:', err);
+      }
+    }
+  };
 
   // Single Client Form State
   const [singleForm, setSingleForm] = useState({
@@ -95,7 +118,19 @@ export const ClientManagementModal: React.FC<ClientManagementModalProps> = ({
   });
 
   const [loading, setLoading] = useState(false);
+  const [isRefreshing, setIsRefreshing] = useState(false);
+  const [directoryError, setDirectoryError] = useState<string | null>(null);
   const [statusMessage, setStatusMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+
+  // Friendly error formatter to prevent raw technical "Failed to fetch" browser exceptions
+  const getFriendlyErrorMessage = (err: any, fallback = 'Operation failed'): string => {
+    if (!err) return fallback;
+    const msg = typeof err === 'string' ? err : err.message || '';
+    if (msg.includes('Failed to fetch') || msg.includes('NetworkError') || msg.includes('Load failed')) {
+      return 'Server connection was momentarily interrupted while syncing. Please verify your connection and click "Retry Sync".';
+    }
+    return msg || fallback;
+  };
 
   // Client Deletion Confirmation State
   const [clientToDelete, setClientToDelete] = useState<{ id: string; name: string; gstin: string } | null>(null);
@@ -113,9 +148,9 @@ export const ClientManagementModal: React.FC<ClientManagementModalProps> = ({
       setClientToDelete(null);
       setStatusMessage({ type: 'success', text: `Client "${clientToDelete.name}" and all records were deleted successfully.` });
       await fetchDirectories();
-      onClientAddedOrUpdated();
+      notifyClientChanged();
     } catch (err: any) {
-      setDeleteErrorMessage(err.message);
+      setDeleteErrorMessage(getFriendlyErrorMessage(err, 'Failed to delete client'));
     } finally {
       setIsDeletingClient(false);
     }
@@ -123,6 +158,8 @@ export const ClientManagementModal: React.FC<ClientManagementModalProps> = ({
 
   // Fetch clients and staff users when modal opens
   const fetchDirectories = async () => {
+    setIsRefreshing(true);
+    setDirectoryError(null);
     try {
       const [resClients, resUsers] = await Promise.all([
         fetch('/api/clients'),
@@ -130,14 +167,25 @@ export const ClientManagementModal: React.FC<ClientManagementModalProps> = ({
       ]);
       if (resClients.ok) {
         const data = await resClients.json();
-        setClientList(data);
+        setClientList(Array.isArray(data) ? data : []);
+        if (Array.isArray(data) && data.length > 0 && typeof window !== 'undefined') {
+          try {
+            localStorage.setItem('ps_clients_kyc_data', JSON.stringify(data));
+            window.dispatchEvent(new Event('ps_data_updated'));
+          } catch {}
+        }
+      } else {
+        throw new Error(`Clients endpoint returned status ${resClients.status}`);
       }
       if (resUsers.ok) {
         const udata = await resUsers.json();
-        setStaffUsers(udata);
+        setStaffUsers(Array.isArray(udata) ? udata : []);
       }
-    } catch (e) {
+    } catch (e: any) {
       console.warn('Failed to load clients/users directory:', e);
+      setDirectoryError(getFriendlyErrorMessage(e, 'Could not sync clients and staff directories.'));
+    } finally {
+      setIsRefreshing(false);
     }
   };
 
@@ -149,13 +197,14 @@ export const ClientManagementModal: React.FC<ClientManagementModalProps> = ({
 
   // Handle setting initial edit client
   useEffect(() => {
-    if (initialEditClientId && clientList.length > 0) {
-      const target = clientList.find(c => c.id === initialEditClientId);
+    const editId = initialEditClientId || editClientId;
+    if (editId && clientList.length > 0) {
+      const target = clientList.find(c => c.id === editId);
       if (target) {
         loadClientIntoForm(target);
       }
     }
-  }, [initialEditClientId, clientList]);
+  }, [initialEditClientId, editClientId, clientList]);
 
   if (!isOpen) return null;
 
@@ -233,13 +282,13 @@ export const ClientManagementModal: React.FC<ClientManagementModalProps> = ({
       });
 
       await fetchDirectories();
-      onClientAddedOrUpdated();
+      notifyClientChanged();
 
       if (!isEditing) {
         resetSingleForm();
       }
     } catch (err: any) {
-      setStatusMessage({ type: 'error', text: err.message });
+      setStatusMessage({ type: 'error', text: getFriendlyErrorMessage(err, 'Failed to save client') });
     } finally {
       setLoading(false);
     }
@@ -268,7 +317,7 @@ export const ClientManagementModal: React.FC<ClientManagementModalProps> = ({
       setEditingUserId(null);
       await fetchDirectories();
     } catch (err: any) {
-      setStatusMessage({ type: 'error', text: err.message });
+      setStatusMessage({ type: 'error', text: getFriendlyErrorMessage(err, 'Failed to update user') });
     } finally {
       setLoading(false);
     }
@@ -343,11 +392,11 @@ export const ClientManagementModal: React.FC<ClientManagementModalProps> = ({
         text: `Bulk Import Completed! Processed ${data.totalProcessed} records: ${data.successCount} saved, ${data.errorCount} skipped.`,
       });
       await fetchDirectories();
-      onClientAddedOrUpdated();
+      notifyClientChanged();
       setParsedRows([]);
       setBulkText('');
     } catch (err: any) {
-      setStatusMessage({ type: 'error', text: err.message });
+      setStatusMessage({ type: 'error', text: getFriendlyErrorMessage(err, 'Bulk import failed') });
     } finally {
       setLoading(false);
     }
@@ -392,9 +441,9 @@ export const ClientManagementModal: React.FC<ClientManagementModalProps> = ({
         text: `Batch updated applied to ${data.updatedCount} clients successfully!`,
       });
       await fetchDirectories();
-      onClientAddedOrUpdated();
+      notifyClientChanged();
     } catch (err: any) {
-      setStatusMessage({ type: 'error', text: err.message });
+      setStatusMessage({ type: 'error', text: getFriendlyErrorMessage(err, 'Batch update failed') });
     } finally {
       setLoading(false);
     }
@@ -423,6 +472,11 @@ export const ClientManagementModal: React.FC<ClientManagementModalProps> = ({
     );
   });
 
+  // Check if entered GSTIN already exists in client directory (when adding a new client)
+  const matchingExistingClient = !editingClientId && singleForm.gstin.trim().length === 15
+    ? clientList.find(c => (c.gstin || '').toUpperCase() === singleForm.gstin.trim().toUpperCase())
+    : null;
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs">
       <div className="bg-white rounded-2xl shadow-2xl border border-slate-200 max-w-4xl w-full max-h-[92vh] flex flex-col overflow-hidden animate-in fade-in zoom-in-95 duration-150">
@@ -435,12 +489,24 @@ export const ClientManagementModal: React.FC<ClientManagementModalProps> = ({
               <p className="text-xs text-slate-500">Edit existing clients, register new companies, and manage staff</p>
             </div>
           </div>
-          <button
-            onClick={onClose}
-            className="p-1 rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-200/60 transition"
-          >
-            <X className="w-5 h-5" />
-          </button>
+          <div className="flex items-center space-x-2">
+            <button
+              type="button"
+              onClick={fetchDirectories}
+              disabled={isRefreshing}
+              className="px-2.5 py-1.5 text-xs font-semibold text-slate-600 hover:text-blue-600 hover:bg-slate-200/60 rounded-lg transition inline-flex items-center gap-1.5 border border-slate-200 bg-white shadow-2xs cursor-pointer"
+              title="Refresh clients and staff directory from server"
+            >
+              <RefreshCw className={`w-3.5 h-3.5 ${isRefreshing ? 'animate-spin text-blue-600' : ''}`} />
+              <span>{isRefreshing ? 'Syncing...' : 'Sync Directory'}</span>
+            </button>
+            <button
+              onClick={onClose}
+              className="p-1.5 rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-200/60 transition cursor-pointer"
+            >
+              <X className="w-5 h-5" />
+            </button>
+          </div>
         </div>
 
         {/* Tab Navigation */}
@@ -509,20 +575,35 @@ export const ClientManagementModal: React.FC<ClientManagementModalProps> = ({
         </div>
 
         {/* Status Alerts */}
-        {statusMessage && (
+        {(statusMessage || directoryError) && (
           <div
-            className={`mx-6 mt-4 p-3 rounded-lg text-xs flex items-center space-x-2 ${
-              statusMessage.type === 'success'
+            className={`mx-6 mt-4 p-3 rounded-lg text-xs flex items-center justify-between space-x-2 ${
+              statusMessage?.type === 'success'
                 ? 'bg-emerald-50 text-emerald-800 border border-emerald-200'
                 : 'bg-rose-50 text-rose-800 border border-rose-200'
             }`}
           >
-            {statusMessage.type === 'success' ? (
-              <CheckCircle2 className="w-4 h-4 shrink-0 text-emerald-600" />
-            ) : (
-              <AlertTriangle className="w-4 h-4 shrink-0 text-rose-600" />
+            <div className="flex items-center space-x-2 flex-1">
+              {statusMessage?.type === 'success' ? (
+                <CheckCircle2 className="w-4 h-4 shrink-0 text-emerald-600" />
+              ) : (
+                <AlertTriangle className="w-4 h-4 shrink-0 text-rose-600" />
+              )}
+              <span>{statusMessage?.text || directoryError}</span>
+            </div>
+            {(statusMessage?.type === 'error' || directoryError) && (
+              <button
+                type="button"
+                onClick={() => {
+                  fetchDirectories();
+                  if (statusMessage) setStatusMessage(null);
+                }}
+                className="px-2.5 py-1 bg-white hover:bg-rose-100 text-rose-700 font-semibold rounded text-[11px] border border-rose-300 shadow-2xs cursor-pointer ml-3 flex items-center space-x-1 shrink-0"
+              >
+                <RefreshCw className={`w-3 h-3 ${isRefreshing ? 'animate-spin' : ''}`} />
+                <span>Retry Sync</span>
+              </button>
             )}
-            <span>{statusMessage.text}</span>
           </div>
         )}
 
@@ -571,8 +652,25 @@ export const ClientManagementModal: React.FC<ClientManagementModalProps> = ({
                   <tbody className="divide-y divide-slate-100">
                     {filteredClients.length === 0 ? (
                       <tr>
-                        <td colSpan={7} className="p-6 text-center text-slate-400">
-                          No clients found matching your search.
+                        <td colSpan={7} className="p-8 text-center text-slate-500">
+                          {isRefreshing ? (
+                            <div className="flex items-center justify-center space-x-2 text-blue-600 font-medium">
+                              <RefreshCw className="w-4 h-4 animate-spin" />
+                              <span>Loading client directory from database...</span>
+                            </div>
+                          ) : (
+                            <div className="space-y-2">
+                              <p className="text-slate-500">No clients found matching your search.</p>
+                              <button
+                                type="button"
+                                onClick={fetchDirectories}
+                                className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-xs font-semibold inline-flex items-center space-x-1.5 cursor-pointer border border-slate-200"
+                              >
+                                <RefreshCw className="w-3.5 h-3.5" />
+                                <span>Re-sync Directory</span>
+                              </button>
+                            </div>
+                          )}
                         </td>
                       </tr>
                     ) : (
@@ -693,8 +791,22 @@ export const ClientManagementModal: React.FC<ClientManagementModalProps> = ({
                     placeholder="27AAACA1234A1Z5"
                     value={singleForm.gstin}
                     onChange={e => setSingleForm({ ...singleForm, gstin: e.target.value.toUpperCase() })}
-                    className="w-full px-3 py-2 text-xs font-mono border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:outline-hidden"
+                    className={`w-full px-3 py-2 text-xs font-mono border rounded-lg focus:ring-2 focus:outline-hidden ${
+                      matchingExistingClient ? 'border-amber-400 bg-amber-50/40 text-amber-900 focus:ring-amber-500' : 'border-slate-300 focus:ring-blue-500'
+                    }`}
                   />
+                  {matchingExistingClient && (
+                    <div className="mt-1.5 p-2 bg-amber-50 border border-amber-200 rounded-lg text-[11px] text-amber-900 flex items-center justify-between">
+                      <span>GSTIN already registered to <strong>{matchingExistingClient.businessName}</strong></span>
+                      <button
+                        type="button"
+                        onClick={() => loadClientIntoForm(matchingExistingClient)}
+                        className="text-blue-700 font-bold underline hover:text-blue-900 ml-2 shrink-0 cursor-pointer"
+                      >
+                        Edit Instead
+                      </button>
+                    </div>
+                  )}
                 </div>
 
                 <div>

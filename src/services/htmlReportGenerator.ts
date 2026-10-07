@@ -4,7 +4,7 @@ import { LOGO_BASE64 } from '../assets/logoBase64.ts';
 
 /**
  * Generates a self-contained, standalone, beautifully styled HTML GST Working Paper
- * and Statutory Audit Pack for "Professional Samadhan" Chartered Accountants.
+ * and Statutory Audit Pack for "QuinceCA" Chartered Accountants.
  *
  * Fully offline-capable (no external CDNs needed), responsive, printable,
  * and includes interactive tab switching, live table search, and print/PDF optimization.
@@ -70,6 +70,23 @@ export function generateClientHtmlReport(data: WorkbookGenerationData): { html: 
     return '₹' + num.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   };
 
+  const formatDisplayDate = (dateStr: any): string => {
+    if (!dateStr) return '-';
+    const clean = String(dateStr).trim();
+    if (/^\d{2}-\d{2}-\d{4}$/.test(clean)) return clean;
+    const ymdMatch = clean.match(/^(\d{4})[-/.](\d{1,2})[-/.](\d{1,2})$/);
+    if (ymdMatch) {
+      const [, y, m, d] = ymdMatch;
+      return `${d.padStart(2, '0')}-${m.padStart(2, '0')}-${y}`;
+    }
+    const dmyMatch = clean.match(/^(\d{1,2})[-/.](\d{1,2})[-/.](\d{4})$/);
+    if (dmyMatch) {
+      const [, d, m, y] = dmyMatch;
+      return `${d.padStart(2, '0')}-${m.padStart(2, '0')}-${y}`;
+    }
+    return clean;
+  };
+
   const statusBadge = (status: string) => {
     const s = (status || '').toLowerCase();
     if (s.includes('approved')) {
@@ -92,7 +109,7 @@ export function generateClientHtmlReport(data: WorkbookGenerationData): { html: 
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>GST Working Paper - ${escapeHtml(client.businessName)} (${escapeHtml(request.reportingMonth)}) - Professional Samadhan</title>
+  <title>GST Working Paper - ${escapeHtml(client.businessName)} (${escapeHtml(request.reportingMonth)}) - QuinceCA</title>
   <style>
     :root {
       --primary: #1e3a8a;
@@ -132,7 +149,7 @@ export function generateClientHtmlReport(data: WorkbookGenerationData): { html: 
       position: relative;
     }
 
-    /* Official Professional Samadhan Watermark */
+    /* Official QuinceCA Watermark */
     body::before {
       content: "";
       position: fixed;
@@ -672,9 +689,9 @@ export function generateClientHtmlReport(data: WorkbookGenerationData): { html: 
   <!-- Top Action & Navigation Bar -->
   <header class="top-bar">
     <div class="top-bar-branding">
-      <img src="${LOGO_BASE64}" alt="Professional Samadhan Logo" style="width: 38px; height: 38px; border-radius: 8px; object-fit: cover; box-shadow: 0 1px 3px rgba(0,0,0,0.4); border: 1px solid rgba(255,255,255,0.25); flex-shrink: 0;" />
+      <img src="${LOGO_BASE64}" alt="QuinceCA Logo" style="width: 38px; height: 38px; border-radius: 8px; object-fit: cover; box-shadow: 0 1px 3px rgba(0,0,0,0.4); border: 1px solid rgba(255,255,255,0.25); flex-shrink: 0;" />
       <div>
-        <div class="brand-title">Professional Samadhan • Chartered Accountants</div>
+        <div class="brand-title">QuinceCA • Chartered Accountants</div>
         <div class="brand-subtitle">Statutory GST Working Paper &amp; Audit Pack • Reporting Period: ${escapeHtml(request.reportingMonth)}</div>
       </div>
     </div>
@@ -697,7 +714,7 @@ export function generateClientHtmlReport(data: WorkbookGenerationData): { html: 
     <section class="firm-header-card">
       <div class="firm-info">
         <div class="report-title-badge">STATUTORY GST AUDIT &amp; FILING WORKING PAPER (FORM GSTR-1 / GSTR-3B)</div>
-        <h1 style="margin-top: 10px;">Professional Samadhan — Chartered Accountants</h1>
+        <h1 style="margin-top: 10px;">QuinceCA — Chartered Accountants</h1>
         <div class="firm-meta">
           GST Compliance, Statutory Audit &amp; Direct/Indirect Taxation Advisory Wing<br>
           Verification Standard: Section 35(5) &amp; Section 44 of CGST Act, 2017
@@ -899,7 +916,7 @@ export function generateClientHtmlReport(data: WorkbookGenerationData): { html: 
               <div><strong>GSTR-2B (ITC Auto-population):</strong> 14th of the following month</div>
               <div><strong>GSTR-3B (Monthly Summary &amp; Tax Payment):</strong> 20th of the following month</div>
               <div style="margin-top: 8px; color: var(--text-muted); font-size: 11px;">
-                Note: This working paper is generated from primary database records in PostgreSQL and signed by Team Professional Samadhan.
+                Note: This working paper is generated from primary database records in PostgreSQL and signed by Team QuinceCA.
               </div>
             </div>
           </div>
@@ -948,7 +965,7 @@ export function generateClientHtmlReport(data: WorkbookGenerationData): { html: 
                         return `
                   <tr>
                     <td class="mono"><strong>${escapeHtml(inv.docNumber)}</strong></td>
-                    <td>${escapeHtml(inv.docDate)}</td>
+                    <td>${escapeHtml(formatDisplayDate(inv.docDate))}</td>
                     <td><strong>${escapeHtml(inv.buyerName)}</strong></td>
                     <td class="mono">${escapeHtml(inv.buyerGstin)}</td>
                     <td>${escapeHtml(inv.placeOfSupply)}</td>
@@ -1061,7 +1078,7 @@ export function generateClientHtmlReport(data: WorkbookGenerationData): { html: 
                         return `
                   <tr>
                     <td class="mono"><strong>${escapeHtml(inv.docNumber)}</strong></td>
-                    <td>${escapeHtml(inv.docDate)}</td>
+                    <td>${escapeHtml(formatDisplayDate(inv.docDate))}</td>
                     <td><strong>${escapeHtml(inv.supplierName)}</strong></td>
                     <td class="mono">${escapeHtml(inv.supplierGstin)}</td>
                     <td>${escapeHtml(inv.placeOfSupply)}</td>
@@ -1169,7 +1186,7 @@ export function generateClientHtmlReport(data: WorkbookGenerationData): { html: 
                 <tr>
                   <td><span class="badge ${n.typeLabel === 'Debit Note' ? 'badge-danger' : 'badge-success'}">${n.typeLabel}</span></td>
                   <td class="mono"><strong>${escapeHtml(n.docNumber)}</strong></td>
-                  <td>${escapeHtml(n.docDate)}</td>
+                  <td>${escapeHtml(formatDisplayDate(n.docDate))}</td>
                   <td class="mono">${escapeHtml(n.originalInvoiceRef || 'N/A')}</td>
                   <td>${escapeHtml(n.supplierName || n.buyerName)}</td>
                   <td class="mono">${escapeHtml(n.supplierGstin || n.buyerGstin)}</td>
@@ -1376,19 +1393,19 @@ export function generateClientHtmlReport(data: WorkbookGenerationData): { html: 
       <div class="sign-box">
         <div class="sign-box-title">
           <span>Chartered Accountant Review &amp; Sign-off</span>
-          <span class="badge badge-purple">Professional Samadhan</span>
+          <span class="badge badge-purple">QuinceCA</span>
         </div>
         <div class="sign-details">
           Compiled from verified database records by <strong>${escapeHtml(generatedBy)}</strong>.<br>
           Subject to final return filing under GSTR-1 and GSTR-3B provisions.<br>
-          <div style="margin-top: 10px; font-weight: 600;">CA Firm Stamp: Professional Samadhan (FRN 029841C)</div>
+          <div style="margin-top: 10px; font-weight: 600;">CA Firm Stamp: QuinceCA (FRN 029841C)</div>
         </div>
       </div>
     </section>
 
     <!-- Disclaimer Banner -->
     <div class="disclaimer-banner">
-      <strong>Statutory Disclaimer:</strong> This document represents an extracted GST Working Paper prepared by Professional Samadhan for statutory compliance. The figures are derived from client-uploaded documents, OCR extraction with verification, and bank statements. The relational database in PostgreSQL is the permanent system of record.
+      <strong>Statutory Disclaimer:</strong> This document represents an extracted GST Working Paper prepared by QuinceCA for statutory compliance. The figures are derived from client-uploaded documents, OCR extraction with verification, and bank statements. The relational database in PostgreSQL is the permanent system of record.
     </div>
 
   </main>

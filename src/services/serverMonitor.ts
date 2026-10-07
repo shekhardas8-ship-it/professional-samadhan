@@ -171,7 +171,7 @@ export async function sendServerHealthEmail(recipientEmail: string = 'shekhardas
 <body>
   <div class="container">
     <div class="header">
-      <h1>Professional Samadhan • Server Monitoring</h1>
+      <h1>QuinceCA • Server Monitoring</h1>
       <p>Automated Cloud Infrastructure & Storage Telemetry Report</p>
       <span class="status-badge">🟢 System Online • ${metrics.status.toUpperCase()}</span>
     </div>
@@ -252,7 +252,7 @@ export async function sendServerHealthEmail(recipientEmail: string = 'shekhardas
     </div>
 
     <div class="footer">
-      This is an automated system health report sent from <strong>Professional Samadhan Chartered Accountants GST Suite</strong>.<br/>
+      This is an automated system health report sent from <strong>QuinceCA Chartered Accountants GST Suite</strong>.<br/>
       Server: Render Cloud Web Service • Database: Neon Serverless PostgreSQL
     </div>
   </div>
@@ -270,9 +270,9 @@ export async function sendServerHealthEmail(recipientEmail: string = 'shekhardas
       });
 
       await transporter.sendMail({
-        from: `"Professional Samadhan Cloud Monitor" <${smtpUser}>`,
+        from: `"QuinceCA Cloud Monitor" <${smtpUser}>`,
         to: recipientEmail,
-        subject: `🟢 [Server Health] Professional Samadhan Telemetry Report - ${new Date().toLocaleDateString('en-IN')}`,
+        subject: `🟢 [Server Health] QuinceCA Telemetry Report - ${new Date().toLocaleDateString('en-IN')}`,
         html: htmlContent,
       });
 

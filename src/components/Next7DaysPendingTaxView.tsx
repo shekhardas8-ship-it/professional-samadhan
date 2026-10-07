@@ -61,7 +61,7 @@ export const Next7DaysPendingTaxView: React.FC<Next7DaysPendingTaskViewProps> = 
     const urgentTasks = tasks.filter(t => t.urgency === 'urgent');
     const totalAmount = tasks.reduce((sum, t) => sum + (t.estimatedAmount || 0), 0);
 
-    let msg = `📋 *PROFESSIONAL SAMADHAN — 7-DAY CA EXECUTIVE TASK DIGEST*\n`;
+    let msg = `📋 *QUINCECA — 7-DAY CA EXECUTIVE TASK DIGEST*\n`;
     msg += `📅 Date: ${new Date().toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })} | Alert Window: Next 7 Days\n\n`;
     msg += `🚨 *TOTAL PENDING TASKS:* ${tasks.length} Items\n`;
     msg += `• 🔴 Critical / Urgent: ${criticalTasks.length + urgentTasks.length} Tasks\n`;
@@ -133,7 +133,7 @@ export const Next7DaysPendingTaxView: React.FC<Next7DaysPendingTaskViewProps> = 
       `⏳ *Due Date:* ${nextUrgent.dueDate} (${nextUrgent.daysRemaining} days remaining)\n` +
       `📊 *Status:* ${nextUrgent.status}\n` +
       `👤 *Assigned:* ${nextUrgent.assignedStaff || 'CA Team'}\n\n` +
-      `Please ensure timely clearance.\n- Professional Samadhan Automation`;
+      `Please ensure timely clearance.\n- QuinceCA Automation`;
 
     try {
       const res = await fetch('/api/whatsapp/device-send-test', {
@@ -165,14 +165,14 @@ export const Next7DaysPendingTaxView: React.FC<Next7DaysPendingTaskViewProps> = 
         `Due: ${task.dueDate} (${task.daysRemaining}d left)\n` +
         `Status: ${task.status}\n` +
         `Staff: ${task.assignedStaff}\n\n` +
-        `- Professional Samadhan System`
+        `- QuinceCA System`
       : `🚨 *URGENT COMPLIANCE & TASK NOTICE*\n\n` +
         `Dear ${task.clientName},\n` +
         `This is a priority reminder regarding your *${task.taskTitle}*.\n` +
         `Due Date: ${task.dueDate} (${task.daysRemaining} days remaining).\n` +
         `Status: ${task.status}\n\n` +
         `Kindly complete required submissions / sign-offs to prevent statutory penalties.\n\n` +
-        `Regards,\nTeam Professional Samadhan`;
+        `Regards,\nTeam QuinceCA`;
 
     try {
       const res = await fetch('/api/whatsapp/device-send-test', {

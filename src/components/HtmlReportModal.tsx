@@ -37,7 +37,7 @@ export const HtmlReportModal: React.FC<HtmlReportModalProps> = ({
           <div className="flex items-center space-x-3">
             <img
               src="/logo.jpg"
-              alt="Professional Samadhan"
+              alt="QuinceCA"
               className="w-8 h-8 rounded-lg object-cover shadow border border-slate-700/60 shrink-0"
             />
             <div>

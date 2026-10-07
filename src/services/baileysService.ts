@@ -93,16 +93,8 @@ class BaileysWhatsAppManager {
       }
       if (Object.keys(filesMap).length > 0) {
         const pool = createPool();
-        await pool.query(`
-          CREATE TABLE IF NOT EXISTS system_sessions (
-            key text PRIMARY KEY,
-            data jsonb NOT NULL,
-            updated_at timestamp DEFAULT now()
-          );
-          INSERT INTO system_sessions (key, data, updated_at)
-          VALUES ('baileys_auth_session', $1, now())
-          ON CONFLICT (key) DO UPDATE SET data = $1, updated_at = now();
-        `, [JSON.stringify(filesMap)]);
+        await pool.query('CREATE TABLE IF NOT EXISTS system_sessions (key text PRIMARY KEY, data jsonb NOT NULL, updated_at timestamp DEFAULT now())');
+        await pool.query('INSERT INTO system_sessions (key, data, updated_at) VALUES ($1, $2::jsonb, now()) ON CONFLICT (key) DO UPDATE SET data = $2::jsonb, updated_at = now()', ['baileys_auth_session', JSON.stringify(filesMap)]);
       }
     } catch (e: any) {
       console.warn('[WhatsApp Auth] Failed to backup session to DB:', e?.message || e);
@@ -158,7 +150,7 @@ class BaileysWhatsAppManager {
         auth: state,
         logger: pino({ level: 'silent' }),
         printQRInTerminal: false,
-        browser: ['Professional Samadhan', 'Chrome', '120.0.0'],
+        browser: ['QuinceCA', 'Chrome', '120.0.0'],
         connectTimeoutMs: 60000,
         keepAliveIntervalMs: 30000,
         syncFullHistory: false,
@@ -211,7 +203,7 @@ class BaileysWhatsAppManager {
           const rawId = socket?.user?.id || '';
           const phoneDigits = rawId.split(':')[0] || rawId.split('@')[0];
           this.connectedPhone = phoneDigits ? `+${phoneDigits}` : '+91 98738 75138';
-          this.connectedName = socket?.user?.name || 'Professional Samadhan Official';
+          this.connectedName = socket?.user?.name || 'QuinceCA Official';
 
           console.log(`[WhatsApp Open-Source] 🎉 Successfully connected to WhatsApp as ${this.connectedPhone} (${this.connectedName})! 1-time setup active.`);
           await this.backupSessionToDb();

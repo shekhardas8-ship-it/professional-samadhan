@@ -36,8 +36,12 @@ export function runValidationChecks(params: {
     docType: string;
     docNumber?: string | null;
     docDate?: string | null;
+    supplierName?: string | null;
     supplierGstin?: string | null;
+    buyerName?: string | null;
     buyerGstin?: string | null;
+    reverseCharge?: boolean | null;
+    rawText?: string | null;
     taxableAmount?: string | number | null;
     cgstAmount?: string | number | null;
     sgstAmount?: string | number | null;
@@ -178,12 +182,19 @@ export function runValidationChecks(params: {
       const cess = Number(doc.cessAmount || 0);
       const roundOff = Number(doc.roundOff || 0);
 
-      const calculatedHeaderTotal = headerTaxable + cgst + sgst + igst + cess + roundOff;
+      const isRcm = Boolean(doc.reverseCharge) || doc.supplierName?.toLowerCase().includes('porter') || doc.rawText?.toLowerCase().includes('tax summary (rcm)');
+      // Under Reverse Charge Mechanism (RCM), the transporter/service provider invoices only the net fare (taxable),
+      // and taxes are discharged directly by the recipient to the government. Thus the invoice total matches headerTaxable.
+      const isRcmMatch = isRcm && Math.abs(headerTaxable + roundOff - headerTotal) <= 1.0;
+      const calculatedHeaderTotal = isRcmMatch
+        ? (headerTaxable + roundOff)
+        : (headerTaxable + cgst + sgst + igst + cess + roundOff);
+
       if (Math.abs(calculatedHeaderTotal - headerTotal) > 1.0) {
         exceptions.push({
           severity: 'critical',
           checkType: 'arithmetic_discrepancy',
-          message: `Invoice ${doc.docNumber || 'Unknown'}: Header total (₹${headerTotal.toFixed(2)}) does not match sum of taxable + taxes (₹${calculatedHeaderTotal.toFixed(2)}). Difference: ₹${(headerTotal - calculatedHeaderTotal).toFixed(2)}.`,
+          message: `Invoice ${doc.docNumber || 'Unknown'}: Header total (₹${headerTotal.toFixed(2)}) does not match sum of taxable + taxes (₹${(headerTaxable + cgst + sgst + igst + cess + roundOff).toFixed(2)}). Difference: ₹${(headerTotal - (headerTaxable + cgst + sgst + igst + cess + roundOff)).toFixed(2)}.`,
           documentUnitId: doc.id,
           documentFileId: doc.documentFileId,
         });
@@ -275,11 +286,33 @@ export function runValidationChecks(params: {
       const curr = salesInvoices[i].num!;
       const next = salesInvoices[i + 1].num!;
       if (next - curr > 1) {
+        // Derive prefix and padding to generate missing invoice numbers
+        const prefixMatch = salesInvoices[i].docNumber.match(/^(.*?)(\d+)$/);
+        const prefix = prefixMatch ? prefixMatch[1] : '';
+        const padLen = prefixMatch ? prefixMatch[2].length : 0;
+        const missingInvoices: string[] = [];
+
+        for (let m = curr + 1; m < next; m++) {
+          const numStr = padLen > 0 ? String(m).padStart(padLen, '0') : String(m);
+          missingInvoices.push(`${prefix}${numStr}`);
+        }
+
+        const missingSummary = missingInvoices.length <= 4
+          ? missingInvoices.join(', ')
+          : `${missingInvoices.slice(0, 3).join(', ')} ... (+${missingInvoices.length - 3} more)`;
+
         exceptions.push({
-          severity: 'info',
+          severity: 'warning',
           checkType: 'sequence_gap',
-          message: `Possible invoice sequence gap between ${salesInvoices[i].docNumber} and ${salesInvoices[i + 1].docNumber} (${next - curr - 1} missing numbers). Flagged for staff review.`,
-          details: { gapStart: curr, gapEnd: next },
+          message: `Missing Invoice Sequence Gap: ${missingInvoices.length} missing invoice(s) [${missingSummary}] between ${salesInvoices[i].docNumber} and ${salesInvoices[i + 1].docNumber}. Remind client to send missing bill(s).`,
+          details: {
+            gapStart: curr,
+            gapEnd: next,
+            startDoc: salesInvoices[i].docNumber,
+            endDoc: salesInvoices[i + 1].docNumber,
+            missingInvoices,
+            missingCount: missingInvoices.length,
+          },
         });
       }
     }

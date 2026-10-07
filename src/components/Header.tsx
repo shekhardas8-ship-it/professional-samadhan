@@ -50,13 +50,13 @@ export const Header: React.FC<HeaderProps> = ({
             <div className="flex items-center gap-3 shrink-0">
               <img
                 src="/logo.jpg"
-                alt="Professional Samadhan Logo"
+                alt="QuinceCA Logo"
                 className="w-10 h-10 rounded-xl object-cover shadow border border-white/20 shrink-0"
               />
               <div className="flex flex-col justify-center">
                 <div className="flex items-center gap-2">
                   <span className="font-extrabold text-base text-white tracking-tight leading-tight">
-                    Professional Samadhan
+                    QuinceCA
                   </span>
                   <span className="text-[10px] uppercase font-bold px-2 py-0.5 rounded theme-badge border">
                     Client Portal
@@ -102,13 +102,13 @@ export const Header: React.FC<HeaderProps> = ({
           >
             <img
               src="/logo.jpg"
-              alt="Professional Samadhan Logo"
+              alt="QuinceCA Logo"
               className="w-10 h-10 rounded-xl object-cover shadow-md border border-white/20 shrink-0"
             />
             <div className="flex flex-col justify-center">
               <div className="flex items-center gap-1.5">
                 <span className="font-extrabold text-sm sm:text-base text-white tracking-tight leading-none">
-                  Professional Samadhan
+                  QuinceCA
                 </span>
                 <span className="text-[9px] uppercase font-bold px-1.5 py-0.5 rounded theme-badge border">
                   CA Firm
