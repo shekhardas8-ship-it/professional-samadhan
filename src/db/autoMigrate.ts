@@ -271,6 +271,33 @@ export async function ensureTablesExist() {
       status_updated_at TIMESTAMP DEFAULT NOW(),
       created_at TIMESTAMP NOT NULL DEFAULT NOW()
     );
+
+    CREATE TABLE IF NOT EXISTS govt_filings (
+      id TEXT PRIMARY KEY,
+      client_id TEXT NOT NULL,
+      client_name TEXT NOT NULL,
+      identifier TEXT NOT NULL,
+      return_type TEXT NOT NULL,
+      financial_year TEXT NOT NULL,
+      return_period TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'JSON Generated',
+      arn_number TEXT,
+      filing_date TEXT,
+      filed_by TEXT,
+      total_taxable_value NUMERIC(15, 2) DEFAULT 0,
+      total_tax_liability NUMERIC(15, 2) DEFAULT 0,
+      total_itc_claimed NUMERIC(15, 2) DEFAULT 0,
+      json_file_name TEXT,
+      json_payload JSONB DEFAULT '{}'::jsonb,
+      drive_file_id TEXT,
+      drive_web_view_link TEXT,
+      notes TEXT,
+      created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMP NOT NULL DEFAULT NOW()
+    );
+
+    ALTER TABLE govt_filings DROP CONSTRAINT IF EXISTS govt_filings_client_id_clients_id_fk;
+    ALTER TABLE govt_filings DROP CONSTRAINT IF EXISTS govt_filings_client_id_fkey;
   `;
 
   try {

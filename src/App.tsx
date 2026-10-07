@@ -2,6 +2,9 @@
 import React, { useState, useEffect } from 'react';
 import { UserRole, MonthlyRequest, AuthUser } from './types/index.ts';
 import { Header } from './components/Header.tsx';
+import { SidebarZoho } from './components/SidebarZoho.tsx';
+import { HeaderZoho } from './components/HeaderZoho.tsx';
+import { ZohoDashboardView } from './components/ZohoDashboardView.tsx';
 import { LoginPage } from './components/LoginPage.tsx';
 import { CaExecutiveCockpit } from './components/CaExecutiveCockpit.tsx';
 import { ClientsHubView } from './components/ClientsHubView.tsx';
@@ -91,6 +94,10 @@ export default function App() {
       ? 'client-portal'
       : 'home'
   );
+
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [isQuickCreateOpen, setIsQuickCreateOpen] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
 
   const [requests, setRequests] = useState<MonthlyRequest[]>([]);
   const [loading, setLoading] = useState(false);

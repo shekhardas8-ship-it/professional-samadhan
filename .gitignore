@@ -9,6 +9,9 @@ coverage/
 env.yaml
 local_storage/uploads/*
 local_storage/workbooks/*
+local_storage/gov_returns/*
+local_storage/*.json
+local_storage/
 *.zip
 *.tar.gz
 wa_auth_session/
