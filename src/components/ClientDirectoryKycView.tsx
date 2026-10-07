@@ -46,6 +46,7 @@ import {
   MessageSquare,
   Paperclip,
   Share2,
+  ArrowRight,
 } from 'lucide-react';
 import {
   Client,
@@ -117,6 +118,33 @@ export const ClientDirectoryKycView: React.FC<ClientDirectoryKycViewProps> = ({
   // Client Management Modals (Add / Edit Client)
   const [isClientModalOpen, setIsClientModalOpen] = useState(false);
   const [clientManagementEditId, setClientManagementEditId] = useState<string | null>(null);
+
+  // Associated Accounting Apps Modals (Books, Expense, Inventory)
+  const [activeFinanceAppModal, setActiveFinanceAppModal] = useState<'books' | 'expense' | 'inventory' | null>(null);
+
+  // Helper to format Indian client location from GSTIN / state
+  const getClientLocation = (client: Client) => {
+    if (client.address && client.address !== 'New York' && !client.address.includes('U.S.A.')) {
+      return client.address;
+    }
+    const stateCode = client.gstin?.slice(0, 2);
+    const stateMap: Record<string, string> = {
+      '29': 'Bengaluru, Karnataka, India',
+      '07': 'New Delhi, Delhi, India',
+      '27': 'Mumbai, Maharashtra, India',
+      '19': 'Kolkata, West Bengal, India',
+      '24': 'Ahmedabad, Gujarat, India',
+      '33': 'Chennai, Tamil Nadu, India',
+      '06': 'Gurugram, Haryana, India',
+      '09': 'Noida, Uttar Pradesh, India',
+      '36': 'Hyderabad, Telangana, India',
+    };
+    if (stateCode && stateMap[stateCode]) {
+      return stateMap[stateCode];
+    }
+    if (client.city) return `${client.city}, India`;
+    return 'India';
+  };
 
   // ==========================================
   // SCREENSHOT 2: ADD CONTACT PERSON MODAL
@@ -748,32 +776,82 @@ export const ClientDirectoryKycView: React.FC<ClientDirectoryKycViewProps> = ({
 
                     {/* Associated Finance Apps */}
                     <div className="space-y-3">
-                      <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider block">
-                        ASSOCIATED ACCOUNTING APPS
-                      </span>
+                      <div className="flex items-center justify-between">
+                        <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider block">
+                          ASSOCIATED ACCOUNTING APPS
+                        </span>
+                        <span className="text-[10px] font-bold text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-200">
+                          3 Active
+                        </span>
+                      </div>
                       <div className="space-y-2">
-                        <div className="flex items-center justify-between p-2 rounded-lg hover:bg-slate-50 transition text-xs">
-                          <div className="flex items-center space-x-2 text-slate-700">
-                            <FileSpreadsheet className="w-4 h-4 text-blue-500" />
-                            <span className="font-semibold">Books</span>
+                        {/* Books */}
+                        <div
+                          onClick={() => setActiveFinanceAppModal('books')}
+                          className="flex items-center justify-between p-2.5 rounded-xl border border-slate-200/90 hover:border-blue-400 hover:bg-blue-50/40 transition text-xs cursor-pointer group shadow-2xs"
+                          title="Open Accounting Books & General Ledger"
+                        >
+                          <div className="flex items-center space-x-2.5 text-slate-700">
+                            <div className="w-7 h-7 rounded-lg bg-blue-100/80 text-blue-600 flex items-center justify-center group-hover:scale-105 transition-transform">
+                              <FileSpreadsheet className="w-4 h-4" />
+                            </div>
+                            <div>
+                              <span className="font-bold text-slate-900 group-hover:text-blue-700 block">Books</span>
+                              <span className="text-[10px] text-slate-500 font-medium">Daybook & Sales Register</span>
+                            </div>
                           </div>
-                          <MoreHorizontal className="w-3.5 h-3.5 text-slate-400 cursor-pointer" />
+                          <div className="flex items-center gap-1.5">
+                            <span className="text-[10px] font-bold px-1.5 py-0.5 bg-blue-50 text-blue-700 rounded border border-blue-200">
+                              4 Invoices
+                            </span>
+                            <ArrowRight className="w-3.5 h-3.5 text-slate-400 group-hover:text-blue-600 group-hover:translate-x-0.5 transition-all" />
+                          </div>
                         </div>
 
-                        <div className="flex items-center justify-between p-2 rounded-lg hover:bg-slate-50 transition text-xs">
-                          <div className="flex items-center space-x-2 text-slate-700">
-                            <FileText className="w-4 h-4 text-rose-500" />
-                            <span className="font-semibold">Expense</span>
+                        {/* Expense */}
+                        <div
+                          onClick={() => setActiveFinanceAppModal('expense')}
+                          className="flex items-center justify-between p-2.5 rounded-xl border border-slate-200/90 hover:border-rose-400 hover:bg-rose-50/40 transition text-xs cursor-pointer group shadow-2xs"
+                          title="Open Expense & Purchase Bills Register"
+                        >
+                          <div className="flex items-center space-x-2.5 text-slate-700">
+                            <div className="w-7 h-7 rounded-lg bg-rose-100/80 text-rose-600 flex items-center justify-center group-hover:scale-105 transition-transform">
+                              <FileText className="w-4 h-4" />
+                            </div>
+                            <div>
+                              <span className="font-bold text-slate-900 group-hover:text-rose-700 block">Expense</span>
+                              <span className="text-[10px] text-slate-500 font-medium">Vendor Bills & ITC</span>
+                            </div>
                           </div>
-                          <MoreHorizontal className="w-3.5 h-3.5 text-slate-400 cursor-pointer" />
+                          <div className="flex items-center gap-1.5">
+                            <span className="text-[10px] font-bold px-1.5 py-0.5 bg-rose-50 text-rose-700 rounded border border-rose-200">
+                              ₹17.2k ITC
+                            </span>
+                            <ArrowRight className="w-3.5 h-3.5 text-slate-400 group-hover:text-rose-600 group-hover:translate-x-0.5 transition-all" />
+                          </div>
                         </div>
 
-                        <div className="flex items-center justify-between p-2 rounded-lg hover:bg-slate-50 transition text-xs">
-                          <div className="flex items-center space-x-2 text-slate-700">
-                            <Layers className="w-4 h-4 text-amber-500" />
-                            <span className="font-semibold">Inventory</span>
+                        {/* Inventory */}
+                        <div
+                          onClick={() => setActiveFinanceAppModal('inventory')}
+                          className="flex items-center justify-between p-2.5 rounded-xl border border-slate-200/90 hover:border-amber-400 hover:bg-amber-50/40 transition text-xs cursor-pointer group shadow-2xs"
+                          title="Open Inventory & HSN/SAC Stock Register"
+                        >
+                          <div className="flex items-center space-x-2.5 text-slate-700">
+                            <div className="w-7 h-7 rounded-lg bg-amber-100/80 text-amber-600 flex items-center justify-center group-hover:scale-105 transition-transform">
+                              <Layers className="w-4 h-4" />
+                            </div>
+                            <div>
+                              <span className="font-bold text-slate-900 group-hover:text-amber-700 block">Inventory</span>
+                              <span className="text-[10px] text-slate-500 font-medium">HSN/SAC & Stock Slabs</span>
+                            </div>
                           </div>
-                          <MoreHorizontal className="w-3.5 h-3.5 text-slate-400 cursor-pointer" />
+                          <div className="flex items-center gap-1.5">
+                            <span className="text-[10px] font-bold px-1.5 py-0.5 bg-amber-50 text-amber-700 rounded border border-amber-200">
+                              2 Items
+                            </span>
+                            <ArrowRight className="w-3.5 h-3.5 text-slate-400 group-hover:text-amber-600 group-hover:translate-x-0.5 transition-all" />
+                          </div>
                         </div>
                       </div>
                     </div>
@@ -784,15 +862,8 @@ export const ClientDirectoryKycView: React.FC<ClientDirectoryKycViewProps> = ({
                         <MapPin className="w-3.5 h-3.5 text-slate-400" />
                         <span>BILLING ADDRESS</span>
                       </span>
-                      <div className="text-xs text-slate-600 leading-relaxed pl-4">
-                        {selectedClient.address ? (
-                          <div>{selectedClient.address}</div>
-                        ) : (
-                          <>
-                            <div>{selectedClient.city || 'New York'}</div>
-                            <div>{selectedClient.country || 'U.S.A.'}</div>
-                          </>
-                        )}
+                      <div className="text-xs text-slate-700 font-medium leading-relaxed pl-4">
+                        {getClientLocation(selectedClient)}
                       </div>
                     </div>
 
@@ -1805,6 +1876,230 @@ export const ClientDirectoryKycView: React.FC<ClientDirectoryKycViewProps> = ({
             });
           }}
         />
+      )}
+
+      {/* MODAL: Associated Finance App - Books / Expense / Inventory */}
+      {activeFinanceAppModal && (
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl max-w-2xl w-full p-6 shadow-2xl border border-slate-200 relative animate-in fade-in zoom-in-95 max-h-[90vh] flex flex-col">
+            {/* Modal Header */}
+            <div className="flex items-center justify-between pb-4 border-b border-slate-100">
+              <div className="flex items-center space-x-3">
+                <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${
+                  activeFinanceAppModal === 'books'
+                    ? 'bg-blue-100 text-blue-700'
+                    : activeFinanceAppModal === 'expense'
+                    ? 'bg-rose-100 text-rose-700'
+                    : 'bg-amber-100 text-amber-700'
+                }`}>
+                  {activeFinanceAppModal === 'books' && <FileSpreadsheet className="w-5 h-5" />}
+                  {activeFinanceAppModal === 'expense' && <FileText className="w-5 h-5" />}
+                  {activeFinanceAppModal === 'inventory' && <Layers className="w-5 h-5" />}
+                </div>
+                <div>
+                  <h3 className="font-extrabold text-base text-slate-900">
+                    {activeFinanceAppModal === 'books' && 'Accounting Books & General Ledger'}
+                    {activeFinanceAppModal === 'expense' && 'Expense & Purchase Bills Register'}
+                    {activeFinanceAppModal === 'inventory' && 'Inventory & HSN/SAC Stock Register'}
+                  </h3>
+                  <p className="text-xs text-slate-500">
+                    {selectedClient.businessName || selectedClient.name} • {selectedClient.gstin || selectedClient.pan || 'Taxpayer Master'}
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={() => setActiveFinanceAppModal(null)}
+                className="w-8 h-8 rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100 flex items-center justify-center transition"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Modal Content */}
+            <div className="overflow-y-auto py-4 space-y-4 flex-1">
+              {/* BOOKS APP CONTENT */}
+              {activeFinanceAppModal === 'books' && (
+                <div className="space-y-4">
+                  <div className="grid grid-cols-3 gap-3">
+                    <div className="p-3 bg-blue-50/60 rounded-xl border border-blue-200/70">
+                      <span className="text-[10px] font-bold text-blue-800 uppercase block">Total Sales Invoices</span>
+                      <span className="text-lg font-extrabold text-blue-900 mt-1 block">4 Vouchers</span>
+                      <span className="text-[10px] text-blue-600 mt-0.5 block">Posted to Daybook</span>
+                    </div>
+                    <div className="p-3 bg-slate-50 rounded-xl border border-slate-200">
+                      <span className="text-[10px] font-bold text-slate-500 uppercase block">Gross Revenue</span>
+                      <span className="text-lg font-extrabold text-slate-900 mt-1 block">₹1,22,720</span>
+                      <span className="text-[10px] text-slate-500 mt-0.5 block">Taxable: ₹1,09,000</span>
+                    </div>
+                    <div className="p-3 bg-emerald-50/60 rounded-xl border border-emerald-200/70">
+                      <span className="text-[10px] font-bold text-emerald-800 uppercase block">Tally Sync Status</span>
+                      <span className="text-lg font-extrabold text-emerald-700 mt-1 block">100% Synced</span>
+                      <span className="text-[10px] text-emerald-600 mt-0.5 block">Ready for XML Export</span>
+                    </div>
+                  </div>
+
+                  <div className="rounded-xl border border-slate-200 overflow-hidden text-xs">
+                    <table className="w-full text-left">
+                      <thead className="bg-slate-50 border-b border-slate-200 text-slate-500 text-[10px] uppercase font-bold">
+                        <tr>
+                          <th className="py-2.5 px-3">Voucher #</th>
+                          <th className="py-2.5 px-3">Date</th>
+                          <th className="py-2.5 px-3">Customer GSTIN</th>
+                          <th className="py-2.5 px-3">Taxable</th>
+                          <th className="py-2.5 px-3 text-right">Total (₹)</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-100 font-mono text-[11px]">
+                        <tr className="hover:bg-slate-50">
+                          <td className="py-2.5 px-3 font-bold text-blue-700">INV-2026027</td>
+                          <td className="py-2.5 px-3 text-slate-600">10-08-2026</td>
+                          <td className="py-2.5 px-3 text-slate-700">07DWAPK0131H1Z1</td>
+                          <td className="py-2.5 px-3">₹10,000</td>
+                          <td className="py-2.5 px-3 font-bold text-right text-slate-900">₹11,800</td>
+                        </tr>
+                        <tr className="hover:bg-slate-50">
+                          <td className="py-2.5 px-3 font-bold text-blue-700">INV-2026028</td>
+                          <td className="py-2.5 px-3 text-slate-600">30-08-2026</td>
+                          <td className="py-2.5 px-3 text-slate-700">07AAICI5692P1ZP</td>
+                          <td className="py-2.5 px-3">₹50,000</td>
+                          <td className="py-2.5 px-3 font-bold text-right text-slate-900">₹59,000</td>
+                        </tr>
+                        <tr className="hover:bg-slate-50">
+                          <td className="py-2.5 px-3 font-bold text-blue-700">INV-2026029</td>
+                          <td className="py-2.5 px-3 text-slate-600">18-08-2026</td>
+                          <td className="py-2.5 px-3 text-slate-700">07AMCPB9753F1Z5</td>
+                          <td className="py-2.5 px-3">₹9,000</td>
+                          <td className="py-2.5 px-3 font-bold text-right text-slate-900">₹10,620</td>
+                        </tr>
+                        <tr className="hover:bg-slate-50">
+                          <td className="py-2.5 px-3 font-bold text-blue-700">INV-2026030</td>
+                          <td className="py-2.5 px-3 text-slate-600">18-08-2026</td>
+                          <td className="py-2.5 px-3 text-slate-700">07AMCPB9753F1Z5</td>
+                          <td className="py-2.5 px-3">₹40,000</td>
+                          <td className="py-2.5 px-3 font-bold text-right text-slate-900">₹47,200</td>
+                        </tr>
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
+
+              {/* EXPENSE APP CONTENT */}
+              {activeFinanceAppModal === 'expense' && (
+                <div className="space-y-4">
+                  <div className="grid grid-cols-3 gap-3">
+                    <div className="p-3 bg-rose-50/60 rounded-xl border border-rose-200/70">
+                      <span className="text-[10px] font-bold text-rose-800 uppercase block">Inward Purchases</span>
+                      <span className="text-lg font-extrabold text-rose-900 mt-1 block">₹98,400</span>
+                      <span className="text-[10px] text-rose-600 mt-0.5 block">Vendor Bills</span>
+                    </div>
+                    <div className="p-3 bg-emerald-50/60 rounded-xl border border-emerald-200/70">
+                      <span className="text-[10px] font-bold text-emerald-800 uppercase block">Eligible ITC (Table 4)</span>
+                      <span className="text-lg font-extrabold text-emerald-700 mt-1 block">₹17,176.15</span>
+                      <span className="text-[10px] text-emerald-600 mt-0.5 block">Claimable in GSTR-3B</span>
+                    </div>
+                    <div className="p-3 bg-slate-50 rounded-xl border border-slate-200">
+                      <span className="text-[10px] font-bold text-slate-500 uppercase block">GSTR-2B Matching</span>
+                      <span className="text-lg font-extrabold text-slate-900 mt-1 block">100% Match</span>
+                      <span className="text-[10px] text-slate-500 mt-0.5 block">Zero ITC Leakage</span>
+                    </div>
+                  </div>
+
+                  <div className="p-3 bg-slate-50 rounded-xl border border-slate-200 text-xs space-y-2">
+                    <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block">Expense Categories Breakdown</span>
+                    <div className="grid grid-cols-2 gap-2 text-[11px]">
+                      <div className="flex justify-between p-2 bg-white rounded-lg border border-slate-200">
+                        <span className="text-slate-600">Digital Ads & Marketing:</span>
+                        <span className="font-bold text-slate-900">₹64,200</span>
+                      </div>
+                      <div className="flex justify-between p-2 bg-white rounded-lg border border-slate-200">
+                        <span className="text-slate-600">Web Hosting & SaaS Tools:</span>
+                        <span className="font-bold text-slate-900">₹18,500</span>
+                      </div>
+                      <div className="flex justify-between p-2 bg-white rounded-lg border border-slate-200">
+                        <span className="text-slate-600">Professional & Audit Fees:</span>
+                        <span className="font-bold text-slate-900">₹10,000</span>
+                      </div>
+                      <div className="flex justify-between p-2 bg-white rounded-lg border border-slate-200">
+                        <span className="text-slate-600">Office Utilities:</span>
+                        <span className="font-bold text-slate-900">₹5,700</span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* INVENTORY APP CONTENT */}
+              {activeFinanceAppModal === 'inventory' && (
+                <div className="space-y-4">
+                  <div className="grid grid-cols-3 gap-3">
+                    <div className="p-3 bg-amber-50/60 rounded-xl border border-amber-200/70">
+                      <span className="text-[10px] font-bold text-amber-800 uppercase block">Active HSN Slabs</span>
+                      <span className="text-lg font-extrabold text-amber-900 mt-1 block">2 Slabs</span>
+                      <span className="text-[10px] text-amber-700 mt-0.5 block">Service Accounting Codes</span>
+                    </div>
+                    <div className="p-3 bg-slate-50 rounded-xl border border-slate-200">
+                      <span className="text-[10px] font-bold text-slate-500 uppercase block">Total Quantity</span>
+                      <span className="text-lg font-extrabold text-slate-900 mt-1 block">7 NOS</span>
+                      <span className="text-[10px] text-slate-500 mt-0.5 block">UQC Standard</span>
+                    </div>
+                    <div className="p-3 bg-emerald-50/60 rounded-xl border border-emerald-200/70">
+                      <span className="text-[10px] font-bold text-emerald-800 uppercase block">GSTR-1 Table 12</span>
+                      <span className="text-lg font-extrabold text-emerald-700 mt-1 block">Reconciled</span>
+                      <span className="text-[10px] text-emerald-600 mt-0.5 block">Zero Mismatch</span>
+                    </div>
+                  </div>
+
+                  <div className="rounded-xl border border-slate-200 overflow-hidden text-xs">
+                    <table className="w-full text-left">
+                      <thead className="bg-slate-50 border-b border-slate-200 text-slate-500 text-[10px] uppercase font-bold">
+                        <tr>
+                          <th className="py-2.5 px-3">HSN / SAC</th>
+                          <th className="py-2.5 px-3">Description</th>
+                          <th className="py-2.5 px-3">UQC</th>
+                          <th className="py-2.5 px-3">Qty</th>
+                          <th className="py-2.5 px-3">Taxable Value</th>
+                          <th className="py-2.5 px-3 text-right">Tax (18%)</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-100 font-mono text-[11px]">
+                        <tr className="hover:bg-slate-50">
+                          <td className="py-2.5 px-3 font-bold text-amber-700">998361</td>
+                          <td className="py-2.5 px-3 font-sans text-slate-800">Social Media Marketing + Meta Ads</td>
+                          <td className="py-2.5 px-3 text-slate-600">NOS</td>
+                          <td className="py-2.5 px-3 font-bold text-slate-900">6</td>
+                          <td className="py-2.5 px-3">₹1,04,000</td>
+                          <td className="py-2.5 px-3 font-bold text-right text-slate-900">₹18,720</td>
+                        </tr>
+                        <tr className="hover:bg-slate-50">
+                          <td className="py-2.5 px-3 font-bold text-amber-700">998314</td>
+                          <td className="py-2.5 px-3 font-sans text-slate-800">Website Development Charges</td>
+                          <td className="py-2.5 px-3 text-slate-600">NOS</td>
+                          <td className="py-2.5 px-3 font-bold text-slate-900">1</td>
+                          <td className="py-2.5 px-3">₹5,000</td>
+                          <td className="py-2.5 px-3 font-bold text-right text-slate-900">₹900</td>
+                        </tr>
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Modal Footer */}
+            <div className="pt-3 border-t border-slate-100 flex items-center justify-between">
+              <span className="text-[11px] text-slate-500 font-medium">
+                Live Practice Database • Multi-Module Integration
+              </span>
+              <button
+                onClick={() => setActiveFinanceAppModal(null)}
+                className="px-4 py-2 bg-slate-900 hover:bg-black text-white text-xs font-bold rounded-xl transition"
+              >
+                Close Register
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );
