@@ -160,7 +160,7 @@ export const SettingsSidebar: React.FC<SettingsSidebarProps> = ({
           icon: Palette,
           items: [
             { id: 'custom_pdf', label: 'PDF Templates' },
-            { id: 'custom_email', label: 'Email Notifications' },
+            { id: 'custom_email', label: 'Email Notifications', badge: 'Active' },
           ],
         },
         {

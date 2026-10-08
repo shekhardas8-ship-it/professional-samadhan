@@ -54,6 +54,7 @@ import { OtherAppsIntegrationView } from './OtherAppsIntegrationView';
 import { DelugeLogicStudioView } from './DelugeLogicStudioView';
 import { WebFormsIntakeView } from './WebFormsIntakeView';
 import { ChartOfAccountsMappingView } from './ChartOfAccountsMappingView';
+import { EmailNotificationsSettingsView } from './EmailNotificationsSettingsView';
 
 export interface AllSettingsViewProps {
   onClose: () => void;
@@ -823,6 +824,16 @@ export const AllSettingsView: React.FC<AllSettingsViewProps> = ({
             />
           )}
 
+          {/* Email Notifications & SMTP Subview */}
+          {activeViewId === 'custom_email' && (
+            <EmailNotificationsSettingsView
+              firmBranding={firmBranding}
+              currentUser={currentUser}
+              onSavedNotification={handleSaveSuccess}
+              isDialogMode={false}
+            />
+          )}
+
           {/* Fallback for other subviews: show detail panel */}
           {activeViewId !== 'org_profile' &&
             activeViewId !== 'org_branches' &&
@@ -830,6 +841,7 @@ export const AllSettingsView: React.FC<AllSettingsViewProps> = ({
             activeViewId !== 'user_preferences' &&
             activeViewId !== 'mod_overview' &&
             activeViewId !== 'custom_pdf' &&
+            activeViewId !== 'custom_email' &&
             activeViewId !== 'int_accounting' &&
             activeViewId !== 'int_other' &&
             activeViewId !== 'dev_deluge' &&
@@ -1356,6 +1368,15 @@ const SettingDetailDialog: React.FC<SettingDetailDialogProps> = ({
             />
           )}
 
+          {(dialogType === 'email_templates' || dialogType === 'custom_email') && (
+            <EmailNotificationsSettingsView
+              firmBranding={firmBranding}
+              currentUser={currentUser}
+              onSavedNotification={msg => onSave(msg)}
+              isDialogMode={true}
+            />
+          )}
+
           {dialogType !== 'ai_integration' &&
             dialogType !== 'portal' &&
             dialogType !== 'web_forms' &&
@@ -1365,7 +1386,9 @@ const SettingDetailDialog: React.FC<SettingDetailDialogProps> = ({
             dialogType !== 'preferences' &&
             dialogType !== 'custom_modules_overview' &&
             dialogType !== 'pdf_templates' &&
-            dialogType !== 'chart_accounts' && (
+            dialogType !== 'chart_accounts' &&
+            dialogType !== 'email_templates' &&
+            dialogType !== 'custom_email' && (
               <div className="space-y-4">
                 <div className="p-4 bg-slate-50 border border-slate-200 rounded-xl space-y-2">
                   <span className="font-bold text-slate-800">{option.name} Settings</span>
