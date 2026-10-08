@@ -27,6 +27,7 @@ import {
   Layers,
   Copy,
   FileCheck,
+  UploadCloud,
 } from 'lucide-react';
 import {
   validateGstr1PreFlight,
@@ -508,6 +509,85 @@ export const GstItrFilingHubView: React.FC<{ onBack?: () => void }> = ({ onBack 
               Standard Offline Mode
             </span>
           </div>
+        </div>
+      </div>
+
+      {/* Official Government Statutory Portals Quick Launcher Bar (100% Free Direct Access) */}
+      <div className="bg-[#1b253b] border border-[#2b3a55] rounded-2xl p-4 text-white shadow-sm space-y-2">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-[#2b3a55] pb-2">
+          <div className="flex items-center gap-2">
+            <Globe className="w-4 h-4 text-emerald-400" />
+            <span className="text-xs font-bold uppercase tracking-wider text-slate-200">
+              Official Government Statutory Portals Quick Launcher (₹0 Fee)
+            </span>
+          </div>
+          <span className="text-[11px] text-emerald-400 font-medium">Direct Authorized Portals</span>
+        </div>
+        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-2.5 pt-1">
+          <a
+            href="https://services.gst.gov.in/services/login"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="p-2.5 rounded-xl bg-[#111827] hover:bg-slate-800 border border-slate-700/80 hover:border-blue-500/60 flex items-center justify-between transition group text-xs"
+          >
+            <div>
+              <div className="font-bold text-slate-100 group-hover:text-blue-400">GST Portal</div>
+              <div className="text-[10px] text-slate-400 font-mono">gst.gov.in</div>
+            </div>
+            <ExternalLink className="w-3.5 h-3.5 text-slate-500 group-hover:text-blue-400" />
+          </a>
+
+          <a
+            href="https://eportal.incometax.gov.in/iec/foservices/#/login"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="p-2.5 rounded-xl bg-[#111827] hover:bg-slate-800 border border-slate-700/80 hover:border-emerald-500/60 flex items-center justify-between transition group text-xs"
+          >
+            <div>
+              <div className="font-bold text-slate-100 group-hover:text-emerald-400">IT e-Filing</div>
+              <div className="text-[10px] text-slate-400 font-mono">incometax.gov.in</div>
+            </div>
+            <ExternalLink className="w-3.5 h-3.5 text-slate-500 group-hover:text-emerald-400" />
+          </a>
+
+          <a
+            href="https://www.mca.gov.in/mcafoportal/login.do"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="p-2.5 rounded-xl bg-[#111827] hover:bg-slate-800 border border-slate-700/80 hover:border-indigo-500/60 flex items-center justify-between transition group text-xs"
+          >
+            <div>
+              <div className="font-bold text-slate-100 group-hover:text-indigo-400">MCA V3 Portal</div>
+              <div className="text-[10px] text-slate-400 font-mono">mca.gov.in</div>
+            </div>
+            <ExternalLink className="w-3.5 h-3.5 text-slate-500 group-hover:text-indigo-400" />
+          </a>
+
+          <a
+            href="https://contents.tdscpc.gov.in/"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="p-2.5 rounded-xl bg-[#111827] hover:bg-slate-800 border border-slate-700/80 hover:border-amber-500/60 flex items-center justify-between transition group text-xs"
+          >
+            <div>
+              <div className="font-bold text-slate-100 group-hover:text-amber-400">TRACES TDS</div>
+              <div className="text-[10px] text-slate-400 font-mono">tdscpc.gov.in</div>
+            </div>
+            <ExternalLink className="w-3.5 h-3.5 text-slate-500 group-hover:text-amber-400" />
+          </a>
+
+          <a
+            href="https://ewaybillgst.gov.in/"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="p-2.5 rounded-xl bg-[#111827] hover:bg-slate-800 border border-slate-700/80 hover:border-cyan-500/60 flex items-center justify-between transition group text-xs col-span-2 sm:col-span-1"
+          >
+            <div>
+              <div className="font-bold text-slate-100 group-hover:text-cyan-400">e-Way Bill NIC</div>
+              <div className="text-[10px] text-slate-400 font-mono">ewaybillgst.gov.in</div>
+            </div>
+            <ExternalLink className="w-3.5 h-3.5 text-slate-500 group-hover:text-cyan-400" />
+          </a>
         </div>
       </div>
 
