@@ -719,14 +719,6 @@ export const PracticeLayout: React.FC<PracticeLayoutProps> = ({
               >
                 <Settings className="w-4 h-4" />
               </button>
-
-              {/* User Avatar */}
-              <div
-                onClick={() => setIsUserMenuOpen(!isUserMenuOpen)}
-                className="w-8 h-8 rounded-full bg-slate-200 border border-slate-300 text-slate-700 font-bold text-xs flex items-center justify-center cursor-pointer select-none"
-              >
-                S
-              </div>
             </div>
           </header>
 
