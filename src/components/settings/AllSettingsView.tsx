@@ -111,6 +111,13 @@ export const AllSettingsView: React.FC<AllSettingsViewProps> = ({
   const [saveSuccessNotice, setSaveSuccessNotice] = useState<string | null>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
 
+  // Synchronize active subview if prop changes (e.g. from top user navigation menu)
+  useEffect(() => {
+    if (initialSubView) {
+      setActiveViewId(initialSubView);
+    }
+  }, [initialSubView]);
+
   // Keyboard shortcut '/' to focus search input, and 'Escape' to close/back
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {

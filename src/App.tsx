@@ -531,6 +531,7 @@ export default function App() {
         activeTab === 'settings-whatsapp' ||
         activeTab === 'settings-client-ai') && (
         <AllSettingsView
+          key={activeTab}
           onClose={() => setActiveTab('home')}
           firmBranding={firmBranding}
           onUpdateBranding={setFirmBranding}

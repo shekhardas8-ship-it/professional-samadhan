@@ -80,6 +80,7 @@ export const DEFAULT_PORTAL_PREFERENCES: PortalPreferencesConfig = {
 };
 
 export function getStoredPortalPreferences(defaultName?: string): PortalPreferencesConfig {
+  const origin = typeof window !== 'undefined' ? window.location.origin : 'https://quinceca.quinceautomation.com';
   if (typeof window === 'undefined') return DEFAULT_PORTAL_PREFERENCES;
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
@@ -89,15 +90,24 @@ export function getStoredPortalPreferences(defaultName?: string): PortalPreferen
           ...DEFAULT_PORTAL_PREFERENCES,
           portalName: defaultName,
           portalSlug: defaultName.toLowerCase().replace(/[^a-z0-9]/g, ''),
-          portalUrl: `https://portal.quinceca.com/portal/${defaultName.toLowerCase().replace(/[^a-z0-9]/g, '')}`,
+          portalUrl: `${origin}/client-portal?portal=${defaultName.toLowerCase().replace(/[^a-z0-9]/g, '')}`,
         };
       }
-      return DEFAULT_PORTAL_PREFERENCES;
+      return {
+        ...DEFAULT_PORTAL_PREFERENCES,
+        portalUrl: `${origin}/client-portal`,
+      };
     }
     const parsed = JSON.parse(raw);
+    const storedUrl = parsed.portalUrl || '';
+    const validUrl = storedUrl.includes('portal.quinceca.com')
+      ? `${origin}/client-portal?portal=${parsed.portalSlug || 'client'}`
+      : storedUrl || `${origin}/client-portal`;
+
     return {
       ...DEFAULT_PORTAL_PREFERENCES,
       ...parsed,
+      portalUrl: validUrl,
       customModules: Array.isArray(parsed.customModules) && parsed.customModules.length > 0
         ? parsed.customModules
         : DEFAULT_PORTAL_PREFERENCES.customModules,
