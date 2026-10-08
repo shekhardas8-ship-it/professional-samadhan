@@ -17,9 +17,11 @@ import {
   Share2,
   Sparkles,
   ArrowLeft,
+  Download,
 } from 'lucide-react';
 import { AdhocRequestItem, AdhocServiceCategory } from '../types/index.ts';
 import { INITIAL_ADHOC_REQUESTS, INITIAL_CLIENTS_DATA } from '../services/frontPageDataService.ts';
+import { RocMcaAutomationModal } from './roc/RocMcaAutomationModal.tsx';
 
 const ADHOC_SERVICES_LIST: AdhocServiceCategory[] = [
   'GST Registration',
@@ -58,6 +60,8 @@ export const AdhocRequestsView: React.FC<AdhocRequestsViewProps> = ({ onBack }) 
   const [selectedCategory, setSelectedCategory] = useState<string>('all');
   const [selectedStatus, setSelectedStatus] = useState<string>('all');
   const [isNewRequestModalOpen, setIsNewRequestModalOpen] = useState(false);
+  const [selectedMcaRequest, setSelectedMcaRequest] = useState<AdhocRequestItem | null>(null);
+  const [isMcaModalOpen, setIsMcaModalOpen] = useState(false);
 
   // New Request Form State
   const [newRequestForm, setNewRequestForm] = useState({
@@ -125,12 +129,13 @@ export const AdhocRequestsView: React.FC<AdhocRequestsViewProps> = ({ onBack }) 
     alert(`Adhoc Request for "${newReq.serviceCategory}" created and memorized on backend!`);
   };
 
-  const handleUpdateStatus = async (id: string, nextStatus: AdhocRequestItem['status']) => {
+  const handleUpdateStatus = async (id: string, nextStatus: AdhocRequestItem['status'], notes?: string) => {
     const updated = requests.map(r => {
       if (r.id === id) {
         return {
           ...r,
           status: nextStatus,
+          notes: notes !== undefined ? notes : r.notes,
           completedDate: nextStatus === 'Completed' || nextStatus === 'Delivered' ? new Date().toISOString().split('T')[0] : r.completedDate,
         };
       }
@@ -142,7 +147,7 @@ export const AdhocRequestsView: React.FC<AdhocRequestsViewProps> = ({ onBack }) 
       await fetch(`/api/adhoc-requests/${id}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json', 'x-user-role': 'ca_admin' },
-        body: JSON.stringify({ status: nextStatus }),
+        body: JSON.stringify({ status: nextStatus, notes }),
       });
     } catch (err) {
       console.warn('Backend sync queued:', err);
@@ -337,6 +342,28 @@ export const AdhocRequestsView: React.FC<AdhocRequestsViewProps> = ({ onBack }) 
                   <span className="text-teal-700 font-medium">{req.assignedStaffName || 'Pooja Verma'}</span>
                 </div>
               </div>
+
+              {/* ROC MCA Automation Banner */}
+              {(req.serviceCategory.includes('ROC') || req.title.toLowerCase().includes('roc') || req.title.toLowerCase().includes('kyc')) && (
+                <div className="mt-3 p-2.5 bg-linear-to-r from-indigo-50 to-purple-50 rounded-xl border border-indigo-100 flex items-center justify-between gap-2">
+                  <div className="flex items-center gap-1.5 text-[11px] font-bold text-indigo-900">
+                    <Sparkles className="w-3.5 h-3.5 text-indigo-600" />
+                    <span>MCA V3 JSON Auto-Filing</span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setSelectedMcaRequest(req);
+                      setIsMcaModalOpen(true);
+                    }}
+                    className="px-2.5 py-1 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg text-[11px] font-bold flex items-center gap-1 shadow-xs transition"
+                  >
+                    <Download className="w-3 h-3" />
+                    <span>MCA JSON</span>
+                  </button>
+                </div>
+              )}
             </div>
 
             {/* Status Change Buttons */}
@@ -353,7 +380,14 @@ export const AdhocRequestsView: React.FC<AdhocRequestsViewProps> = ({ onBack }) 
               </select>
 
               <button
-                onClick={() => alert(`Adhoc Task "${req.title}" for ${req.clientName}\nNotes: ${req.notes || 'In progress on portal.'}`)}
+                onClick={() => {
+                  if (req.serviceCategory.includes('ROC') || req.title.toLowerCase().includes('roc') || req.title.toLowerCase().includes('kyc')) {
+                    setSelectedMcaRequest(req);
+                    setIsMcaModalOpen(true);
+                  } else {
+                    alert(`Adhoc Task "${req.title}" for ${req.clientName}\nNotes: ${req.notes || 'In progress on portal.'}`);
+                  }
+                }}
                 className="px-3 py-1 bg-teal-50 hover:bg-teal-100 text-teal-800 rounded-lg text-xs font-semibold flex items-center space-x-1"
               >
                 <span>View Dossier</span>
@@ -475,6 +509,39 @@ export const AdhocRequestsView: React.FC<AdhocRequestsViewProps> = ({ onBack }) 
             </form>
           </div>
         </div>
+      )}
+
+      {/* 6. ROC MCA V3 Automation Modal */}
+      {isMcaModalOpen && selectedMcaRequest && (
+        <RocMcaAutomationModal
+          isOpen={isMcaModalOpen}
+          request={selectedMcaRequest}
+          client={
+            INITIAL_CLIENTS_DATA.find(
+              c =>
+                c.id === selectedMcaRequest.clientId ||
+                c.businessName.toLowerCase() === selectedMcaRequest.clientName.toLowerCase()
+            ) ||
+            INITIAL_CLIENTS_DATA.find(c => c.directors && c.directors.length > 0) ||
+            INITIAL_CLIENTS_DATA[0]
+          }
+          directors={
+            INITIAL_CLIENTS_DATA.find(
+              c =>
+                c.id === selectedMcaRequest.clientId ||
+                c.businessName.toLowerCase() === selectedMcaRequest.clientName.toLowerCase()
+            )?.directors ||
+            INITIAL_CLIENTS_DATA.find(c => c.directors && c.directors.length > 0)?.directors ||
+            []
+          }
+          onClose={() => {
+            setIsMcaModalOpen(false);
+            setSelectedMcaRequest(null);
+          }}
+          onStatusUpdate={(nextStatus, srnNotes) => {
+            handleUpdateStatus(selectedMcaRequest.id, nextStatus, srnNotes);
+          }}
+        />
       )}
     </div>
   );
