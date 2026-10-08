@@ -207,7 +207,6 @@ export const SettingsSidebar: React.FC<SettingsSidebarProps> = ({
             { id: 'int_client_ai', label: 'Client AI Copilot', badge: 'BYOK' },
             { id: 'int_whatsapp', label: 'WhatsApp', badge: 'Active' },
             { id: 'int_accounting', label: 'Accounting' },
-            { id: 'int_bharat', label: 'Bharat Connect' },
             { id: 'int_other', label: 'Other Apps' },
           ],
         },

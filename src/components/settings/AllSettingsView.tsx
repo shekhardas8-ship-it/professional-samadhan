@@ -50,7 +50,6 @@ import { UserPreferencesView } from './UserPreferencesView';
 import { CustomCaModulesView } from './CustomCaModulesView';
 import { PdfAuditTemplatesView } from './PdfAuditTemplatesView';
 import { AccountingIntegrationView } from './AccountingIntegrationView';
-import { BharatConnectView } from './BharatConnectView';
 import { OtherAppsIntegrationView } from './OtherAppsIntegrationView';
 import { DelugeLogicStudioView } from './DelugeLogicStudioView';
 import { WebFormsIntakeView } from './WebFormsIntakeView';
@@ -503,14 +502,6 @@ export const AllSettingsView: React.FC<AllSettingsViewProps> = ({
               actionType: 'subview',
             },
             {
-              id: 'int_bharat',
-              name: 'Bharat Connect',
-              badge: 'GSTN API',
-              description: 'Direct GSTN Portal API sandbox, E-Way Bill, E-Invoice QR, and Traces TDS integration',
-              keywords: ['bharat connect', 'gstn', 'eway bill', 'einvoice', 'traces', 'income tax'],
-              actionType: 'subview',
-            },
-            {
               id: 'int_other',
               name: 'Other Apps',
               badge: 'Google Drive',
@@ -791,16 +782,6 @@ export const AllSettingsView: React.FC<AllSettingsViewProps> = ({
             />
           )}
 
-          {/* Bharat Connect Statutory Portals Subview */}
-          {activeViewId === 'int_bharat' && (
-            <BharatConnectView
-              firmBranding={firmBranding}
-              currentUser={currentUser}
-              onSavedNotification={handleSaveSuccess}
-              onClose={() => setActiveViewId('grid')}
-            />
-          )}
-
           {/* Other Apps & Cloud Storage Subview */}
           {activeViewId === 'int_other' && (
             <OtherAppsIntegrationView
@@ -839,7 +820,6 @@ export const AllSettingsView: React.FC<AllSettingsViewProps> = ({
             activeViewId !== 'mod_overview' &&
             activeViewId !== 'custom_pdf' &&
             activeViewId !== 'int_accounting' &&
-            activeViewId !== 'int_bharat' &&
             activeViewId !== 'int_other' &&
             activeViewId !== 'dev_deluge' &&
             activeViewId !== 'dev_webforms' &&

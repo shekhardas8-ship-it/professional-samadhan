@@ -606,3 +606,38 @@ export interface SuperAdminTenantItem {
   contactEmail: string;
 }
 
+export type GovtReturnType = 'GSTR-1' | 'GSTR-3B' | 'ITR-1' | 'ITR-4';
+export type GovtFilingStatus = 'Generated (Offline JSON)' | 'Filed with EVC/DSC' | 'Rejected / Needs Review';
+
+export interface GovtValidationCheck {
+  id: string;
+  label: string;
+  status: 'passed' | 'warning' | 'failed';
+  message: string;
+}
+
+export interface GovtValidationResult {
+  score: number;
+  isPortalReady: boolean;
+  checks: GovtValidationCheck[];
+}
+
+export interface GovtFilingRecord {
+  id: string;
+  clientId: string;
+  clientName: string;
+  identifier: string;
+  returnType: GovtReturnType;
+  period: string;
+  financialYear: string;
+  status: GovtFilingStatus;
+  arnNumber?: string;
+  filingDate?: string;
+  filedBy?: string;
+  totalTaxLiability?: number;
+  jsonFileName: string;
+  jsonFilePath?: string;
+  createdAt: string;
+  notes?: string;
+}
+
