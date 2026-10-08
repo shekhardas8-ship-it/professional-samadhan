@@ -99,7 +99,11 @@ export const AdhocRequestsView: React.FC<AdhocRequestsViewProps> = ({ onBack }) 
 
   const persistRequests = (updated: AdhocRequestItem[]) => {
     setRequests(updated);
-    localStorage.setItem('ps_adhoc_requests_data', JSON.stringify(updated));
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('ps_adhoc_requests_data', JSON.stringify(updated));
+      window.dispatchEvent(new Event('ps_tasks_updated'));
+      window.dispatchEvent(new Event('ps_data_updated'));
+    }
   };
 
   const handleCreateRequest = async (e: React.FormEvent) => {

@@ -36,6 +36,7 @@ import {
   INITIAL_ACCUMULATED_TASKS_7_DAYS,
   ATTACHED_DOC_TEMPLATES,
 } from '../services/frontPageDataService.ts';
+import { getAccumulated7DaysPendingTasks } from '../services/pendingTasksService.ts';
 import {
   getStoredComplianceCalendar,
   syncStatutoryPortals,
@@ -184,7 +185,25 @@ export const CaExecutiveCockpit: React.FC<CaExecutiveCockpitProps> = ({
   // Compute stats
   const totalClients = clients.length;
   const currentPeriod = requests[0]?.reportingMonth || 'August 2026';
-  const pending7DayTasksCount = INITIAL_ACCUMULATED_TASKS_7_DAYS.length;
+  const [pending7DayTasksCount, setPending7DayTasksCount] = useState<number>(() => {
+    return getAccumulated7DaysPendingTasks().length;
+  });
+
+  useEffect(() => {
+    const handleSync = () => {
+      setPending7DayTasksCount(getAccumulated7DaysPendingTasks().length);
+    };
+    window.addEventListener('storage', handleSync);
+    window.addEventListener('ps_tasks_updated', handleSync);
+    window.addEventListener('ps_data_updated', handleSync);
+    window.addEventListener('focus', handleSync);
+    return () => {
+      window.removeEventListener('storage', handleSync);
+      window.removeEventListener('ps_tasks_updated', handleSync);
+      window.removeEventListener('ps_data_updated', handleSync);
+      window.removeEventListener('focus', handleSync);
+    };
+  }, []);
 
   const isCompact = preferences?.density === 'compact';
 

@@ -25,7 +25,7 @@ import {
   Zap,
 } from 'lucide-react';
 import { PendingTaskItem } from '../types/index.ts';
-import { INITIAL_ACCUMULATED_TASKS_7_DAYS } from '../services/frontPageDataService.ts';
+import { getAccumulated7DaysPendingTasks } from '../services/pendingTasksService.ts';
 
 interface Next7DaysPendingTaskViewProps {
   onBack?: () => void;
@@ -34,16 +34,33 @@ interface Next7DaysPendingTaskViewProps {
 
 export const Next7DaysPendingTaxView: React.FC<Next7DaysPendingTaskViewProps> = ({ onBack, onNavigateTab }) => {
   const [tasks, setTasks] = useState<PendingTaskItem[]>(() => {
-    const saved = localStorage.getItem('ps_pending_tasks_7days');
-    if (saved) {
-      try {
-        return JSON.parse(saved);
-      } catch {
-        return INITIAL_ACCUMULATED_TASKS_7_DAYS;
-      }
-    }
-    return INITIAL_ACCUMULATED_TASKS_7_DAYS;
+    return getAccumulated7DaysPendingTasks();
   });
+
+  const refreshLiveTasks = () => {
+    const live = getAccumulated7DaysPendingTasks();
+    setTasks(live);
+  };
+
+  React.useEffect(() => {
+    refreshLiveTasks();
+
+    const handleSync = () => {
+      refreshLiveTasks();
+    };
+
+    window.addEventListener('storage', handleSync);
+    window.addEventListener('ps_tasks_updated', handleSync);
+    window.addEventListener('ps_data_updated', handleSync);
+    window.addEventListener('focus', handleSync);
+
+    return () => {
+      window.removeEventListener('storage', handleSync);
+      window.removeEventListener('ps_tasks_updated', handleSync);
+      window.removeEventListener('ps_data_updated', handleSync);
+      window.removeEventListener('focus', handleSync);
+    };
+  }, []);
 
   const [filterSection, setFilterSection] = useState<string>('all');
   const [copiedSummary, setCopiedSummary] = useState(false);
@@ -279,7 +296,7 @@ export const Next7DaysPendingTaxView: React.FC<Next7DaysPendingTaskViewProps> = 
       </div>
 
       {/* 2. Top Summary KPI Cards (Accumulated Across All Sections) */}
-      <div className="grid grid-cols-2 lg:grid-cols-5 gap-3 sm:gap-4">
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 sm:gap-4">
         <div
           onClick={() => setFilterSection('all')}
           className={`rounded-2xl p-4 border transition cursor-pointer shadow-sm ${
@@ -291,7 +308,7 @@ export const Next7DaysPendingTaxView: React.FC<Next7DaysPendingTaskViewProps> = 
           <div className="text-[11px] font-semibold uppercase opacity-75">Total Pending Tasks</div>
           <div className="text-2xl sm:text-3xl font-black mt-1">{tasks.length}</div>
           <div className="text-[11px] text-rose-500 font-bold mt-1 flex items-center gap-1">
-            <Clock className="w-3 h-3" /> Across all 5 sections
+            <Clock className="w-3 h-3" /> All 5 sections
           </div>
         </div>
 
@@ -318,7 +335,7 @@ export const Next7DaysPendingTaxView: React.FC<Next7DaysPendingTaskViewProps> = 
         >
           <div className="text-[11px] font-semibold uppercase text-indigo-600">📥 GST Intake</div>
           <div className="text-2xl sm:text-3xl font-black mt-1">{gstIntakeCount}</div>
-          <div className="text-[11px] opacity-75 mt-1">Pending client uploads</div>
+          <div className="text-[11px] opacity-75 mt-1">Pending uploads</div>
         </div>
 
         <div
@@ -329,9 +346,9 @@ export const Next7DaysPendingTaxView: React.FC<Next7DaysPendingTaskViewProps> = 
               : 'bg-white text-slate-900 border-slate-200 hover:border-amber-400'
           }`}
         >
-          <div className="text-[11px] font-semibold uppercase text-amber-600">⚖️ Client Sign-Off</div>
+          <div className="text-[11px] font-semibold uppercase text-amber-600">⚖️ Sign-Off</div>
           <div className="text-2xl sm:text-3xl font-black mt-1">{clientApprovalCount}</div>
-          <div className="text-[11px] opacity-75 mt-1">Workbooks awaiting OK</div>
+          <div className="text-[11px] opacity-75 mt-1">Workbooks & tickets</div>
         </div>
 
         <div
@@ -346,7 +363,22 @@ export const Next7DaysPendingTaxView: React.FC<Next7DaysPendingTaskViewProps> = 
           <div className="text-2xl sm:text-3xl font-black mt-1 font-mono">
             {billingDuesCount}
           </div>
-          <div className="text-[11px] opacity-75 mt-1">Pending fees clearance</div>
+          <div className="text-[11px] opacity-75 mt-1">Fee collections</div>
+        </div>
+
+        <div
+          onClick={() => setFilterSection('adhoc')}
+          className={`rounded-2xl p-4 border transition cursor-pointer shadow-sm ${
+            filterSection === 'adhoc'
+              ? 'bg-purple-900 text-white border-purple-900 ring-2 ring-purple-500'
+              : 'bg-white text-slate-900 border-slate-200 hover:border-purple-400'
+          }`}
+        >
+          <div className="text-[11px] font-semibold uppercase text-purple-600">❓ Adhoc Services</div>
+          <div className="text-2xl sm:text-3xl font-black mt-1 font-mono">
+            {adhocCount}
+          </div>
+          <div className="text-[11px] opacity-75 mt-1">ROC, Startup & Special</div>
         </div>
       </div>
 
@@ -402,15 +434,19 @@ export const Next7DaysPendingTaxView: React.FC<Next7DaysPendingTaskViewProps> = 
                 {/* Days remaining badge */}
                 <div
                   className={`w-12 h-12 rounded-2xl font-black flex flex-col items-center justify-center text-xs shrink-0 border shadow-xs ${
-                    task.daysRemaining <= 3
+                    task.daysRemaining <= 2
                       ? 'bg-rose-100 text-rose-800 border-rose-300'
                       : task.daysRemaining <= 5
                       ? 'bg-amber-100 text-amber-800 border-amber-300'
                       : 'bg-slate-100 text-slate-700 border-slate-300'
                   }`}
                 >
-                  <span className="text-sm font-black leading-none">{task.daysRemaining}d</span>
-                  <span className="text-[9px] uppercase font-bold text-slate-500">Left</span>
+                  <span className="text-sm font-black leading-none">
+                    {task.daysRemaining === 0 ? 'Today' : `${task.daysRemaining}d`}
+                  </span>
+                  <span className="text-[9px] uppercase font-bold text-slate-500">
+                    {task.daysRemaining === 0 ? 'Due' : 'Left'}
+                  </span>
                 </div>
 
                 <div className="space-y-1.5">
