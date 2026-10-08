@@ -93,6 +93,7 @@ export const StaffReviewModal: React.FC<StaffReviewModalProps> = ({
     missingItems?: string[];
     isFullySatisfied?: boolean;
     bankStatementPassword?: string | null;
+    client?: any;
   } | null>(null);
 
   const [showFlagMissingDialog, setShowFlagMissingDialog] = useState(false);
@@ -116,9 +117,9 @@ export const StaffReviewModal: React.FC<StaffReviewModalProps> = ({
     subtitle: string;
   } | null>(null);
   const [previewSourceFile, setPreviewSourceFile] = useState<{ file: DocumentFile; docTitle: string; docId?: string } | null>(null);
-  const [clientDriveUrl, setClientDriveUrl] = useState<string | null>(null);
+  const [clientDriveUrl, setClientDriveUrl] = useState<string | null>((request as any)?.googleDriveUrl || null);
   const [showDriveUrlModal, setShowDriveUrlModal] = useState(false);
-  const [inputDriveUrl, setInputDriveUrl] = useState('');
+  const [inputDriveUrl, setInputDriveUrl] = useState((request as any)?.googleDriveUrl || '');
   const [invoiceSearchInput, setInvoiceSearchInput] = useState('');
   const [appliedInvoiceSearch, setAppliedInvoiceSearch] = useState('');
   const [invoiceFilterType, setInvoiceFilterType] = useState<'all' | 'sales_invoice' | 'purchase_invoice' | 'bank_statement' | 'notes' | 'exceptions'>('all');
@@ -196,6 +197,10 @@ export const StaffReviewModal: React.FC<StaffReviewModalProps> = ({
       if (!res.ok) throw new Error('Failed to load request details');
       const data = await res.json();
       setDetails(data);
+      if (data.client?.googleDriveUrl) {
+        setClientDriveUrl(data.client.googleDriveUrl);
+        setInputDriveUrl(data.client.googleDriveUrl);
+      }
     } catch (err: any) {
       setMessage({ type: 'error', text: err.message });
     } finally {
@@ -839,9 +844,9 @@ Chartered Accountants`;
             <a
               href={
                 clientDriveUrl ||
-                `https://drive.google.com/drive/search?q=${encodeURIComponent(
-                  (request.clientName || '') + ' ' + (request.clientGstin || '')
-                )}`
+                details?.client?.googleDriveUrl ||
+                (request as any)?.googleDriveUrl ||
+                'https://drive.google.com/drive/folders/14N0AcJ4feylYYGu0MM1WI6IN4qQBEh60'
               }
               target="_blank"
               rel="noopener noreferrer"
@@ -3217,7 +3222,12 @@ Chartered Accountants`;
 
                 {/* Direct 1-Click Drive Launch */}
                 <a
-                  href={`https://drive.google.com/drive/search?q=${encodeURIComponent((request.clientName || '') + ' ' + (request.clientGstin || ''))}`}
+                  href={
+                    clientDriveUrl ||
+                    details?.client?.googleDriveUrl ||
+                    (request as any)?.googleDriveUrl ||
+                    'https://drive.google.com/drive/folders/14N0AcJ4feylYYGu0MM1WI6IN4qQBEh60'
+                  }
                   target="_blank"
                   rel="noopener noreferrer"
                   className="w-full py-2.5 px-3 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-300 rounded-lg text-xs font-bold flex items-center justify-center space-x-2 transition shadow-2xs"

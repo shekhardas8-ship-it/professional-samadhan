@@ -10,6 +10,9 @@ export interface DriveUploadResult {
   webViewLink?: string;
   webContentLink?: string;
   folderId?: string;
+  folderUrl?: string;
+  clientFolderId?: string;
+  clientFolderUrl?: string;
   isGoogleDrive: boolean;
 }
 
@@ -137,7 +140,48 @@ class GoogleDriveService {
       fields: 'id',
     });
 
-    return folder.data.id;
+    const folderId = folder.data.id;
+
+    // Grant read permission to anyone with link so it's always accessible in user's browser
+    try {
+      await this.driveClient.permissions.create({
+        fileId: folderId,
+        requestBody: {
+          role: 'reader',
+          type: 'anyone',
+        },
+      });
+    } catch (e: any) {
+      // Permission might already be set or handled by parent inheritance
+    }
+
+    return folderId;
+  }
+
+  /**
+   * Retrieves or creates a client folder in the root folder, ensuring link-sharing is active
+   */
+  public async getOrCreateClientFolder(clientName: string, clientGstin: string): Promise<{ folderId: string; folderUrl: string }> {
+    if (!this.isEnabled()) throw new Error('Drive client not initialized');
+    const clientFolderName = `${clientName.trim()} (${clientGstin.trim()})`;
+    const folderId = await this.getOrCreateFolder(this.rootFolderId, clientFolderName);
+
+    try {
+      await this.driveClient.permissions.create({
+        fileId: folderId,
+        requestBody: {
+          role: 'reader',
+          type: 'anyone',
+        },
+      });
+    } catch (e: any) {
+      // Already set
+    }
+
+    return {
+      folderId,
+      folderUrl: `https://drive.google.com/drive/folders/${folderId}`,
+    };
   }
 
   /**
@@ -206,6 +250,9 @@ class GoogleDriveService {
         webViewLink: driveFile.webViewLink,
         webContentLink: driveFile.webContentLink,
         folderId: periodFolderId,
+        folderUrl: `https://drive.google.com/drive/folders/${periodFolderId}`,
+        clientFolderId,
+        clientFolderUrl: `https://drive.google.com/drive/folders/${clientFolderId}`,
         isGoogleDrive: true,
       };
     } catch (err: any) {

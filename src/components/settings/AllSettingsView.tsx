@@ -44,6 +44,11 @@ import { SelfServicePortalSettingsView } from './SelfServicePortalSettingsView';
 import { WhatsAppIntegrationView } from './WhatsAppIntegrationView';
 import { ClientAiIntegrationView } from './ClientAiIntegrationView';
 import { ClientDataManagementView } from './ClientDataManagementView';
+import { OrgBranchesView } from './OrgBranchesView';
+import { OrgSubscriptionView } from './OrgSubscriptionView';
+import { UserPreferencesView } from './UserPreferencesView';
+import { CustomCaModulesView } from './CustomCaModulesView';
+import { PdfAuditTemplatesView } from './PdfAuditTemplatesView';
 
 export interface AllSettingsViewProps {
   onClose: () => void;
@@ -181,7 +186,7 @@ export const AllSettingsView: React.FC<AllSettingsViewProps> = ({
               name: 'Branches',
               description: 'Multi-city branch offices, jurisdictional circles, and branch partner allocations',
               keywords: ['branches', 'offices', 'mumbai', 'delhi', 'bengaluru', 'locations'],
-              actionType: 'dialog',
+              actionType: 'subview',
               dialogConfig: {
                 title: 'Branch Offices & Regional Jurisdiction',
                 description: 'Configure practice locations across multiple GST circles and state tax offices.',
@@ -202,7 +207,7 @@ export const AllSettingsView: React.FC<AllSettingsViewProps> = ({
               badge: firmBranding.planName || 'Enterprise',
               description: 'Active practice SaaS plan, quota limits, GST invoices, and license renewal',
               keywords: ['subscription', 'plan', 'billing', 'license', 'enterprise', 'upgrade'],
-              actionType: 'dialog',
+              actionType: 'subview',
               dialogConfig: {
                 title: 'Practice Subscription & SaaS Quotas',
                 description: 'Review active license entitlements, high-volume WhatsApp allowances, and storage limits.',
@@ -243,7 +248,7 @@ export const AllSettingsView: React.FC<AllSettingsViewProps> = ({
               name: 'User Preferences',
               description: 'Date format (DD/MM/YYYY), Indian Financial Year calendar, and alert sounds',
               keywords: ['preferences', 'date format', 'calendar', 'notifications', 'theme'],
-              actionType: 'dialog',
+              actionType: 'subview',
               dialogConfig: {
                 title: 'Personal CA User Preferences',
                 description: 'Customize locale, currency format (₹ INR), fiscal year view, and UI preferences.',
@@ -319,7 +324,7 @@ export const AllSettingsView: React.FC<AllSettingsViewProps> = ({
               name: 'PDF Templates',
               description: 'Executive GST summary layout, firm letterhead seal, and CA digital signature block',
               keywords: ['pdf', 'templates', 'letterhead', 'seal', 'report', 'summary'],
-              actionType: 'dialog',
+              actionType: 'subview',
               dialogConfig: {
                 title: 'PDF Dossier & Audit Report Templates',
                 description: 'Configure statutory report header, firm seal watermark, and compliance signature disclaimers.',
@@ -441,7 +446,7 @@ export const AllSettingsView: React.FC<AllSettingsViewProps> = ({
               badge: 'ROC & MCA',
               description: 'Custom practice trackers for ROC/MCA annual filings, DIN tracking, and Tax litigation',
               keywords: ['custom modules', 'overview', 'roc', 'mca', 'litigation', 'notices'],
-              actionType: 'dialog',
+              actionType: 'subview',
               dialogConfig: {
                 title: 'Custom CA Modules & Statutory Trackers',
                 description: 'Enable or configure practice-specific modules for ROC Filings, DSC tracking, and Litigation.',
@@ -744,8 +749,63 @@ export const AllSettingsView: React.FC<AllSettingsViewProps> = ({
             />
           )}
 
+          {/* Org Branches Subview */}
+          {activeViewId === 'org_branches' && (
+            <OrgBranchesView
+              firmBranding={firmBranding}
+              currentUser={currentUser}
+              onSavedNotification={handleSaveSuccess}
+              onClose={() => setActiveViewId('grid')}
+            />
+          )}
+
+          {/* Org Subscription Subview */}
+          {activeViewId === 'org_subscription' && (
+            <OrgSubscriptionView
+              firmBranding={firmBranding}
+              currentUser={currentUser}
+              onSavedNotification={handleSaveSuccess}
+              onClose={() => setActiveViewId('grid')}
+            />
+          )}
+
+          {/* User Preferences Subview */}
+          {activeViewId === 'user_preferences' && (
+            <UserPreferencesView
+              firmBranding={firmBranding}
+              currentUser={currentUser}
+              onSavedNotification={handleSaveSuccess}
+              onClose={() => setActiveViewId('grid')}
+            />
+          )}
+
+          {/* Custom CA Modules & Statutory Trackers Subview */}
+          {activeViewId === 'mod_overview' && (
+            <CustomCaModulesView
+              firmBranding={firmBranding}
+              currentUser={currentUser}
+              onSavedNotification={handleSaveSuccess}
+              onClose={() => setActiveViewId('grid')}
+            />
+          )}
+
+          {/* PDF Dossier & Audit Report Templates Subview */}
+          {activeViewId === 'custom_pdf' && (
+            <PdfAuditTemplatesView
+              firmBranding={firmBranding}
+              currentUser={currentUser}
+              onSavedNotification={handleSaveSuccess}
+              onClose={() => setActiveViewId('grid')}
+            />
+          )}
+
           {/* Fallback for other subviews: show detail panel */}
           {activeViewId !== 'org_profile' &&
+            activeViewId !== 'org_branches' &&
+            activeViewId !== 'org_subscription' &&
+            activeViewId !== 'user_preferences' &&
+            activeViewId !== 'mod_overview' &&
+            activeViewId !== 'custom_pdf' &&
             activeViewId !== 'users_roles' &&
             activeViewId !== 'users_list' &&
             activeViewId !== 'config_portal' &&
@@ -1038,7 +1098,7 @@ const SettingDetailDialog: React.FC<SettingDetailDialogProps> = ({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs">
-      <div className="bg-white rounded-2xl shadow-2xl border border-slate-200 max-w-2xl w-full max-h-[90vh] flex flex-col overflow-hidden animate-in fade-in zoom-in-95 duration-150">
+      <div className="bg-white rounded-2xl shadow-2xl border border-slate-200 max-w-4xl w-full max-h-[90vh] flex flex-col overflow-hidden animate-in fade-in zoom-in-95 duration-150">
         <div className="px-6 py-4 border-b border-slate-200 flex items-center justify-between bg-slate-50">
           <div>
             <h3 className="text-base font-bold text-slate-800">
@@ -1218,10 +1278,55 @@ const SettingDetailDialog: React.FC<SettingDetailDialogProps> = ({
             </div>
           )}
 
+          {dialogType === 'branches' && (
+            <OrgBranchesView
+              firmBranding={firmBranding}
+              onSavedNotification={msg => onSave(msg)}
+              isDialogMode={true}
+            />
+          )}
+
+          {dialogType === 'subscription' && (
+            <OrgSubscriptionView
+              firmBranding={firmBranding}
+              onSavedNotification={msg => onSave(msg)}
+              isDialogMode={true}
+            />
+          )}
+
+          {dialogType === 'preferences' && (
+            <UserPreferencesView
+              firmBranding={firmBranding}
+              onSavedNotification={msg => onSave(msg)}
+              isDialogMode={true}
+            />
+          )}
+
+          {dialogType === 'custom_modules_overview' && (
+            <CustomCaModulesView
+              firmBranding={firmBranding}
+              onSavedNotification={msg => onSave(msg)}
+              isDialogMode={true}
+            />
+          )}
+
+          {dialogType === 'pdf_templates' && (
+            <PdfAuditTemplatesView
+              firmBranding={firmBranding}
+              onSavedNotification={msg => onSave(msg)}
+              isDialogMode={true}
+            />
+          )}
+
           {dialogType !== 'ai_integration' &&
             dialogType !== 'portal' &&
             dialogType !== 'web_forms' &&
-            dialogType !== 'data_management' && (
+            dialogType !== 'data_management' &&
+            dialogType !== 'branches' &&
+            dialogType !== 'subscription' &&
+            dialogType !== 'preferences' &&
+            dialogType !== 'custom_modules_overview' &&
+            dialogType !== 'pdf_templates' && (
               <div className="space-y-4">
                 <div className="p-4 bg-slate-50 border border-slate-200 rounded-xl space-y-2">
                   <span className="font-bold text-slate-800">{option.name} Settings</span>

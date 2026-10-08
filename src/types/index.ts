@@ -303,6 +303,8 @@ export interface MonthlyRequest {
   contactPerson?: string;
   registeredPhone?: string;
   assignedStaffName?: string;
+  googleDriveUrl?: string;
+  googleDriveFolderId?: string;
 }
 
 export interface ChecklistCategoryItem {

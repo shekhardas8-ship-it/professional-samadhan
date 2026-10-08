@@ -56,6 +56,8 @@ import {
   Gstr1B2bInvoice,
   Gstr1HsnItem,
 } from './src/services/gstItrFilingService.ts';
+import { googleDriveStorage } from './src/services/googleDriveStorage.ts';
+
 
 
 const app = express();
@@ -1330,6 +1332,8 @@ app.get('/api/monthly-requests', requireAuth, async (req: AuthRequest, res: Resp
       contactPerson: r.client.contactPerson,
       registeredPhone: r.client.registeredPhone,
       assignedStaffName: r.client.assignedStaffName,
+      googleDriveUrl: r.client.googleDriveUrl || (r.client.googleDriveFolderId ? `https://drive.google.com/drive/folders/${r.client.googleDriveFolderId}` : null),
+      googleDriveFolderId: r.client.googleDriveFolderId,
     }));
 
     res.json(payload);
@@ -2380,11 +2384,29 @@ app.get('/api/clients/:id/drive-folder', async (req: Request, res: Response) => 
     const clientRec = await db.select().from(clients).where(eq(clients.id, id)).limit(1);
     if (clientRec.length === 0) return res.status(404).json({ error: 'Client not found' });
     const c = clientRec[0];
+
+    let folderId = c.googleDriveFolderId;
+    let url = c.googleDriveUrl;
+
+    if (!url && googleDriveStorage.isEnabled() && c.businessName) {
+      try {
+        const clientFolder = await googleDriveStorage.getOrCreateClientFolder(c.businessName, c.gstin || '');
+        folderId = clientFolder.folderId;
+        url = clientFolder.folderUrl;
+        await db.update(clients).set({
+          googleDriveFolderId: folderId,
+          googleDriveUrl: url,
+        }).where(eq(clients.id, id));
+      } catch (e: any) {
+        console.warn('[GoogleDriveService] Auto-resolve client folder note:', e.message);
+      }
+    }
+
     res.json({
       clientId: c.id,
       businessName: c.businessName,
-      googleDriveFolderId: c.googleDriveFolderId || null,
-      googleDriveUrl: c.googleDriveUrl || (c.googleDriveFolderId ? `https://drive.google.com/drive/folders/${c.googleDriveFolderId}` : null),
+      googleDriveFolderId: folderId || null,
+      googleDriveUrl: url || (folderId ? `https://drive.google.com/drive/folders/${folderId}` : null),
       isDriveEnabled: googleDriveStorage.isEnabled(),
     });
   } catch (err: any) {
