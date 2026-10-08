@@ -491,6 +491,23 @@ export const INITIAL_ADHOC_REQUESTS: AdhocRequestItem[] = [
     createdAt: '2026-09-20',
     notes: 'Signed copies delivered to director SN Biswas.',
   },
+  {
+    id: 'adhoc_6',
+    clientId: 'cli_zylker_01',
+    clientName: 'Zylker Agriculture',
+    clientGstin: '27AABCS1234D1Z9',
+    serviceCategory: 'Startup india registration',
+    title: 'DPIIT Startup India Recognition & Section 80-IAC Tax Exemption Application',
+    description: 'Application for DPIIT Recognition under AgriTech / Smart Irrigation category with pitch deck dossier and 3-year tax holiday filing.',
+    status: 'In Progress',
+    priority: 'High',
+    assignedStaffName: 'Pooja Verma (Senior Associate)',
+    assignedStaffId: 'staff_pooja_02',
+    feeQuote: 15000,
+    targetDeadline: '2026-10-15',
+    createdAt: '2026-10-01',
+    notes: 'Entity incorporation verified, pitch deck & Form 1 innovation questionnaire prepared for DPIIT portal submission.',
+  },
 ];
 
 export const INITIAL_PENDING_TAX_7_DAYS: PendingTaxItem[] = [
