@@ -53,6 +53,7 @@ import { AccountingIntegrationView } from './AccountingIntegrationView';
 import { OtherAppsIntegrationView } from './OtherAppsIntegrationView';
 import { DelugeLogicStudioView } from './DelugeLogicStudioView';
 import { WebFormsIntakeView } from './WebFormsIntakeView';
+import { ChartOfAccountsMappingView } from './ChartOfAccountsMappingView';
 
 export interface AllSettingsViewProps {
   onClose: () => void;
@@ -812,6 +813,16 @@ export const AllSettingsView: React.FC<AllSettingsViewProps> = ({
             />
           )}
 
+          {/* Chart of Accounts & GST Ledger Mapping Subview */}
+          {activeViewId === 'config_chart_accounts' && (
+            <ChartOfAccountsMappingView
+              firmBranding={firmBranding}
+              currentUser={currentUser}
+              onSavedNotification={handleSaveSuccess}
+              isDialogMode={false}
+            />
+          )}
+
           {/* Fallback for other subviews: show detail panel */}
           {activeViewId !== 'org_profile' &&
             activeViewId !== 'org_branches' &&
@@ -823,6 +834,7 @@ export const AllSettingsView: React.FC<AllSettingsViewProps> = ({
             activeViewId !== 'int_other' &&
             activeViewId !== 'dev_deluge' &&
             activeViewId !== 'dev_webforms' &&
+            activeViewId !== 'config_chart_accounts' &&
             activeViewId !== 'users_roles' &&
             activeViewId !== 'users_list' &&
             activeViewId !== 'config_portal' &&
@@ -1335,6 +1347,15 @@ const SettingDetailDialog: React.FC<SettingDetailDialogProps> = ({
             />
           )}
 
+          {dialogType === 'chart_accounts' && (
+            <ChartOfAccountsMappingView
+              firmBranding={firmBranding}
+              currentUser={currentUser}
+              onSavedNotification={msg => onSave(msg)}
+              isDialogMode={true}
+            />
+          )}
+
           {dialogType !== 'ai_integration' &&
             dialogType !== 'portal' &&
             dialogType !== 'web_forms' &&
@@ -1343,7 +1364,8 @@ const SettingDetailDialog: React.FC<SettingDetailDialogProps> = ({
             dialogType !== 'subscription' &&
             dialogType !== 'preferences' &&
             dialogType !== 'custom_modules_overview' &&
-            dialogType !== 'pdf_templates' && (
+            dialogType !== 'pdf_templates' &&
+            dialogType !== 'chart_accounts' && (
               <div className="space-y-4">
                 <div className="p-4 bg-slate-50 border border-slate-200 rounded-xl space-y-2">
                   <span className="font-bold text-slate-800">{option.name} Settings</span>

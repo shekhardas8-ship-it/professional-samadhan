@@ -41,7 +41,6 @@ export type SettingsSubViewId =
   | 'int_client_ai'
   | 'int_whatsapp'
   | 'int_accounting'
-  | 'int_bharat'
   | 'int_other'
   | 'dev_data_mgmt'
   | 'dev_deluge'
@@ -185,7 +184,10 @@ export const SettingsSidebar: React.FC<SettingsSidebarProps> = ({
           id: 'general_module',
           label: 'General',
           icon: CheckSquare,
-          items: [{ id: 'mod_tasks', label: 'Tasks' }],
+          items: [
+            { id: 'mod_tasks', label: 'Tasks' },
+            { id: 'config_chart_accounts', label: 'Chart of Accounts', badge: 'Active' },
+          ],
         },
         {
           id: 'custom_modules',
