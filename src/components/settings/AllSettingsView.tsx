@@ -49,6 +49,11 @@ import { OrgSubscriptionView } from './OrgSubscriptionView';
 import { UserPreferencesView } from './UserPreferencesView';
 import { CustomCaModulesView } from './CustomCaModulesView';
 import { PdfAuditTemplatesView } from './PdfAuditTemplatesView';
+import { AccountingIntegrationView } from './AccountingIntegrationView';
+import { BharatConnectView } from './BharatConnectView';
+import { OtherAppsIntegrationView } from './OtherAppsIntegrationView';
+import { DelugeLogicStudioView } from './DelugeLogicStudioView';
+import { WebFormsIntakeView } from './WebFormsIntakeView';
 
 export interface AllSettingsViewProps {
   onClose: () => void;
@@ -492,14 +497,10 @@ export const AllSettingsView: React.FC<AllSettingsViewProps> = ({
             {
               id: 'int_accounting',
               name: 'Accounting',
+              badge: 'Tally Prime',
               description: 'Tally Prime XML live sync, Busy Accounting bridge, and QuickBooks ledger export',
               keywords: ['accounting', 'tally', 'busy', 'quickbooks', 'tally prime', 'xml'],
-              actionType: 'dialog',
-              dialogConfig: {
-                title: 'Tally Prime & Accounting Software Bridges',
-                description: 'Configure automated day-book and sales/purchase XML export to Tally Prime and Busy.',
-                type: 'accounting_sync',
-              },
+              actionType: 'subview',
             },
             {
               id: 'int_bharat',
@@ -507,24 +508,15 @@ export const AllSettingsView: React.FC<AllSettingsViewProps> = ({
               badge: 'GSTN API',
               description: 'Direct GSTN Portal API sandbox, E-Way Bill, E-Invoice QR, and Traces TDS integration',
               keywords: ['bharat connect', 'gstn', 'eway bill', 'einvoice', 'traces', 'income tax'],
-              actionType: 'dialog',
-              dialogConfig: {
-                title: 'Bharat Connect & Official GSTN / Tax Portals',
-                description: 'Configure official GSTN GSP API credentials, E-Way Bill auto-generation, and Traces login.',
-                type: 'bharat_connect',
-              },
+              actionType: 'subview',
             },
             {
               id: 'int_other',
               name: 'Other Apps',
+              badge: 'Google Drive',
               description: 'Google Drive cloud storage, DigiLocker KYC, AWS S3 permanent vault, and SMS gateways',
               keywords: ['google drive', 'digilocker', 'aws s3', 'cloud storage', 'fast2sms'],
-              actionType: 'dialog',
-              dialogConfig: {
-                title: 'Cloud Storage & External Utility Integrations',
-                description: 'Manage automated Google Drive folder mirroring, AWS S3 archives, and DigiLocker integration.',
-                type: 'other_apps',
-              },
+              actionType: 'subview',
             },
           ],
         },
@@ -554,12 +546,7 @@ export const AllSettingsView: React.FC<AllSettingsViewProps> = ({
               badge: 'Automation Scripts',
               description: 'Custom automation script triggers, webhook endpoints, and API quota usage telemetry',
               keywords: ['deluge', 'scripts', 'webhooks', 'api usage', 'developer', 'telemetry'],
-              actionType: 'dialog',
-              dialogConfig: {
-                title: 'Scripting & Automation Components Telemetry',
-                description: 'Review webhook triggers, monthly API consumption, and custom automation script status.',
-                type: 'script_usage',
-              },
+              actionType: 'subview',
             },
             {
               id: 'dev_webforms',
@@ -567,12 +554,7 @@ export const AllSettingsView: React.FC<AllSettingsViewProps> = ({
               badge: 'Public KYC Link',
               description: 'Instant client self-onboarding web forms, document intake link generator, and QR codes',
               keywords: ['web forms', 'kyc form', 'onboarding', 'intake link', 'qr code'],
-              actionType: 'dialog',
-              dialogConfig: {
-                title: 'Client Web Intake Forms & QR Code Generator',
-                description: 'Generate shareable client onboarding forms and public KYC intake links for WhatsApp / Email.',
-                type: 'web_forms',
-              },
+              actionType: 'subview',
             },
           ],
         },
@@ -799,6 +781,56 @@ export const AllSettingsView: React.FC<AllSettingsViewProps> = ({
             />
           )}
 
+          {/* Accounting & ERP Bridges Subview */}
+          {activeViewId === 'int_accounting' && (
+            <AccountingIntegrationView
+              firmBranding={firmBranding}
+              currentUser={currentUser}
+              onSavedNotification={handleSaveSuccess}
+              onClose={() => setActiveViewId('grid')}
+            />
+          )}
+
+          {/* Bharat Connect Statutory Portals Subview */}
+          {activeViewId === 'int_bharat' && (
+            <BharatConnectView
+              firmBranding={firmBranding}
+              currentUser={currentUser}
+              onSavedNotification={handleSaveSuccess}
+              onClose={() => setActiveViewId('grid')}
+            />
+          )}
+
+          {/* Other Apps & Cloud Storage Subview */}
+          {activeViewId === 'int_other' && (
+            <OtherAppsIntegrationView
+              firmBranding={firmBranding}
+              currentUser={currentUser}
+              onSavedNotification={handleSaveSuccess}
+              onClose={() => setActiveViewId('grid')}
+            />
+          )}
+
+          {/* Deluge Logic Studio & Automations Subview */}
+          {activeViewId === 'dev_deluge' && (
+            <DelugeLogicStudioView
+              firmBranding={firmBranding}
+              currentUser={currentUser}
+              onSavedNotification={handleSaveSuccess}
+              onClose={() => setActiveViewId('grid')}
+            />
+          )}
+
+          {/* Web Forms & Client Intake Portal Subview */}
+          {activeViewId === 'dev_webforms' && (
+            <WebFormsIntakeView
+              firmBranding={firmBranding}
+              currentUser={currentUser}
+              onSavedNotification={handleSaveSuccess}
+              onClose={() => setActiveViewId('grid')}
+            />
+          )}
+
           {/* Fallback for other subviews: show detail panel */}
           {activeViewId !== 'org_profile' &&
             activeViewId !== 'org_branches' &&
@@ -806,6 +838,11 @@ export const AllSettingsView: React.FC<AllSettingsViewProps> = ({
             activeViewId !== 'user_preferences' &&
             activeViewId !== 'mod_overview' &&
             activeViewId !== 'custom_pdf' &&
+            activeViewId !== 'int_accounting' &&
+            activeViewId !== 'int_bharat' &&
+            activeViewId !== 'int_other' &&
+            activeViewId !== 'dev_deluge' &&
+            activeViewId !== 'dev_webforms' &&
             activeViewId !== 'users_roles' &&
             activeViewId !== 'users_list' &&
             activeViewId !== 'config_portal' &&
