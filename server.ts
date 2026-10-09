@@ -4652,6 +4652,10 @@ app.post('/api/monthly-requests/:id/declaration', async (req: Request, res: Resp
     const { id } = req.params;
     const { noTransactions, declarationNotes, declaredBy } = req.body;
 
+    const currentReq = await db.select().from(monthlyRequests).where(eq(monthlyRequests.id, id)).limit(1);
+    const existingStatus = currentReq[0]?.status || 'Requested';
+    const nextStatus = noTransactions || (declarationNotes && declarationNotes.trim()) ? 'Needs Review' : existingStatus;
+
     await db
       .update(monthlyRequests)
       .set({
@@ -4659,12 +4663,12 @@ app.post('/api/monthly-requests/:id/declaration', async (req: Request, res: Resp
         declarationNotes,
         declaredAt: new Date(),
         declaredBy: declaredBy || 'Client',
-        status: noTransactions ? 'Needs Review' : 'Requested',
+        status: nextStatus,
         updatedAt: new Date(),
       })
       .where(eq(monthlyRequests.id, id));
 
-    res.json({ success: true, id, noTransactions: Boolean(noTransactions) });
+    res.json({ success: true, id, noTransactions: Boolean(noTransactions), declarationNotes });
   } catch (err: any) {
     res.status(500).json({ error: 'Failed to record declaration: ' + err.message });
   }

@@ -678,7 +678,7 @@ export const StaffReviewModal: React.FC<StaffReviewModalProps> = ({
     if (list.length === 0) list = ['INV-2026017'];
     setMissingReminderInvoices(list);
 
-    const uploadLink = `${window.location.origin}/client-portal?token=${request.secureUploadToken}`;
+    const uploadLink = `${window.location.origin}/client-portal?token=${request.secureUploadToken}&remind=missing`;
     const missingLines = list.map(inv => `• ${inv}`).join('\n');
     const msg = `Dear ${request.contactPerson || 'Client'},
 
@@ -686,10 +686,10 @@ While auditing your sales invoices for *${request.clientName || 'your business'}
 
 ${missingLines}
 
-Kindly upload or send the missing invoice(s) so that your outward supply register (GSTR-1) and serial number range declarations are complete and audit-ready:
-👉 Upload here: ${uploadLink}
+Kindly upload the missing invoice(s) or submit your reason/declaration (e.g. if cancelled, void, or skipped) directly via your portal:
+👉 Upload / Declaration link: ${uploadLink}
 
-(Note: If any of these invoice numbers were cancelled, spoiled, or skipped, please reply to inform us so we can declare them under Cancelled Invoices in GSTR-1).
+(Note: If any of these invoice numbers were cancelled, spoiled, or skipped, you can directly provide your reason / note in the portal so we declare them under Cancelled Invoices in GSTR-1).
 
 Warm regards,
 Team Professional Samadhan & QuinceCA
@@ -1044,6 +1044,29 @@ Chartered Accountants`;
                     <div className="bg-emerald-50 border border-emerald-200 rounded-xl p-4 text-xs text-emerald-900 flex items-center space-x-2">
                       <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
                       <span className="font-semibold">All mandatory checklist items are complete! Ready to compile and confirm return.</span>
+                    </div>
+                  )}
+
+                  {/* Client Declaration / Reason Note Banner */}
+                  {details?.request?.declarationNotes && (
+                    <div className="bg-indigo-50 border border-indigo-200 rounded-xl p-4 text-xs text-indigo-900 space-y-1.5 shadow-2xs">
+                      <div className="font-bold flex items-center justify-between text-indigo-950">
+                        <div className="flex items-center gap-1.5">
+                          <FileText className="w-4 h-4 text-indigo-600 shrink-0" />
+                          <span>Client Declaration & Reason Note Received:</span>
+                        </div>
+                        <span className="text-[10px] text-indigo-700 bg-indigo-100 px-2 py-0.5 rounded font-semibold">
+                          By {details.request.declaredBy || 'Client'}
+                        </span>
+                      </div>
+                      <p className="whitespace-pre-wrap font-sans text-slate-800 bg-white p-3 rounded-lg border border-indigo-100">
+                        {details.request.declarationNotes}
+                      </p>
+                      {details.request.declaredAt && (
+                        <div className="text-[10px] text-indigo-500">
+                          Submitted on {new Date(details.request.declaredAt).toLocaleString()}
+                        </div>
+                      )}
                     </div>
                   )}
 
@@ -2622,6 +2645,24 @@ Chartered Accountants`;
                             ) : ex.resolutionNotes ? (
                               <p className="text-[11px] text-slate-500 italic">Resolution: {ex.resolutionNotes}</p>
                             ) : null}
+
+                            {/* Client Declaration / Note for Sequence Gap */}
+                            {ex.checkType === 'sequence_gap' && details?.request?.declarationNotes && (
+                              <div className="mt-2 p-2.5 bg-indigo-50/80 border border-indigo-200 rounded-lg text-xs text-indigo-900 space-y-1">
+                                <div className="font-bold flex items-center justify-between text-indigo-950">
+                                  <div className="flex items-center gap-1.5">
+                                    <FileText className="w-3.5 h-3.5 text-indigo-600" />
+                                    <span>Client Reason / Declaration Received:</span>
+                                  </div>
+                                  <span className="text-[10px] text-indigo-600 font-semibold">
+                                    — {details.request.declaredBy || 'Client'}
+                                  </span>
+                                </div>
+                                <p className="text-[11px] text-slate-800 bg-white p-2 rounded border border-indigo-100 whitespace-pre-wrap font-sans">
+                                  &ldquo;{details.request.declarationNotes}&rdquo;
+                                </p>
+                              </div>
+                            )}
                           </div>
 
                           {/* Action Buttons */}

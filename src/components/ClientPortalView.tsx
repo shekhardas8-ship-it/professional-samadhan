@@ -185,10 +185,15 @@ export const ClientPortalView: React.FC<ClientPortalProps> = ({ initialToken, is
   const fileInputRef = useRef<HTMLInputElement>(null);
   const uploadSectionRef = useRef<HTMLDivElement>(null);
 
-  // Nil Transaction Declaration State
-  const [showNilDeclaration, setShowNilDeclaration] = useState(false);
+  // Additional Documents & Client Declaration Modal State
+  const [showAdditionalDocModal, setShowAdditionalDocModal] = useState(false);
+  const [additionalFiles, setAdditionalFiles] = useState<File[]>([]);
+  const [additionalCategory, setAdditionalCategory] = useState<'sales_invoices' | 'purchase_invoices' | 'bank_statements' | 'debit_credit_notes' | 'auto'>('sales_invoices');
+  const [additionalPassword, setAdditionalPassword] = useState('');
   const [declarationNotes, setDeclarationNotes] = useState('');
   const [declaredByName, setDeclaredByName] = useState('');
+  const [isSubmittingDeclaration, setIsSubmittingDeclaration] = useState(false);
+  const additionalFileInputRef = useRef<HTMLInputElement>(null);
 
   // Workbook Approval State
   const [showApproveDialog, setShowApproveDialog] = useState(false);
@@ -374,6 +379,9 @@ export const ClientPortalView: React.FC<ClientPortalProps> = ({ initialToken, is
         setDeclaredByName(data.client.contactPerson);
         setConfirmationSignatory(data.client.contactPerson);
       }
+      if (data.request?.declarationNotes) {
+        setDeclarationNotes(data.request.declarationNotes);
+      }
     } catch (err: any) {
       setError(err.message);
       setSession((prev: any) => prev || null);
@@ -383,6 +391,18 @@ export const ClientPortalView: React.FC<ClientPortalProps> = ({ initialToken, is
       }
     }
   };
+
+  // Auto-open Additional Documents & Declaration popup if opened from "Remind Client" link
+  useEffect(() => {
+    try {
+      const params = new URLSearchParams(window.location.search);
+      if (params.get('remind') === 'missing' || params.get('action') === 'declaration' || params.get('action') === 'notes' || params.get('popup') === 'true') {
+        setShowAdditionalDocModal(true);
+      }
+    } catch (e) {
+      // ignore
+    }
+  }, []);
 
   // Fetch available real clients for switching
   useEffect(() => {
@@ -609,24 +629,69 @@ export const ClientPortalView: React.FC<ClientPortalProps> = ({ initialToken, is
     }
   };
 
-  const handleNilDeclarationSubmit = async () => {
+  const handleAdditionalDocAndDeclarationSubmit = async () => {
+    if (!session) return;
     try {
+      setIsSubmittingDeclaration(true);
       setError(null);
-      const res = await fetch(`/api/monthly-requests/${session.request.id}/declaration`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          noTransactions: true,
-          declarationNotes,
-          declaredBy: declaredByName,
-        }),
-      });
-      await safeParseResponse(res);
-      setShowNilDeclaration(false);
-      setSuccessMsg('Nil transaction declaration recorded for CA audit review.');
+
+      // 1. If additional files are selected, upload them
+      if (additionalFiles.length > 0) {
+        const formData = new FormData();
+        formData.append('monthlyRequestId', session.request.id);
+        formData.append('uploaderName', declaredByName || session.client.contactPerson);
+        formData.append('source', 'client_portal_additional');
+        formData.append('targetCategory', additionalCategory);
+
+        if (additionalPassword.trim()) {
+          formData.append('pdfPassword', additionalPassword.trim());
+          formData.append('bankStatementPassword', additionalPassword.trim());
+        }
+
+        additionalFiles.forEach(file => {
+          formData.append('files', file);
+        });
+
+        const uploadRes = await fetch('/api/documents/upload', {
+          method: 'POST',
+          body: formData,
+        });
+        if (!uploadRes.ok) {
+          const errData = await safeParseResponse(uploadRes);
+          throw new Error(errData.error || 'Failed to upload additional documents');
+        }
+      }
+
+      // 2. Submit Note / Reason / Declaration if provided
+      if (declarationNotes.trim() || declaredByName.trim()) {
+        const declRes = await fetch(`/api/monthly-requests/${session.request.id}/declaration`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            noTransactions: false,
+            declarationNotes: declarationNotes.trim(),
+            declaredBy: declaredByName.trim() || session.client.contactPerson,
+          }),
+        });
+        if (!declRes.ok) {
+          const errData = await safeParseResponse(declRes);
+          throw new Error(errData.error || 'Failed to record declaration note');
+        }
+      }
+
+      setShowAdditionalDocModal(false);
+      setAdditionalFiles([]);
+      setAdditionalPassword('');
+      setSuccessMsg(
+        additionalFiles.length > 0
+          ? `✓ Successfully uploaded ${additionalFiles.length} additional document(s) & submitted notes to CA.`
+          : '✓ Client note & reason / declaration submitted successfully for CA review.'
+      );
       await fetchSession(token);
     } catch (err: any) {
       setError(err.message);
+    } finally {
+      setIsSubmittingDeclaration(false);
     }
   };
 
@@ -1135,18 +1200,20 @@ export const ClientPortalView: React.FC<ClientPortalProps> = ({ initialToken, is
                     openUploadSection();
                     fileInputRef.current?.click();
                   }}
-                  className="px-3 py-1.5 bg-blue-600 hover:bg-blue-500 text-white text-xs font-semibold rounded-lg shadow-xs transition flex items-center space-x-1"
+                  className="px-3 py-1.5 bg-blue-600 hover:bg-blue-500 text-white text-xs font-semibold rounded-lg shadow-xs transition flex items-center space-x-1 cursor-pointer"
+                  title="Upload additional documents"
                 >
                   <Plus className="w-3.5 h-3.5" />
                   <span>+ Upload Documents</span>
                 </button>
 
                 <button
-                  onClick={() => setShowNilDeclaration(true)}
-                  className="px-2.5 py-1.5 text-xs text-slate-600 hover:text-slate-800 font-medium rounded-lg border border-slate-200 hover:bg-slate-50 transition"
-                  title="Declare zero business transactions for the entire month"
+                  onClick={() => setShowAdditionalDocModal(true)}
+                  className="px-3 py-1.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 text-xs font-semibold rounded-lg border border-indigo-200 hover:border-indigo-300 transition flex items-center space-x-1.5 cursor-pointer shadow-2xs"
+                  title="Upload additional documents or submit client note / reason / declaration to CA"
                 >
-                  Declare Entire Month Nil
+                  <FileText className="w-3.5 h-3.5 text-indigo-600" />
+                  <span>Note / Reason / Declaration</span>
                 </button>
               </div>
             </div>
@@ -1294,6 +1361,35 @@ export const ClientPortalView: React.FC<ClientPortalProps> = ({ initialToken, is
                 <div className="text-slate-400 text-center py-4 col-span-4">No checklist items configured.</div>
               )}
             </div>
+
+            {/* Client Submitted Note / Reason Declaration Card */}
+            {session.request.declarationNotes && (
+              <div className="bg-indigo-50/70 border border-indigo-200 rounded-xl p-4 text-xs text-indigo-950 space-y-1.5 shadow-2xs">
+                <div className="flex items-center justify-between">
+                  <div className="font-bold flex items-center gap-1.5 text-indigo-950">
+                    <FileText className="w-4 h-4 text-indigo-600 shrink-0" />
+                    <span>Client Submitted Declaration / Reason Note:</span>
+                  </div>
+                  <button
+                    onClick={() => setShowAdditionalDocModal(true)}
+                    className="text-xs font-bold text-indigo-700 hover:text-indigo-900 hover:underline cursor-pointer flex items-center gap-1"
+                  >
+                    <span>Edit Note / Add Files</span>
+                  </button>
+                </div>
+                <p className="whitespace-pre-wrap font-sans text-slate-800 bg-white p-2.5 rounded-lg border border-indigo-100 leading-relaxed">
+                  {session.request.declarationNotes}
+                </p>
+                <div className="text-[11px] text-indigo-600 flex items-center justify-between">
+                  <span>
+                    Submitted by: <strong>{session.request.declaredBy || session.client.contactPerson}</strong>
+                  </span>
+                  {session.request.declaredAt && (
+                    <span>{new Date(session.request.declaredAt).toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' })}</span>
+                  )}
+                </div>
+              </div>
+            )}
           </div>
 
           {/* 2. Squeezed, Compact & Collapsible Upload Area */}
@@ -1812,45 +1908,245 @@ export const ClientPortalView: React.FC<ClientPortalProps> = ({ initialToken, is
             )}
           </div>
 
-          {/* Modal: Nil Declaration */}
-          {showNilDeclaration && (
-            <div className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4">
-              <div className="bg-white rounded-xl shadow-2xl max-w-md w-full p-6 space-y-4">
-                <h3 className="text-base font-bold text-slate-900">Declare &quot;No Transactions / Nil Return&quot;</h3>
-                <p className="text-xs text-slate-600">
-                  By declaring nil transactions, you confirm that no sales invoices, purchase bills, or bank transactions were made during <strong>{session.request.reportingMonth}</strong>.
-                </p>
-                <div>
-                  <label className="text-xs font-semibold text-slate-700">Authorised Person Name</label>
-                  <input
-                    type="text"
-                    value={declaredByName}
-                    onChange={e => setDeclaredByName(e.target.value)}
-                    className="w-full text-xs p-2 border border-slate-300 rounded-lg mt-1"
-                  />
-                </div>
-                <div>
-                  <label className="text-xs font-semibold text-slate-700">Reason / Notes</label>
-                  <textarea
-                    rows={2}
-                    value={declarationNotes}
-                    onChange={e => setDeclarationNotes(e.target.value)}
-                    placeholder="e.g. Factory closed for annual maintenance..."
-                    className="w-full text-xs p-2 border border-slate-300 rounded-lg mt-1"
-                  />
-                </div>
-                <div className="flex justify-end space-x-2 pt-2 border-t">
+          {/* Modal: Additional Documents & Client Declaration */}
+          {showAdditionalDocModal && (
+            <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4">
+              <div className="bg-white rounded-2xl shadow-2xl max-w-xl w-full p-6 space-y-5 animate-in fade-in zoom-in-95 duration-150 border border-slate-200 max-h-[92vh] overflow-y-auto">
+                {/* Header */}
+                <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+                  <div className="flex items-center gap-2.5">
+                    <div className="p-2 bg-indigo-100 text-indigo-700 rounded-xl">
+                      <FileText className="w-5 h-5" />
+                    </div>
+                    <div>
+                      <h3 className="text-base font-bold text-slate-900">
+                        Upload Additional Documents & Reason / Declaration
+                      </h3>
+                      <p className="text-xs text-slate-500">
+                        For <strong>{session.client.businessName}</strong> • {session.request.reportingMonth}
+                      </p>
+                    </div>
+                  </div>
                   <button
-                    onClick={() => setShowNilDeclaration(false)}
-                    className="px-3 py-1.5 text-xs text-slate-600 hover:bg-slate-100 rounded-lg"
+                    type="button"
+                    onClick={() => setShowAdditionalDocModal(false)}
+                    className="p-1 rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition cursor-pointer"
+                  >
+                    <X className="w-5 h-5" />
+                  </button>
+                </div>
+
+                <div className="space-y-4">
+                  {/* OPTION 1: Upload Additional Document Option */}
+                  <div className="p-4 bg-slate-50 rounded-xl border border-slate-200/80 space-y-3">
+                    <div className="flex items-center justify-between">
+                      <div className="font-bold text-xs text-slate-900 flex items-center gap-1.5">
+                        <span className="w-5 h-5 rounded-full bg-blue-600 text-white flex items-center justify-center text-[11px] font-bold">1</span>
+                        <span>Upload Additional Document(s)</span>
+                        <span className="text-[11px] text-slate-400 font-normal">(Optional)</span>
+                      </div>
+                      <span className="text-[10px] text-slate-500">PDF, JPG, PNG, Excel</span>
+                    </div>
+
+                    {/* Category Selector */}
+                    <div className="flex flex-wrap items-center gap-1.5">
+                      <span className="text-[11px] text-slate-500 font-medium mr-1">Document Category:</span>
+                      {[
+                        { id: 'sales_invoices', label: 'Sales Invoices / Missing Bills' },
+                        { id: 'purchase_invoices', label: 'Purchase Bills' },
+                        { id: 'bank_statements', label: 'Bank Statements' },
+                        { id: 'debit_credit_notes', label: 'Debit / Credit Notes' },
+                        { id: 'auto', label: 'Other Supporting Docs' },
+                      ].map(cat => (
+                        <button
+                          key={cat.id}
+                          type="button"
+                          onClick={() => setAdditionalCategory(cat.id as any)}
+                          className={`px-2 py-1 rounded-md text-[11px] font-medium border transition cursor-pointer ${
+                            additionalCategory === cat.id
+                              ? 'bg-blue-600 text-white border-blue-600'
+                              : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-100'
+                          }`}
+                        >
+                          {cat.label}
+                        </button>
+                      ))}
+                    </div>
+
+                    {/* Hidden file input */}
+                    <input
+                      type="file"
+                      ref={additionalFileInputRef}
+                      onChange={(e) => {
+                        if (e.target.files) {
+                          const newFiles = Array.from(e.target.files);
+                          setAdditionalFiles(prev => [...prev, ...newFiles]);
+                          e.target.value = '';
+                        }
+                      }}
+                      multiple
+                      className="hidden"
+                      accept=".pdf,.jpg,.jpeg,.png,.xlsx,.xls,.csv"
+                    />
+
+                    <div
+                      onClick={() => additionalFileInputRef.current?.click()}
+                      className="border-2 border-dashed border-slate-300 hover:border-blue-500 hover:bg-blue-50/40 rounded-xl p-4 text-center cursor-pointer transition space-y-1 bg-white"
+                    >
+                      <UploadCloud className="w-6 h-6 text-blue-600 mx-auto" />
+                      <div className="text-xs font-semibold text-slate-700">
+                        Click to select or drop additional files here
+                      </div>
+                      <p className="text-[11px] text-slate-400">
+                        Upload missing bills, cancelled invoice copies, or supporting bank proofs
+                      </p>
+                    </div>
+
+                    {/* Staged Additional Files List */}
+                    {additionalFiles.length > 0 && (
+                      <div className="space-y-1.5 pt-1">
+                        <div className="text-[11px] font-semibold text-slate-700 flex items-center justify-between">
+                          <span>Selected {additionalFiles.length} file(s) to upload:</span>
+                          <button
+                            type="button"
+                            onClick={() => setAdditionalFiles([])}
+                            className="text-rose-600 hover:underline text-[10px] cursor-pointer"
+                          >
+                            Clear all
+                          </button>
+                        </div>
+                        <div className="max-h-28 overflow-y-auto space-y-1">
+                          {additionalFiles.map((file, idx) => (
+                            <div
+                              key={idx}
+                              className="flex items-center justify-between p-2 bg-white rounded-lg border border-slate-200 text-xs"
+                            >
+                              <div className="flex items-center gap-2 truncate">
+                                <FileCheck className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                                <span className="font-medium truncate text-slate-800">{file.name}</span>
+                                <span className="text-[10px] text-slate-400">({formatFileSize(file.size)})</span>
+                              </div>
+                              <button
+                                type="button"
+                                onClick={() => setAdditionalFiles(prev => prev.filter((_, i) => i !== idx))}
+                                className="text-slate-400 hover:text-rose-600 p-0.5 cursor-pointer"
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                              </button>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Bank statement password if selected */}
+                    {additionalCategory === 'bank_statements' && (
+                      <div className="flex items-center gap-2 pt-1">
+                        <Key className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                        <input
+                          type="text"
+                          placeholder="PDF Password (if statement is encrypted)"
+                          value={additionalPassword}
+                          onChange={e => setAdditionalPassword(e.target.value)}
+                          className="w-full text-xs p-2 border border-slate-200 rounded-lg bg-white"
+                        />
+                      </div>
+                    )}
+                  </div>
+
+                  {/* OPTION 2: Client Able to Write Some Note or Reason / Declaration */}
+                  <div className="p-4 bg-indigo-50/50 rounded-xl border border-indigo-200/80 space-y-3">
+                    <div className="flex items-center justify-between">
+                      <div className="font-bold text-xs text-indigo-950 flex items-center gap-1.5">
+                        <span className="w-5 h-5 rounded-full bg-indigo-600 text-white flex items-center justify-center text-[11px] font-bold">2</span>
+                        <span>Write Note, Reason or Declaration</span>
+                      </div>
+                      <span className="text-[10px] text-indigo-600 font-medium">Shared directly with CA</span>
+                    </div>
+
+                    {/* Quick preset chips */}
+                    <div className="flex flex-wrap gap-1.5">
+                      {[
+                        { label: 'Missing Invoice Cancelled', text: 'Invoice was cancelled/void and not issued to buyer. Kindly record as cancelled in GSTR-1 serial declarations.' },
+                        { label: 'Sequence Gap Clarification', text: 'The missing invoice number was skipped due to a billing software reset / printer jam error. No supply was made.' },
+                        { label: 'Attached Missing Bills', text: 'Enclosed the missing invoice copies as requested for audit.' },
+                        { label: 'All Bills Supplied', text: 'I declare that all sales invoices and purchase bills for this period have been fully provided.' },
+                      ].map((chip, idx) => (
+                        <button
+                          key={idx}
+                          type="button"
+                          onClick={() => {
+                            setDeclarationNotes(prev => prev ? `${prev}\n${chip.text}` : chip.text);
+                          }}
+                          className="px-2 py-0.5 rounded-full bg-white text-indigo-700 hover:bg-indigo-100 text-[10px] font-medium border border-indigo-200 transition cursor-pointer"
+                        >
+                          + {chip.label}
+                        </button>
+                      ))}
+                    </div>
+
+                    <div>
+                      <textarea
+                        rows={4}
+                        value={declarationNotes}
+                        onChange={e => setDeclarationNotes(e.target.value)}
+                        placeholder="e.g. Invoice INV-2026017 was cancelled before delivery and not issued to customer. Kindly treat as cancelled invoice..."
+                        className="w-full text-xs p-3 border border-indigo-200 rounded-xl bg-white focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 text-slate-800 leading-relaxed font-sans"
+                      />
+                    </div>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
+                      <div>
+                        <label className="text-[11px] font-semibold text-slate-600 block mb-1">
+                          Authorised Signatory / Contact Person
+                        </label>
+                        <input
+                          type="text"
+                          value={declaredByName}
+                          onChange={e => setDeclaredByName(e.target.value)}
+                          placeholder="Your name"
+                          className="w-full text-xs p-2 border border-slate-300 rounded-lg bg-white"
+                        />
+                      </div>
+                      <div>
+                        <label className="text-[11px] font-semibold text-slate-600 block mb-1">
+                          Declaration Date
+                        </label>
+                        <div className="text-xs p-2 bg-slate-100 border border-slate-200 rounded-lg text-slate-600 font-medium">
+                          {new Date().toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' })}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Modal Actions */}
+                <div className="flex items-center justify-between pt-3 border-t border-slate-200">
+                  <button
+                    type="button"
+                    onClick={() => setShowAdditionalDocModal(false)}
+                    className="px-3 py-1.5 text-xs text-slate-600 hover:bg-slate-100 rounded-lg font-medium cursor-pointer"
                   >
                     Cancel
                   </button>
+
                   <button
-                    onClick={handleNilDeclarationSubmit}
-                    className="px-4 py-1.5 bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold rounded-lg shadow"
+                    type="button"
+                    onClick={handleAdditionalDocAndDeclarationSubmit}
+                    disabled={isSubmittingDeclaration || (!declarationNotes.trim() && additionalFiles.length === 0)}
+                    className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white text-xs font-bold rounded-xl shadow-xs transition flex items-center space-x-1.5 cursor-pointer"
                   >
-                    Submit Declaration
+                    {isSubmittingDeclaration ? (
+                      <>
+                        <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                        <span>Submitting to CA...</span>
+                      </>
+                    ) : (
+                      <>
+                        <Send className="w-3.5 h-3.5" />
+                        <span>Submit to CA</span>
+                      </>
+                    )}
                   </button>
                 </div>
               </div>
