@@ -1,6 +1,6 @@
 // src/types/index.ts
 
-export type UserRole = 'ca_admin' | 'staff' | 'client';
+export type UserRole = 'superadmin' | 'ca_admin' | 'staff' | 'client';
 
 export type MonthlyRequestStatus =
   | 'Requested'
@@ -483,6 +483,7 @@ export interface AuthUser {
   designation?: string;
   firmName?: string;
   logoUrl?: string;
+  isSuperAdmin?: boolean;
 }
 
 // Enterprise Practice Extensions for QuinceCA

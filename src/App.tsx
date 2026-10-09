@@ -1,5 +1,6 @@
 // src/App.tsx
 import React, { useState, useEffect } from 'react';
+import { ShieldAlert } from 'lucide-react';
 import { UserRole, MonthlyRequest, AuthUser } from './types/index.ts';
 import { Header } from './components/Header.tsx';
 import { SidebarZoho } from './components/SidebarZoho.tsx';
@@ -67,13 +68,17 @@ export default function App() {
   // Firm White-Label & Branding State
   const [firmBranding, setFirmBranding] = useState<FirmBrandingConfig>(getStoredFirmBranding);
 
-  // Authentication State
+  // Authentication State (with Super Admin recognition for shekhardas8@gmail.com)
   const [authenticatedUser, setAuthenticatedUser] = useState<AuthUser | null>(() => {
     if (typeof window === 'undefined') return null;
     const stored = localStorage.getItem('ps_auth_user');
     if (stored) {
       try {
-        return JSON.parse(stored);
+        const parsed = JSON.parse(stored);
+        if (parsed?.email?.toLowerCase() === 'shekhardas8@gmail.com' || parsed?.role === 'superadmin') {
+          return { ...parsed, role: 'superadmin', isSuperAdmin: true };
+        }
+        return parsed;
       } catch {
         return null;
       }
@@ -81,9 +86,16 @@ export default function App() {
     return null;
   });
 
+  const isSuperAdmin =
+    authenticatedUser?.role === 'superadmin' ||
+    authenticatedUser?.email?.toLowerCase() === 'shekhardas8@gmail.com' ||
+    authenticatedUser?.isSuperAdmin === true;
+
   const [currentRole, setCurrentRole] = useState<UserRole>(
     isClientOnlyMode
       ? 'client'
+      : isSuperAdmin
+      ? 'superadmin'
       : authenticatedUser?.role || 'ca_admin'
   );
 
@@ -174,10 +186,19 @@ export default function App() {
   }, [currentRole, authenticatedUser, isClientOnlyMode]);
 
   const handleLoginSuccess = (user: AuthUser) => {
-    setAuthenticatedUser(user);
-    setCurrentRole(user.role);
-    if (user.role === 'client') {
-      setActivePortalToken(user.token);
+    const isSuper =
+      user.role === 'superadmin' ||
+      user.email?.toLowerCase() === 'shekhardas8@gmail.com' ||
+      user.isSuperAdmin === true;
+
+    const finalUser: AuthUser = isSuper
+      ? { ...user, role: 'superadmin', isSuperAdmin: true }
+      : user;
+
+    setAuthenticatedUser(finalUser);
+    setCurrentRole(finalUser.role);
+    if (finalUser.role === 'client') {
+      setActivePortalToken(finalUser.token);
       setActiveTab('client-portal');
     } else {
       setActiveTab('home');
@@ -487,16 +508,52 @@ export default function App() {
         <AiCopilotView />
       )}
 
-      {/* 15. Super Admin Console & Plans */}
+      {/* 15. Super Admin Console & Plans (Restricted to Super Administrator: shekhardas8@gmail.com) */}
       {activeTab === 'super-admin' && (
-        <SuperAdminConsoleView />
+        isSuperAdmin ? (
+          <SuperAdminConsoleView />
+        ) : (
+          <div className="p-8 max-w-xl mx-auto my-12 bg-white rounded-2xl border border-rose-200 shadow-sm text-center">
+            <div className="w-12 h-12 bg-rose-100 text-rose-600 rounded-full flex items-center justify-center mx-auto mb-4">
+              <ShieldAlert className="w-6 h-6" />
+            </div>
+            <h3 className="text-lg font-bold text-slate-900">Restricted Access</h3>
+            <p className="text-sm text-slate-600 mt-2">
+              The Super Admin Console is strictly restricted to Super Administrators (shekhardas8@gmail.com).
+            </p>
+            <button
+              onClick={() => setActiveTab('home')}
+              className="mt-5 px-4 py-2 bg-slate-900 hover:bg-slate-800 text-white rounded-xl text-xs font-bold transition cursor-pointer"
+            >
+              Return to Practice Dashboard
+            </button>
+          </div>
+        )
       )}
 
-      {/* 16. System Health & Diagnostics Panel (includes Firebase Crashlytics & Bug Scrub Studio) */}
+      {/* 16. System Health & Diagnostics Panel (Restricted to Super Administrator: shekhardas8@gmail.com) */}
       {(activeTab === 'diagnostics' || activeTab === 'crashlytics' || activeTab === 'bug-scrub') && (
-        <SystemDiagnosticsView
-          initialSubTab={activeTab === 'crashlytics' || activeTab === 'bug-scrub' ? 'crashlytics' : 'architecture'}
-        />
+        isSuperAdmin ? (
+          <SystemDiagnosticsView
+            initialSubTab={activeTab === 'crashlytics' || activeTab === 'bug-scrub' ? 'crashlytics' : 'architecture'}
+          />
+        ) : (
+          <div className="p-8 max-w-xl mx-auto my-12 bg-white rounded-2xl border border-rose-200 shadow-sm text-center">
+            <div className="w-12 h-12 bg-rose-100 text-rose-600 rounded-full flex items-center justify-center mx-auto mb-4">
+              <ShieldAlert className="w-6 h-6" />
+            </div>
+            <h3 className="text-lg font-bold text-slate-900">Restricted Access</h3>
+            <p className="text-sm text-slate-600 mt-2">
+              System Diagnostics & Observability are strictly restricted to Super Administrators (shekhardas8@gmail.com).
+            </p>
+            <button
+              onClick={() => setActiveTab('home')}
+              className="mt-5 px-4 py-2 bg-slate-900 hover:bg-slate-800 text-white rounded-xl text-xs font-bold transition cursor-pointer"
+            >
+              Return to Practice Dashboard
+            </button>
+          </div>
+        )
       )}
 
       {/* 17. Adhoc Requests */}

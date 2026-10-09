@@ -29,6 +29,7 @@ import {
   Landmark,
   FileCode2,
 } from 'lucide-react';
+import { AuthUser } from '../types/index.ts';
 
 interface SidebarZohoProps {
   activeTab: string;
@@ -37,6 +38,8 @@ interface SidebarZohoProps {
   onToggleCollapse: () => void;
   onOpenLiveTour?: () => void;
   userRole?: string;
+  currentUser?: AuthUser | null;
+  isSuperAdmin?: boolean;
 }
 
 export const SidebarZoho: React.FC<SidebarZohoProps> = ({
@@ -46,7 +49,15 @@ export const SidebarZoho: React.FC<SidebarZohoProps> = ({
   onToggleCollapse,
   onOpenLiveTour,
   userRole = 'ca_admin',
+  currentUser,
+  isSuperAdmin: externalIsSuperAdmin,
 }) => {
+  const isSuper =
+    externalIsSuperAdmin ||
+    userRole === 'superadmin' ||
+    currentUser?.role === 'superadmin' ||
+    currentUser?.email?.toLowerCase() === 'shekhardas8@gmail.com' ||
+    currentUser?.isSuperAdmin === true;
   const mainMenuItems = [
     {
       id: 'home',
@@ -135,18 +146,22 @@ export const SidebarZoho: React.FC<SidebarZohoProps> = ({
       label: 'Workflow Automation',
       icon: GitBranch,
     },
-    {
-      id: 'super-admin',
-      label: 'Super Admin Console',
-      icon: Layers,
-      badge: 'SaaS',
-      badgeColor: 'bg-purple-500/20 text-purple-300 border-purple-500/30',
-    },
-    {
-      id: 'diagnostics',
-      label: 'System Diagnostics',
-      icon: Activity,
-    },
+    ...(isSuper
+      ? [
+          {
+            id: 'super-admin',
+            label: 'Super Admin Console',
+            icon: Layers,
+            badge: 'SaaS',
+            badgeColor: 'bg-purple-500/20 text-purple-300 border-purple-500/30',
+          },
+          {
+            id: 'diagnostics',
+            label: 'System Diagnostics',
+            icon: Activity,
+          },
+        ]
+      : []),
   ];
 
   return (

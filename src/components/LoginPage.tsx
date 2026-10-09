@@ -15,6 +15,7 @@ import {
   AlertCircle,
   Sliders,
   RotateCcw,
+  ShieldAlert,
 } from 'lucide-react';
 import { PaletteSwitcher } from './PaletteSwitcher.tsx';
 import {
@@ -43,7 +44,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({
 
   const activeBranding = externalBranding || internalBranding;
 
-  const [selectedRole, setSelectedRole] = useState<'ca_admin' | 'staff'>('ca_admin');
+  const [selectedRole, setSelectedRole] = useState<'ca_admin' | 'staff' | 'superadmin'>('ca_admin');
   const [identifier, setIdentifier] = useState('suraj');
   const [password, setPassword] = useState('QuinceCA@2026');
   const [showPassword, setShowPassword] = useState(false);
@@ -51,15 +52,18 @@ export const LoginPage: React.FC<LoginPageProps> = ({
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   // Switch role tab helper
-  const handleRoleSelect = (role: 'ca_admin' | 'staff') => {
+  const handleRoleSelect = (role: 'ca_admin' | 'staff' | 'superadmin') => {
     setSelectedRole(role);
     setErrorMessage(null);
     if (role === 'ca_admin') {
       setIdentifier('suraj');
       setPassword('QuinceCA@2026');
-    } else {
+    } else if (role === 'staff') {
       setIdentifier('pooja@quinceca.com');
       setPassword('Staff@2026');
+    } else {
+      setIdentifier('shekhardas8@gmail.com');
+      setPassword('SuperAdmin@2026');
     }
   };
 
@@ -90,13 +94,19 @@ export const LoginPage: React.FC<LoginPageProps> = ({
       setLoading(true);
       setErrorMessage(null);
 
+      const cleanIdent = identifier.trim().toLowerCase();
+      const effectiveRole =
+        cleanIdent === 'shekhardas8@gmail.com' || cleanIdent === 'superadmin' || selectedRole === 'superadmin'
+          ? 'superadmin'
+          : selectedRole;
+
       const res = await fetch('/api/auth/login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           identifier: identifier.trim(),
           password: password.trim(),
-          role: selectedRole,
+          role: effectiveRole,
         }),
       });
 
@@ -105,9 +115,12 @@ export const LoginPage: React.FC<LoginPageProps> = ({
         throw new Error(data.error || 'Authentication failed. Please verify your credentials.');
       }
 
-      // Ensure user object carries active firm branding
+      // Ensure user object carries active firm branding & superadmin flag
+      const isSuper = data.user?.role === 'superadmin' || data.user?.email?.toLowerCase() === 'shekhardas8@gmail.com';
       const enrichedUser: AuthUser = {
         ...data.user,
+        role: isSuper ? 'superadmin' : data.user?.role,
+        isSuperAdmin: isSuper,
         firmName: activeBranding.firmName,
         logoUrl: activeBranding.logoUrl,
       };
@@ -212,32 +225,45 @@ export const LoginPage: React.FC<LoginPageProps> = ({
           </p>
         </div>
 
-        {/* Persona Selector Tabs: CA Partner and Staff */}
-        <div className="grid grid-cols-2 gap-1.5 bg-slate-950 p-1.5 rounded-xl border border-slate-800 mb-6">
+        {/* Persona Selector Tabs: CA Partner, Staff, Super Admin */}
+        <div className="grid grid-cols-3 gap-1 bg-slate-950 p-1.5 rounded-xl border border-slate-800 mb-6">
           <button
             type="button"
             onClick={() => handleRoleSelect('ca_admin')}
-            className={`py-2 px-3 text-xs font-semibold rounded-lg transition-all flex items-center justify-center gap-1.5 truncate ${
+            className={`py-2 px-1.5 text-[11px] font-semibold rounded-lg transition-all flex items-center justify-center gap-1 truncate ${
               selectedRole === 'ca_admin'
-                ? 'bg-[var(--theme-primary)] text-white shadow-sm'
+                ? 'bg-[var(--theme-primary)] text-white shadow-sm font-bold'
                 : 'text-slate-400 hover:text-white'
             }`}
           >
-            <ShieldCheck className="w-4 h-4 shrink-0" />
-            <span className="truncate">CA Partner ({activeBranding.partnerName.replace('CA ', '').split(' ')[0]})</span>
+            <ShieldCheck className="w-3.5 h-3.5 shrink-0" />
+            <span className="truncate">CA Partner</span>
           </button>
 
           <button
             type="button"
             onClick={() => handleRoleSelect('staff')}
-            className={`py-2 px-3 text-xs font-semibold rounded-lg transition-all flex items-center justify-center gap-1.5 truncate ${
+            className={`py-2 px-1.5 text-[11px] font-semibold rounded-lg transition-all flex items-center justify-center gap-1 truncate ${
               selectedRole === 'staff'
-                ? 'bg-amber-600 text-white shadow-sm'
+                ? 'bg-amber-600 text-white shadow-sm font-bold'
                 : 'text-slate-400 hover:text-white'
             }`}
           >
-            <UserCheck className="w-4 h-4 shrink-0" />
-            <span className="truncate">Staff ({activeBranding.staffName.split(' ')[0]})</span>
+            <UserCheck className="w-3.5 h-3.5 shrink-0" />
+            <span className="truncate">Staff</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => handleRoleSelect('superadmin')}
+            className={`py-2 px-1.5 text-[11px] font-semibold rounded-lg transition-all flex items-center justify-center gap-1 truncate ${
+              selectedRole === 'superadmin'
+                ? 'bg-purple-600 text-white shadow-sm font-bold ring-1 ring-purple-400'
+                : 'text-purple-300/80 hover:text-purple-200 hover:bg-purple-950/40'
+            }`}
+          >
+            <ShieldAlert className="w-3.5 h-3.5 shrink-0 text-purple-300" />
+            <span className="truncate font-bold">Super Admin</span>
           </button>
         </div>
 

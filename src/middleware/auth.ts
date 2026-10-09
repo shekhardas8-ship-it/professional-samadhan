@@ -10,9 +10,10 @@ export interface AuthRequest extends Request {
   user?: {
     uid: string;
     email: string;
-    role: 'ca_admin' | 'staff' | 'client';
+    role: 'superadmin' | 'ca_admin' | 'staff' | 'client';
     displayName?: string;
     assignedClientIds?: string[];
+    isSuperAdmin?: boolean;
   };
   clientSession?: {
     clientId: string;
@@ -61,18 +62,21 @@ export const requireAuth = async (
     }
   }
 
-  // 2. Allow active workspace session for CA / Staff if designated
-  if (staffRoleHeader && (staffRoleHeader === 'ca_admin' || staffRoleHeader === 'staff')) {
+  // 2. Allow active workspace session for Superadmin / CA / Staff if designated
+  if (staffRoleHeader && (staffRoleHeader === 'superadmin' || staffRoleHeader === 'ca_admin' || staffRoleHeader === 'staff')) {
     const userRec = staffUserIdHeader
       ? await db.select().from(users).where(eq(users.id, staffUserIdHeader)).limit(1)
       : [];
 
+    const isSuper = staffRoleHeader === 'superadmin' || userRec[0]?.email?.toLowerCase() === 'shekhardas8@gmail.com';
+
     req.user = {
-      uid: staffUserIdHeader || 'staff-default',
-      email: userRec[0]?.email || (staffRoleHeader === 'ca_admin' ? 'suraj.dutta@quinceca.com' : 'pooja.verma@quinceca.com'),
-      role: staffRoleHeader,
-      displayName: userRec[0]?.displayName || (staffRoleHeader === 'ca_admin' ? 'CA Suraj Dutta (FCA)' : 'Pooja Verma (Senior Associate)'),
-      assignedClientIds: userRec[0]?.assignedClientIds || ['cli_bluebell_02', 'cli_apex_01'],
+      uid: staffUserIdHeader || (isSuper ? 'superadmin_shekhar_01' : 'staff-default'),
+      email: userRec[0]?.email || (isSuper ? 'shekhardas8@gmail.com' : staffRoleHeader === 'ca_admin' ? 'suraj.dutta@quinceca.com' : 'pooja.verma@quinceca.com'),
+      role: isSuper ? 'superadmin' : staffRoleHeader,
+      displayName: userRec[0]?.displayName || (isSuper ? 'Shekhar Das (Super Admin)' : staffRoleHeader === 'ca_admin' ? 'CA Suraj Dutta (FCA)' : 'Pooja Verma (Senior Associate)'),
+      assignedClientIds: userRec[0]?.assignedClientIds || (isSuper ? [] : ['cli_bluebell_02', 'cli_apex_01']),
+      isSuperAdmin: isSuper,
     };
     return next();
   }
@@ -84,7 +88,26 @@ export const requireAuth = async (
     role: 'ca_admin',
     displayName: 'CA Suraj Dutta (FCA)',
     assignedClientIds: [],
+    isSuperAdmin: false,
   };
+  next();
+};
+
+export const requireSuperAdmin = (
+  req: AuthRequest,
+  res: Response,
+  next: NextFunction
+) => {
+  const isSuper =
+    req.user?.role === 'superadmin' ||
+    req.user?.email?.toLowerCase() === 'shekhardas8@gmail.com' ||
+    req.user?.isSuperAdmin === true;
+
+  if (!isSuper) {
+    return res.status(403).json({
+      error: 'Access Denied: System Diagnostics & Super Admin Console are strictly restricted to Super Administrator (shekhardas8@gmail.com).',
+    });
+  }
   next();
 };
 

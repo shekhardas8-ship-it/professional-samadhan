@@ -325,8 +325,74 @@ app.post('/api/auth/login', loginRateLimiter, async (req: Request, res: Response
       });
     }
 
-    // 2. CA Partner / Administrator Login
-    const isCaAdmin = cleanId.includes('ca') || cleanId.includes('suraj') || cleanId.includes('rajesh') || cleanId.includes('admin') || role === 'ca_admin';
+    // 2. Super Administrator Login (shekhardas8@gmail.com)
+    const isSuperAdminUser =
+      cleanId === 'shekhardas8@gmail.com' ||
+      cleanId === 'shekhardas8' ||
+      cleanId === 'superadmin' ||
+      role === 'superadmin';
+
+    if (isSuperAdminUser) {
+      let user = (await db.select().from(users).where(eq(users.email, 'shekhardas8@gmail.com')).limit(1))[0];
+      if (!user) {
+        user = (await db.select().from(users).where(eq(users.role, 'superadmin')).limit(1))[0];
+      }
+      if (!user) {
+        user = {
+          id: 'superadmin_shekhar_01',
+          email: 'shekhardas8@gmail.com',
+          displayName: 'Shekhar Das (Super Admin)',
+          role: 'superadmin',
+          phone: '+919873875138',
+          active: true,
+          assignedClientIds: [],
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        };
+      }
+
+      // Verify password if supplied
+      if (
+        cleanPwd &&
+        cleanPwd !== 'SuperAdmin@2026' &&
+        cleanPwd !== 'QuinceCA@2026' &&
+        cleanPwd !== 'Quince@2026' &&
+        cleanPwd !== 'Samadhan@2026' &&
+        cleanPwd !== 'admin123' &&
+        cleanPwd !== 'shekhar' &&
+        cleanPwd !== 'shekhar123' &&
+        cleanPwd !== 'Shekhar@2026'
+      ) {
+        return res.status(401).json({ error: 'Invalid password for Super Administrator account.' });
+      }
+
+      return res.json({
+        success: true,
+        user: {
+          id: user.id,
+          email: 'shekhardas8@gmail.com',
+          displayName: user.displayName || 'Shekhar Das (Super Admin)',
+          role: 'superadmin' as const,
+          phone: user.phone || '+919873875138',
+          token: `token_superadmin_${user.id}_${Date.now()}`,
+          assignedClientIds: [],
+          designation: 'Platform Super Administrator',
+          isSuperAdmin: true,
+          firmName: activeFirmBranding.firmName,
+          logoUrl: activeFirmBranding.logoUrl,
+        },
+      });
+    }
+
+    // 3. CA Partner / Administrator Login
+    const isCaAdmin =
+      !isSuperAdminUser &&
+      (cleanId.includes('ca') ||
+        cleanId.includes('suraj') ||
+        cleanId.includes('rajesh') ||
+        cleanId === 'admin' ||
+        cleanId.includes('admin') ||
+        role === 'ca_admin');
 
     if (isCaAdmin) {
       // Find CA user in DB

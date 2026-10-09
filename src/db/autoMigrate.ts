@@ -18,6 +18,25 @@ export async function ensureTablesExist() {
       updated_at TIMESTAMP NOT NULL DEFAULT NOW()
     );
 
+    -- Ensure shekhardas8@gmail.com exists with role 'superadmin'
+    INSERT INTO users (id, email, display_name, role, phone, active, assigned_client_ids)
+    VALUES (
+      'superadmin_shekhar_01',
+      'shekhardas8@gmail.com',
+      'Shekhar Das (Super Admin)',
+      'superadmin',
+      '+919873875138',
+      true,
+      '[]'::jsonb
+    )
+    ON CONFLICT (id) DO UPDATE SET
+      role = 'superadmin',
+      email = 'shekhardas8@gmail.com',
+      display_name = 'Shekhar Das (Super Admin)',
+      active = true;
+
+    UPDATE users SET role = 'superadmin' WHERE LOWER(email) = 'shekhardas8@gmail.com';
+
     CREATE TABLE IF NOT EXISTS clients (
       id TEXT PRIMARY KEY,
       business_name TEXT NOT NULL,

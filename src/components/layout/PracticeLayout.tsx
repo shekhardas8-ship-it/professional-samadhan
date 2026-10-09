@@ -146,12 +146,22 @@ export const PracticeLayout: React.FC<PracticeLayoutProps> = ({
     { key: 'adhoc-requests', label: 'Adhoc Advisory Desk', icon: FileText },
   ];
 
-  // AI & Automations Section
+  const isSuperAdmin =
+    currentRole === 'superadmin' ||
+    currentUser?.role === 'superadmin' ||
+    currentUser?.email?.toLowerCase() === 'shekhardas8@gmail.com' ||
+    currentUser?.isSuperAdmin === true;
+
+  // AI & Automations Section (Super Admin Console & System Diagnostics strictly restricted to Superadmin)
   const aiNavItems = [
     { key: 'ai-copilot', label: 'AI CA Copilot', icon: Sparkles, badge: 'Gemini AI', badgeColor: 'bg-indigo-500/20 text-indigo-300' },
     { key: 'automation', label: 'Workflow Automation', icon: Zap },
-    { key: 'super-admin', label: 'Super Admin Console', icon: ShieldAlert, badge: 'SaaS', badgeColor: 'bg-purple-500/20 text-purple-300' },
-    { key: 'diagnostics', label: 'System Diagnostics', icon: Activity },
+    ...(isSuperAdmin
+      ? [
+          { key: 'super-admin', label: 'Super Admin Console', icon: ShieldAlert, badge: 'SaaS', badgeColor: 'bg-purple-500/20 text-purple-300' },
+          { key: 'diagnostics', label: 'System Diagnostics', icon: Activity },
+        ]
+      : []),
     { key: 'settings', label: 'All Settings', icon: Settings },
   ];
 
@@ -442,11 +452,11 @@ export const PracticeLayout: React.FC<PracticeLayoutProps> = ({
 
             {/* Right: Actions, Subscription Alert, Quick Add, Notifications, Profile */}
             <div className="flex items-center gap-3 sm:gap-4 shrink-0">
-              {/* Trial Expiration Alert from screenshot */}
+              {/* Trial Expiration Alert */}
               <div className="hidden md:flex items-center gap-2 text-xs">
                 <span className="text-slate-500 font-medium">Trial expires in 14 days</span>
                 <button
-                  onClick={() => onTabChange('super-admin')}
+                  onClick={() => onTabChange(isSuperAdmin ? 'super-admin' : 'billing')}
                   className="font-bold text-blue-600 hover:underline"
                 >
                   Subscribe
@@ -486,8 +496,12 @@ export const PracticeLayout: React.FC<PracticeLayoutProps> = ({
                         <span className="text-[11px] text-slate-500 block truncate font-mono">
                           {currentUser?.email || 'suraj.dutta@quinceca.com'}
                         </span>
-                        <span className="inline-block mt-1 text-[9px] bg-emerald-50 text-emerald-800 border border-emerald-200 font-bold px-2 py-0.5 rounded-full uppercase tracking-wider">
-                          {currentUser?.designation || (currentRole === 'ca_admin' ? 'Senior Partner / FCA' : 'CA Staff')}
+                        <span className={`inline-block mt-1 text-[9px] font-bold px-2 py-0.5 rounded-full uppercase tracking-wider ${
+                          isSuperAdmin
+                            ? 'bg-purple-100 text-purple-800 border border-purple-300'
+                            : 'bg-emerald-50 text-emerald-800 border border-emerald-200'
+                        }`}>
+                          {isSuperAdmin ? 'Super Administrator' : (currentUser?.designation || (currentRole === 'ca_admin' ? 'Senior Partner / FCA' : 'CA Staff'))}
                         </span>
                       </div>
                     </div>
@@ -631,7 +645,7 @@ export const PracticeLayout: React.FC<PracticeLayoutProps> = ({
                       {/* Plan & Subscriptions */}
                       <button
                         onClick={() => {
-                          onTabChange('super-admin');
+                          onTabChange(isSuperAdmin ? 'super-admin' : 'billing');
                           setIsUserMenuOpen(false);
                         }}
                         className="w-full text-left px-2.5 py-1.5 hover:bg-slate-50 text-slate-700 hover:text-slate-900 rounded-lg flex items-center justify-between transition cursor-pointer group"
@@ -640,12 +654,33 @@ export const PracticeLayout: React.FC<PracticeLayoutProps> = ({
                           <div className="w-6 h-6 rounded-md bg-amber-50 text-amber-600 flex items-center justify-center group-hover:scale-105 transition-transform">
                             <CreditCard className="w-3.5 h-3.5" />
                           </div>
-                          <span>Plan & Subscriptions</span>
+                          <span>{isSuperAdmin ? 'Super Admin Console' : 'Plan & Subscriptions'}</span>
                         </span>
                         <span className="text-[10px] text-amber-700 font-bold bg-amber-50 px-1.5 py-0.2 rounded border border-amber-200">
-                          14 Days Left
+                          {isSuperAdmin ? 'SaaS Master' : '14 Days Left'}
                         </span>
                       </button>
+
+                      {/* System Diagnostics (Super Admin Only) */}
+                      {isSuperAdmin && (
+                        <button
+                          onClick={() => {
+                            onTabChange('diagnostics');
+                            setIsUserMenuOpen(false);
+                          }}
+                          className="w-full text-left px-2.5 py-1.5 hover:bg-slate-50 text-slate-700 hover:text-slate-900 rounded-lg flex items-center justify-between transition cursor-pointer group"
+                        >
+                          <span className="flex items-center gap-2 font-medium">
+                            <div className="w-6 h-6 rounded-md bg-indigo-50 text-indigo-600 flex items-center justify-center group-hover:scale-105 transition-transform">
+                              <Activity className="w-3.5 h-3.5" />
+                            </div>
+                            <span>System Diagnostics</span>
+                          </span>
+                          <span className="text-[10px] text-emerald-700 font-bold bg-emerald-50 px-1.5 py-0.2 rounded border border-emerald-200">
+                            Telemetry Active
+                          </span>
+                        </button>
+                      )}
 
                       {/* White-Label Branding */}
                       <button

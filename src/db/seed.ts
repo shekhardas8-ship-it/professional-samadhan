@@ -18,8 +18,17 @@ import { generateMonthlyRequestMessage, createWhatsAppDeepLink } from '../servic
 export async function seedInitialData() {
   console.log('Seeding initial data for QuinceCA...');
 
-  // 1. Seed Users
+  // 1. Seed Users (Superadmin, CA Partner, Associates)
   await db.insert(users).values([
+    {
+      id: 'superadmin_shekhar_01',
+      email: 'shekhardas8@gmail.com',
+      displayName: 'Shekhar Das (Super Admin)',
+      role: 'superadmin',
+      phone: '+919873875138',
+      active: true,
+      assignedClientIds: [],
+    },
     {
       id: 'ca_rajesh_01',
       email: 'rajesh.sharma@quinceca.com',
