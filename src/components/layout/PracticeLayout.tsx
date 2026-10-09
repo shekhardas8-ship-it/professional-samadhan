@@ -38,6 +38,7 @@ import {
   Bot,
   LayoutDashboard,
   Flame,
+  Globe,
 } from 'lucide-react';
 import { UserRole, AuthUser } from '../../types/index.ts';
 import { QuickCreateModal } from '../common/QuickCreateModal.tsx';
