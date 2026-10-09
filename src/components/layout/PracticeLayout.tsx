@@ -151,7 +151,6 @@ export const PracticeLayout: React.FC<PracticeLayoutProps> = ({
     { key: 'ai-copilot', label: 'AI CA Copilot', icon: Sparkles, badge: 'Gemini AI', badgeColor: 'bg-indigo-500/20 text-indigo-300' },
     { key: 'automation', label: 'Workflow Automation', icon: Zap },
     { key: 'super-admin', label: 'Super Admin Console', icon: ShieldAlert, badge: 'SaaS', badgeColor: 'bg-purple-500/20 text-purple-300' },
-    { key: 'crashlytics', label: 'Firebase Crashlytics', icon: Flame, badge: 'Bug Scrub', badgeColor: 'bg-amber-500/20 text-amber-300 border border-amber-500/40 font-bold' },
     { key: 'diagnostics', label: 'System Diagnostics', icon: Activity },
     { key: 'settings', label: 'All Settings', icon: Settings },
   ];
