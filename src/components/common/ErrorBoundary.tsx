@@ -1,6 +1,6 @@
-// src/components/common/ErrorBoundary.tsx
 import React, { Component, ErrorInfo, ReactNode } from 'react';
-import { AlertTriangle, RefreshCw, Home } from 'lucide-react';
+import { AlertTriangle, RefreshCw, Home, ShieldCheck } from 'lucide-react';
+import { firebaseCrashlytics } from '../../services/firebaseCrashlytics.ts';
 
 interface Props {
   children: ReactNode;
@@ -10,6 +10,7 @@ interface State {
   hasError: boolean;
   error: Error | null;
   errorInfo: ErrorInfo | null;
+  incidentId: string | null;
 }
 
 export class ErrorBoundary extends Component<Props, State> {
@@ -17,15 +18,21 @@ export class ErrorBoundary extends Component<Props, State> {
     hasError: false,
     error: null,
     errorInfo: null,
+    incidentId: null,
   };
 
-  public static getDerivedStateFromError(error: Error): State {
+  public static getDerivedStateFromError(error: Error): Partial<State> {
     return { hasError: true, error, errorInfo: null };
   }
 
   public componentDidCatch(error: Error, errorInfo: ErrorInfo) {
     console.error('ErrorBoundary caught an unhandled error:', error, errorInfo);
-    this.setState({ errorInfo });
+    // Report immediately to Firebase Crashlytics & Bug Scrub engine
+    const report = firebaseCrashlytics.recordError(error, true, {
+      componentStack: errorInfo.componentStack || undefined,
+      type: 'REACT_RENDER',
+    });
+    this.setState({ errorInfo, incidentId: report?.id || null });
   }
 
   private handleReset = () => {
@@ -53,8 +60,19 @@ export class ErrorBoundary extends Component<Props, State> {
             </div>
 
             {this.state.error && (
-              <div className="bg-slate-950 p-3 rounded-xl border border-slate-800 text-left overflow-auto max-h-36 text-xs font-mono text-rose-300">
-                {this.state.error.toString()}
+              <div className="space-y-2">
+                <div className="bg-slate-950 p-3 rounded-xl border border-slate-800 text-left overflow-auto max-h-36 text-xs font-mono text-rose-300">
+                  {this.state.error.toString()}
+                </div>
+                <div className="flex items-center justify-between text-[11px] px-2 text-slate-400">
+                  <span className="flex items-center gap-1 text-emerald-400">
+                    <ShieldCheck className="w-3.5 h-3.5" />
+                    <span>Reported to Firebase Crashlytics</span>
+                  </span>
+                  {this.state.incidentId && (
+                    <span className="font-mono text-slate-500">ID: {this.state.incidentId.slice(0, 18)}</span>
+                  )}
+                </div>
               </div>
             )}
 

@@ -34,6 +34,7 @@ import { WorkflowAutomationView } from './components/automation/WorkflowAutomati
 import { AiCopilotView } from './components/ai/AiCopilotView.tsx';
 import { SuperAdminConsoleView } from './components/superadmin/SuperAdminConsoleView.tsx';
 import { SystemDiagnosticsView } from './components/diagnostics/SystemDiagnosticsView.tsx';
+import { FirebaseCrashlyticsView } from './components/diagnostics/FirebaseCrashlyticsView.tsx';
 import { AllSettingsView } from './components/settings/AllSettingsView.tsx';
 import { BrandingCustomizerModal } from './components/common/BrandingCustomizerModal.tsx';
 import { DashboardHeaderToolbar } from './components/dashboard/DashboardHeaderToolbar.tsx';
@@ -495,6 +496,11 @@ export default function App() {
       {/* 16. System Health & Diagnostics Panel */}
       {activeTab === 'diagnostics' && (
         <SystemDiagnosticsView />
+      )}
+
+      {/* 16b. Firebase Crashlytics & Bug Scrub Studio */}
+      {(activeTab === 'crashlytics' || activeTab === 'bug-scrub') && (
+        <FirebaseCrashlyticsView onBack={() => setActiveTab('home')} />
       )}
 
       {/* 17. Adhoc Requests */}

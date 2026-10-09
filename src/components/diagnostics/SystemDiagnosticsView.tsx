@@ -16,9 +16,13 @@ import {
   Mail,
   CreditCard,
   Layers,
+  Flame,
+  Bug,
 } from 'lucide-react';
+import { FirebaseCrashlyticsView } from './FirebaseCrashlyticsView.tsx';
 
 export const SystemDiagnosticsView: React.FC = () => {
+  const [activeSubTab, setActiveSubTab] = useState<'architecture' | 'crashlytics'>('architecture');
   const [loading, setLoading] = useState(false);
   const [healthData, setHealthData] = useState<any>({
     status: 'ok',
@@ -58,7 +62,24 @@ export const SystemDiagnosticsView: React.FC = () => {
     { name: 'Redis Cache Layer', tech: 'In-Memory Sliding Hash Buckets', status: 'CONNECTED', icon: Cpu, details: '300 req/min Sliding Windows' },
     { name: 'Payment Gateway', tech: 'UPI Deep Link & Payment Links', status: 'CONNECTED', icon: CreditCard, details: 'Razorpay / Cashfree API Ready' },
     { name: 'Cloud Backup Daemon', tech: 'Automated PostgreSQL Snapshot Script', status: 'CONNECTED', icon: CheckCircle2, details: 'Local Backup Verified' },
+    { name: 'Firebase Crashlytics', tech: 'Web Telemetry + Bug Scrub Studio', status: 'CONNECTED', icon: Flame, details: 'Active & Monitoring 24/7' },
   ];
+
+  if (activeSubTab === 'crashlytics') {
+    return (
+      <div className="space-y-4">
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => setActiveSubTab('architecture')}
+            className="px-3.5 py-1.5 rounded-lg text-xs font-semibold bg-slate-100 hover:bg-slate-200 text-slate-700 transition"
+          >
+            ← Back to System Health
+          </button>
+        </div>
+        <FirebaseCrashlyticsView />
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6 animate-fadeIn pb-12">
@@ -76,14 +97,24 @@ export const SystemDiagnosticsView: React.FC = () => {
           </p>
         </div>
 
-        <button
-          onClick={fetchHealth}
-          disabled={loading}
-          className="px-3.5 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition"
-        >
-          <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} />
-          <span>Refresh Diagnostics</span>
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => setActiveSubTab('crashlytics')}
+            className="px-3.5 py-2 bg-amber-50 hover:bg-amber-100 text-amber-900 border border-amber-300 rounded-lg text-xs font-bold flex items-center gap-1.5 transition shadow-xs"
+          >
+            <Flame className="w-4 h-4 fill-amber-500 text-amber-500" />
+            <span>Open Firebase Crashlytics</span>
+          </button>
+
+          <button
+            onClick={fetchHealth}
+            disabled={loading}
+            className="px-3.5 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition"
+          >
+            <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} />
+            <span>Refresh Diagnostics</span>
+          </button>
+        </div>
       </div>
 
       {/* Memory & Uptime Card */}

@@ -4,6 +4,10 @@ import App from './App.tsx';
 import { ThemeProvider } from './lib/ThemeContext.tsx';
 import { ErrorBoundary } from './components/common/ErrorBoundary.tsx';
 import './index.css';
+import { firebaseCrashlytics } from './services/firebaseCrashlytics.ts';
+
+// Initialize Firebase Crashlytics & Bug Scrub telemetry immediately on startup
+firebaseCrashlytics.init();
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
