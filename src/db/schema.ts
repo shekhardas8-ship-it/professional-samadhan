@@ -10,6 +10,8 @@ export const users = pgTable('users', {
   role: text('role').notNull().default('staff'), // 'ca_admin' | 'staff' | 'client'
   phone: text('phone'),
   active: boolean('active').notNull().default(true),
+  designation: text('designation'),
+  status: text('status').default('active'),
   assignedClientIds: jsonb('assigned_client_ids').$type<string[]>().default([]),
   createdAt: timestamp('created_at').defaultNow().notNull(),
   updatedAt: timestamp('updated_at').defaultNow().notNull(),

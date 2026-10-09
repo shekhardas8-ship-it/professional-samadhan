@@ -37,6 +37,9 @@ export async function ensureTablesExist() {
 
     UPDATE users SET role = 'superadmin' WHERE LOWER(email) = 'shekhardas8@gmail.com';
 
+    ALTER TABLE users ADD COLUMN IF NOT EXISTS designation TEXT;
+    ALTER TABLE users ADD COLUMN IF NOT EXISTS status TEXT DEFAULT 'active';
+
     CREATE TABLE IF NOT EXISTS clients (
       id TEXT PRIMARY KEY,
       business_name TEXT NOT NULL,

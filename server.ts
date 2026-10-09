@@ -493,6 +493,234 @@ app.post('/api/auth/logout', (_req: Request, res: Response) => {
 });
 
 // ==========================================
+// 0c. USERS & STAFF MANAGEMENT APIs (Super Admin & Partner)
+// ==========================================
+
+// Get all staff & administrator accounts
+app.get('/api/users', async (_req: Request, res: Response) => {
+  try {
+    let dbUsers = await db.select().from(users).orderBy(desc(users.createdAt));
+
+    // Ensure default practice staff exists if empty
+    if (dbUsers.length === 0) {
+      await db.insert(users).values([
+        {
+          id: 'superadmin_shekhar_01',
+          email: 'shekhardas8@gmail.com',
+          displayName: 'Shekhar Das (Super Admin)',
+          role: 'superadmin',
+          phone: '+919873875138',
+          designation: 'Platform Super Administrator',
+          status: 'active',
+          active: true,
+          assignedClientIds: [],
+        },
+        {
+          id: 'ca_suraj_01',
+          email: 'suraj.dutta@quinceca.com',
+          displayName: 'CA Suraj Dutta (FCA)',
+          role: 'ca_admin',
+          phone: '+91 98200 11111',
+          designation: 'Managing Partner (CA Admin)',
+          status: 'active',
+          active: true,
+          assignedClientIds: ['cli_apex_01', 'cli_bluebell_02'],
+        },
+        {
+          id: 'staff_pooja_02',
+          email: 'pooja.verma@quinceca.com',
+          displayName: 'Pooja Verma (Associate)',
+          role: 'staff',
+          phone: '+91 98200 22222',
+          designation: 'Senior Associate (Reviewer)',
+          status: 'active',
+          active: true,
+          assignedClientIds: ['cli_apex_01'],
+        },
+        {
+          id: 'staff_rahul_03',
+          email: 'rahul.s@quinceca.com',
+          displayName: 'Rahul Sharma',
+          role: 'staff',
+          phone: '+91 98200 33333',
+          designation: 'Article Clerk (Assistant)',
+          status: 'active',
+          active: true,
+          assignedClientIds: [],
+        },
+        {
+          id: 'staff_sneha_04',
+          email: 'sneha.p@quinceca.com',
+          displayName: 'Sneha Patel',
+          role: 'staff',
+          phone: '+91 98200 44444',
+          designation: 'Article Clerk (Assistant)',
+          status: 'invited',
+          active: true,
+          assignedClientIds: [],
+        },
+      ]).onConflictDoNothing();
+
+      dbUsers = await db.select().from(users).orderBy(desc(users.createdAt));
+    }
+
+    const formatted = dbUsers.map(u => ({
+      id: u.id,
+      name: u.displayName || u.email.split('@')[0],
+      email: u.email,
+      phone: u.phone || '',
+      role: u.role,
+      roleId: u.role === 'superadmin' ? 'role_superadmin' : u.role === 'ca_admin' ? 'role_partner' : 'role_article_clerk',
+      roleName: u.designation || (u.role === 'superadmin' ? 'Super Administrator' : u.role === 'ca_admin' ? 'Managing Partner (CA Admin)' : 'Associate / Staff'),
+      designation: u.designation || '',
+      status: (u.status || (u.active ? 'active' : 'suspended')) as 'active' | 'invited' | 'suspended',
+      active: u.active,
+      assignedClientsCount: Array.isArray(u.assignedClientIds) ? u.assignedClientIds.length : 0,
+      assignedClientIds: u.assignedClientIds || [],
+      createdAt: u.createdAt,
+    }));
+
+    res.json({ success: true, users: formatted });
+  } catch (err: any) {
+    console.error('Error fetching users:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Create new user (Super Admin / Partner)
+app.post('/api/users', async (req: Request, res: Response) => {
+  try {
+    const { name, displayName, email, phone, role, designation, status, roleName } = req.body;
+    if (!email || !email.trim()) {
+      return res.status(400).json({ error: 'Valid email address is required.' });
+    }
+
+    const cleanEmail = email.trim().toLowerCase();
+    const cleanName = (displayName || name || cleanEmail.split('@')[0]).trim();
+    const cleanRole = role || (cleanEmail === 'shekhardas8@gmail.com' ? 'superadmin' : 'staff');
+    const cleanDesignation = designation || roleName || (cleanRole === 'superadmin' ? 'Super Administrator' : cleanRole === 'ca_admin' ? 'Managing Partner' : 'Associate');
+    const cleanStatus = status || 'active';
+    const newId = `usr_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+
+    // Check if user already exists
+    const existing = await db.select().from(users).where(eq(users.email, cleanEmail)).limit(1);
+    if (existing.length > 0) {
+      return res.status(409).json({ error: `A user with email ${cleanEmail} already exists.` });
+    }
+
+    await db.insert(users).values({
+      id: newId,
+      email: cleanEmail,
+      displayName: cleanName,
+      role: cleanRole,
+      phone: phone || '',
+      designation: cleanDesignation,
+      status: cleanStatus,
+      active: cleanStatus !== 'suspended',
+      assignedClientIds: [],
+    });
+
+    res.json({
+      success: true,
+      user: {
+        id: newId,
+        name: cleanName,
+        email: cleanEmail,
+        phone: phone || '',
+        role: cleanRole,
+        roleId: cleanRole === 'superadmin' ? 'role_superadmin' : cleanRole === 'ca_admin' ? 'role_partner' : 'role_article_clerk',
+        roleName: cleanDesignation,
+        designation: cleanDesignation,
+        status: cleanStatus,
+        active: cleanStatus !== 'suspended',
+        assignedClientsCount: 0,
+      },
+      message: `User ${cleanName} created successfully.`,
+    });
+  } catch (err: any) {
+    console.error('Error creating user:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Update existing user (Super Admin / Partner)
+app.put('/api/users/:id', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const { name, displayName, email, phone, role, designation, status, roleName, active } = req.body;
+
+    const existing = await db.select().from(users).where(eq(users.id, id)).limit(1);
+    if (existing.length === 0) {
+      return res.status(404).json({ error: 'User not found.' });
+    }
+
+    const updates: any = { updatedAt: new Date() };
+    if (name || displayName) updates.displayName = (displayName || name).trim();
+    if (email) updates.email = email.trim().toLowerCase();
+    if (phone !== undefined) updates.phone = phone.trim();
+    if (role) updates.role = role;
+    if (designation !== undefined || roleName !== undefined) updates.designation = (designation || roleName).trim();
+    if (status) {
+      updates.status = status;
+      updates.active = status === 'active';
+    }
+    if (active !== undefined) {
+      updates.active = Boolean(active);
+      if (!updates.status) updates.status = active ? 'active' : 'suspended';
+    }
+
+    await db.update(users).set(updates).where(eq(users.id, id));
+
+    const updated = (await db.select().from(users).where(eq(users.id, id)).limit(1))[0];
+
+    res.json({
+      success: true,
+      user: {
+        id: updated.id,
+        name: updated.displayName || updated.email,
+        email: updated.email,
+        phone: updated.phone || '',
+        role: updated.role,
+        roleId: updated.role === 'superadmin' ? 'role_superadmin' : updated.role === 'ca_admin' ? 'role_partner' : 'role_article_clerk',
+        roleName: updated.designation || updated.role,
+        designation: updated.designation || '',
+        status: (updated.status || (updated.active ? 'active' : 'suspended')) as any,
+        active: updated.active,
+        assignedClientsCount: Array.isArray(updated.assignedClientIds) ? updated.assignedClientIds.length : 0,
+      },
+      message: 'User updated successfully.',
+    });
+  } catch (err: any) {
+    console.error('Error updating user:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Delete user (Super Admin / Partner)
+app.delete('/api/users/:id', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+
+    const existing = await db.select().from(users).where(eq(users.id, id)).limit(1);
+    if (existing.length === 0) {
+      return res.status(404).json({ error: 'User not found.' });
+    }
+
+    // Protect primary Super Admin
+    if (existing[0].email.toLowerCase() === 'shekhardas8@gmail.com') {
+      return res.status(403).json({ error: 'The Super Administrator account (shekhardas8@gmail.com) cannot be deleted.' });
+    }
+
+    await db.delete(users).where(eq(users.id, id));
+
+    res.json({ success: true, message: `User "${existing[0].displayName || existing[0].email}" deleted successfully.` });
+  } catch (err: any) {
+    console.error('Error deleting user:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ==========================================
 // 1. CLIENTS & ROLES APIs
 // ==========================================
 

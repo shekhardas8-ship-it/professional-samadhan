@@ -682,7 +682,16 @@ export const AllSettingsView: React.FC<AllSettingsViewProps> = ({
           )}
 
           {/* Users List Subview */}
-          {activeViewId === 'users_list' && <UsersManagementView />}
+          {activeViewId === 'users_list' && (
+            <UsersManagementView
+              currentUser={currentUser}
+              isSuperAdmin={
+                currentUser?.role === 'superadmin' ||
+                currentUser?.email?.toLowerCase() === 'shekhardas8@gmail.com' ||
+                currentUser?.isSuperAdmin === true
+              }
+            />
+          )}
 
           {/* Self Service Portal Subview (Exact Screenshot) */}
           {activeViewId === 'config_portal' && (
