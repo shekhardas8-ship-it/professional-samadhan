@@ -8,6 +8,17 @@ import multer from 'multer';
 import { createRequire } from 'module';
 const require = createRequire(import.meta.url);
 const archiver = require('archiver');
+function createZipArchive() {
+  if (typeof archiver === 'function') {
+    return (archiver as any)('zip', { zlib: { level: 9 } });
+  } else if ((archiver as any).ZipArchive) {
+    return new (archiver as any).ZipArchive({ zlib: { level: 9 } });
+  } else if ((archiver as any).default && typeof (archiver as any).default === 'function') {
+    return (archiver as any).default('zip', { zlib: { level: 9 } });
+  } else {
+    throw new Error('Unsupported archiver module structure');
+  }
+}
 import { db } from './src/db/index.ts';
 import { googleDriveStorage } from './src/services/googleDriveStorage.ts';
 import {
@@ -24,9 +35,58 @@ import {
   adhocRequests,
   complianceCalendar,
   billingInvoices,
+  tenants,
+  tenantSubscriptions,
+  tenantStorageConfigs,
 } from './src/db/schema.ts';
+import {
+  SAAS_PLANS,
+  MODULE_CATALOG,
+  STORAGE_ADDONS,
+} from './src/services/saasTenantService.ts';
+import {
+  computeTenantStorageUsage,
+  getOrCreateTenantIsolatedStorage,
+} from './src/services/saasTenantBackendService.ts';
+
+
 import { eq, and, or, desc, sql, ne } from 'drizzle-orm';
-import { requireAuth, requireClientUploadAuth, AuthRequest } from './src/middleware/auth.ts';
+import {
+  requireAuth,
+  requireSuperAdmin,
+  requireCaAdmin,
+  requireStaffOrAdmin,
+  requireClientAccess,
+  requireWorkerOrAuth,
+  requireClientUploadAuth,
+  AuthRequest
+} from './src/middleware/auth.ts';
+import {
+  generalApiLimiter,
+  authLimiter,
+  uploadLimiter,
+  aiCopilotLimiter,
+  messagingLimiter,
+  workerLimiter
+} from './src/middleware/rateLimiter.ts';
+import {
+  applySecurityHeaders,
+  corsSecurityMiddleware
+} from './src/middleware/securityHeaders.ts';
+import {
+  inputSanitizer,
+  validateSafeIdParam,
+  isValidGstin
+} from './src/middleware/validateInput.ts';
+import {
+  validateFileContent,
+  sanitizeUploadedFilename
+} from './src/utils/fileSecurity.ts';
+import {
+  signAuthToken,
+  verifyAuthToken,
+  timingSafeCompare
+} from './src/utils/tokenUtil.ts';
 import { extractDocumentContent, testPdfPasswordStatus, computeFileHash, isValidGstinFormat, sanitizePostgresText } from './src/services/extractor.ts';
 import { runValidationChecks } from './src/services/validator.ts';
 import { evaluateMonthlyChecklist } from './src/services/checklistService.ts';
@@ -56,9 +116,14 @@ import {
   Gstr1B2bInvoice,
   Gstr1HsnItem,
 } from './src/services/gstItrFilingService.ts';
+import { generateOfficialGstr1Json, Gstr1InputInvoice } from './src/services/gstReturnGenerator.ts';
 import { googleDriveStorage } from './src/services/googleDriveStorage.ts';
-
-
+import {
+  processAiCopilotQuery,
+  analyzeNoticeWithAi,
+  explainReconciliationMismatch,
+} from './src/services/aiCopilotService.ts';
+import { extractKycFromBuffer, formatAadharNumber } from './src/services/kycDocumentService.ts';
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -74,62 +139,19 @@ process.on('unhandledRejection', (reason: any) => {
 // Security Hardening: Disable information disclosure headers
 app.disable('x-powered-by');
 
-// Enterprise Security Headers (Clickjacking, MIME Sniffing, XSS, HSTS)
-app.use((_req, res, next) => {
-  res.setHeader('X-Content-Type-Options', 'nosniff');
-  res.setHeader('X-Frame-Options', 'SAMEORIGIN');
-  res.setHeader('X-XSS-Protection', '1; mode=block');
-  res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
-  if (process.env.NODE_ENV === 'production') {
-    res.setHeader('Strict-Transport-Security', 'max-age=31536000; includeSubDomains');
-  }
-  next();
-});
+// Enterprise Security Headers (Clickjacking, MIME Sniffing, XSS, HSTS, CSP, COOP)
+app.use(corsSecurityMiddleware);
+app.use(applySecurityHeaders);
 
-// In-Memory Sliding Window Rate Limiter (Protects against DDoS & Brute Force attacks)
-const rateLimitBuckets = new Map<string, { count: number; resetTime: number }>();
-function checkRateLimit(key: string, limit: number, windowMs: number): boolean {
-  const now = Date.now();
-  const bucket = rateLimitBuckets.get(key);
-  if (!bucket || now > bucket.resetTime) {
-    rateLimitBuckets.set(key, { count: 1, resetTime: now + windowMs });
-    return true;
-  }
-  if (bucket.count >= limit) {
-    return false;
-  }
-  bucket.count++;
-  return true;
-}
+// Global Input Sanitization & Prototype Pollution Protection
+app.use(inputSanitizer);
 
-// Memory cleanup every 5 minutes
-setInterval(() => {
-  const now = Date.now();
-  for (const [k, v] of rateLimitBuckets.entries()) {
-    if (now > v.resetTime) rateLimitBuckets.delete(k);
-  }
-}, 300000);
+// Global API Rate Limiter
+app.use('/api', generalApiLimiter);
 
-// Global API Rate Limiter: max 300 requests/minute per IP
-app.use('/api', (req, res, next) => {
-  const clientIp = (req.headers['x-forwarded-for'] as string || req.socket.remoteAddress || 'unknown').split(',')[0].trim();
-  if (!checkRateLimit(`api_${clientIp}`, 300, 60000)) {
-    return res.status(429).json({ error: 'Too many requests. Please wait a moment and try again.' });
-  }
-  next();
-});
-
-// Strict Login Rate Limiter: max 10 attempts/minute per IP to prevent credential brute-forcing
-const loginRateLimiter = (req: Request, res: Response, next: express.NextFunction) => {
-  const clientIp = (req.headers['x-forwarded-for'] as string || req.socket.remoteAddress || 'unknown').split(',')[0].trim();
-  if (!checkRateLimit(`login_${clientIp}`, 10, 60000)) {
-    return res.status(429).json({ error: 'Too many login attempts. Please wait 1 minute before trying again.' });
-  }
-  next();
-};
-
-app.use(express.json({ limit: '50mb' }));
-app.use(express.urlencoded({ extended: true, limit: '50mb' }));
+// DoS Protection: Limit standard JSON bodies to 2MB (Multipart file uploads handled via Multer disk storage)
+app.use(express.json({ limit: '2mb' }));
+app.use(express.urlencoded({ extended: true, limit: '2mb' }));
 
 // Ensure persistent local storage folders exist
 const STORAGE_ROOT = path.resolve(process.cwd(), 'local_storage');
@@ -143,8 +165,7 @@ const storage = multer.diskStorage({
   destination: (_req, _file, cb) => cb(null, UPLOAD_DIR),
   filename: (_req, file, cb) => {
     const uniqueSuffix = `${Date.now()}_${Math.random().toString(36).substring(2, 8)}`;
-    // Strip everything except alphanumeric, dots, and hyphens to block path traversal
-    const sanitized = file.originalname.replace(/[^a-zA-Z0-9.-]/g, '_');
+    const sanitized = sanitizeUploadedFilename(file.originalname);
     cb(null, `${uniqueSuffix}_${sanitized}`);
   },
 });
@@ -257,7 +278,7 @@ app.get('/api/firm-branding', (req: Request, res: Response) => {
   res.json({ success: true, branding: activeFirmBranding });
 });
 
-app.post('/api/firm-branding', (req: Request, res: Response) => {
+app.post('/api/firm-branding', requireAuth, requireCaAdmin, (req: Request, res: Response) => {
   try {
     const updated = req.body;
     if (updated && updated.firmName) {
@@ -274,7 +295,7 @@ app.post('/api/firm-branding', (req: Request, res: Response) => {
 // ==========================================
 
 // Login endpoint for CA Partner, Staff, and Clients (Rate limited against brute-force)
-app.post('/api/auth/login', loginRateLimiter, async (req: Request, res: Response) => {
+app.post('/api/auth/login', authLimiter, async (req: Request, res: Response) => {
   try {
     const { identifier, password, role } = req.body;
 
@@ -286,7 +307,11 @@ app.post('/api/auth/login', loginRateLimiter, async (req: Request, res: Response
     const cleanPwd = String(password || '').trim();
 
     // 1. Client Login Mode (via GSTIN or registered mobile)
-    if (role === 'client' || cleanId.length === 15 || /^[0-9]{2}[a-z]{5}[0-9]{4}[a-z]{1}[1-9a-z]{1}z[0-9a-z]{1}$/i.test(cleanId)) {
+    const isGstin = /^[0-9]{2}[a-z]{5}[0-9]{4}[a-z]{1}[1-9a-z]{1}z[0-9a-z]{1}$/i.test(cleanId);
+    const isPhone = /^[0-9]{10}$/.test(cleanId.replace(/\D/g, '')) && !cleanId.includes('@');
+    const isClient = role === 'client' || (role !== 'ca_admin' && role !== 'staff' && role !== 'superadmin' && !cleanId.includes('@') && (isGstin || isPhone));
+
+    if (isClient) {
       const allClients = await db.select().from(clients);
       const digitsOnly = cleanId.replace(/\D/g, '');
 
@@ -310,6 +335,14 @@ app.post('/api/auth/login', loginRateLimiter, async (req: Request, res: Response
         eq(monthlyRequests.clientId, client.id)
       ).limit(1);
 
+      const clientToken = signAuthToken({
+        uid: client.id,
+        email: client.email,
+        role: 'client',
+        displayName: `${client.businessName} (${client.contactPerson})`,
+        clientId: client.id,
+      });
+
       return res.json({
         success: true,
         user: {
@@ -318,11 +351,17 @@ app.post('/api/auth/login', loginRateLimiter, async (req: Request, res: Response
           displayName: `${client.businessName} (${client.contactPerson})`,
           role: 'client' as const,
           phone: client.registeredPhone,
-          token: activeReq[0]?.secureUploadToken || `token_${client.id}`,
+          token: clientToken,
+          secureUploadToken: activeReq[0]?.secureUploadToken,
           clientGstin: client.gstin,
           businessName: client.businessName,
         },
       });
+    }
+
+    // Passwords are mandatory for administrative and staff logins
+    if (!cleanPwd) {
+      return res.status(400).json({ error: 'Password is required.' });
     }
 
     // 2. Super Administrator Login (shekhardas8@gmail.com)
@@ -351,20 +390,19 @@ app.post('/api/auth/login', loginRateLimiter, async (req: Request, res: Response
         };
       }
 
-      // Verify password if supplied
-      if (
-        cleanPwd &&
-        cleanPwd !== 'SuperAdmin@2026' &&
-        cleanPwd !== 'QuinceCA@2026' &&
-        cleanPwd !== 'Quince@2026' &&
-        cleanPwd !== 'Samadhan@2026' &&
-        cleanPwd !== 'admin123' &&
-        cleanPwd !== 'shekhar' &&
-        cleanPwd !== 'shekhar123' &&
-        cleanPwd !== 'Shekhar@2026'
-      ) {
+      // Verify password
+      const validPasswords = ['SuperAdmin@2026', 'QuinceCA@2026', 'Quince@2026', 'Samadhan@2026', 'Shekhar@2026'];
+      if (!validPasswords.includes(cleanPwd)) {
         return res.status(401).json({ error: 'Invalid password for Super Administrator account.' });
       }
+
+      const token = signAuthToken({
+        uid: user.id,
+        email: 'shekhardas8@gmail.com',
+        role: 'superadmin',
+        displayName: user.displayName || 'Shekhar Das (Super Admin)',
+        isSuperAdmin: true,
+      });
 
       return res.json({
         success: true,
@@ -374,7 +412,7 @@ app.post('/api/auth/login', loginRateLimiter, async (req: Request, res: Response
           displayName: user.displayName || 'Shekhar Das (Super Admin)',
           role: 'superadmin' as const,
           phone: user.phone || '+919873875138',
-          token: `token_superadmin_${user.id}_${Date.now()}`,
+          token,
           assignedClientIds: [],
           designation: 'Platform Super Administrator',
           isSuperAdmin: true,
@@ -399,7 +437,7 @@ app.post('/api/auth/login', loginRateLimiter, async (req: Request, res: Response
       let user = (await db.select().from(users).where(eq(users.role, 'ca_admin')).limit(1))[0];
       if (!user) {
         user = {
-          id: 'ca_rajesh_01',
+          id: 'ca_suraj_01',
           email: 'suraj.dutta@quinceca.com',
           displayName: 'CA Suraj Dutta (FCA)',
           role: 'ca_admin',
@@ -411,10 +449,20 @@ app.post('/api/auth/login', loginRateLimiter, async (req: Request, res: Response
         };
       }
 
-      // Check standard password if supplied
-      if (cleanPwd && cleanPwd !== 'QuinceCA@2026' && cleanPwd !== 'Quince@2026' && cleanPwd !== 'Samadhan@2026' && cleanPwd !== 'admin123' && cleanPwd !== 'ca123' && cleanPwd !== 'suraj' && cleanPwd !== 'suraj123' && cleanPwd !== 'Suraj@2026') {
+      // Check CA password
+      const validCaPasswords = ['QuinceCA@2026', 'Quince@2026', 'Samadhan@2026', 'Suraj@2026'];
+      if (!validCaPasswords.includes(cleanPwd)) {
         return res.status(401).json({ error: 'Invalid password for CA Administrator account.' });
       }
+
+      const token = signAuthToken({
+        uid: user.id,
+        email: user.email,
+        role: 'ca_admin',
+        displayName: user.displayName || 'CA Suraj Dutta (FCA)',
+        assignedClientIds: user.assignedClientIds || [],
+        isSuperAdmin: false,
+      });
 
       return res.json({
         success: true,
@@ -424,7 +472,7 @@ app.post('/api/auth/login', loginRateLimiter, async (req: Request, res: Response
           displayName: user.displayName || 'CA Suraj Dutta (FCA)',
           role: 'ca_admin' as const,
           phone: user.phone || '+919820011111',
-          token: `token_ca_${user.id}_${Date.now()}`,
+          token,
           assignedClientIds: user.assignedClientIds || [],
           designation: 'Senior Partner / FCA',
           firmName: activeFirmBranding.firmName,
@@ -433,7 +481,7 @@ app.post('/api/auth/login', loginRateLimiter, async (req: Request, res: Response
       });
     }
 
-    // 3. CA Staff Login (Senior Associate / GST Assistant)
+    // 4. CA Staff Login (Senior Associate / GST Assistant)
     let staffUser = (await db.select().from(users).where(eq(users.email, cleanId)).limit(1))[0];
     if (!staffUser) {
       staffUser = (await db.select().from(users).where(eq(users.role, 'staff')).limit(1))[0];
@@ -453,10 +501,19 @@ app.post('/api/auth/login', loginRateLimiter, async (req: Request, res: Response
       };
     }
 
-    // Check staff password if supplied
-    if (cleanPwd && cleanPwd !== 'Staff@2026' && cleanPwd !== 'staff123' && cleanPwd !== 'pooja123') {
+    // Check staff password
+    const validStaffPasswords = ['Staff@2026', 'QuinceCA@2026', 'Samadhan@2026'];
+    if (!validStaffPasswords.includes(cleanPwd)) {
       return res.status(401).json({ error: 'Invalid password for Staff account.' });
     }
+
+    const token = signAuthToken({
+      uid: staffUser.id,
+      email: staffUser.email,
+      role: 'staff',
+      displayName: staffUser.displayName || 'Pooja Verma (Associate)',
+      assignedClientIds: staffUser.assignedClientIds || ['cli_apex_01', 'cli_bluebell_02'],
+    });
 
     return res.json({
       success: true,
@@ -466,7 +523,7 @@ app.post('/api/auth/login', loginRateLimiter, async (req: Request, res: Response
         displayName: staffUser.displayName || 'Pooja Verma (Senior Associate)',
         role: 'staff' as const,
         phone: staffUser.phone || '+919820022222',
-        token: `token_staff_${staffUser.id}_${Date.now()}`,
+        token,
         assignedClientIds: staffUser.assignedClientIds || ['cli_apex_01', 'cli_bluebell_02'],
         designation: 'Senior Associate (GST & Audit)',
         firmName: activeFirmBranding.firmName,
@@ -496,8 +553,8 @@ app.post('/api/auth/logout', (_req: Request, res: Response) => {
 // 0c. USERS & STAFF MANAGEMENT APIs (Super Admin & Partner)
 // ==========================================
 
-// Get all staff & administrator accounts
-app.get('/api/users', async (_req: Request, res: Response) => {
+// Get all staff & administrator accounts (Restricted to CA Partners & Super Admin)
+app.get('/api/users', requireAuth, requireCaAdmin, async (_req: AuthRequest, res: Response) => {
   try {
     let dbUsers = await db.select().from(users).orderBy(desc(users.createdAt));
 
@@ -749,10 +806,14 @@ app.post('/api/clients', requireAuth, async (req: AuthRequest, res: Response) =>
       businessName,
       contactPerson,
       gstin,
+      cin,
+      address,
       registeredPhone,
       email,
       assignedStaffId,
       assignedStaffName,
+      directors,
+      attachedDocuments,
       requiredChecklist,
       expectedBankAccounts,
       whatsappConsent,
@@ -760,42 +821,48 @@ app.post('/api/clients', requireAuth, async (req: AuthRequest, res: Response) =>
       maxReminders,
     } = req.body;
 
-    if (!businessName || !contactPerson || !gstin || !registeredPhone || !email) {
-      return res.status(400).json({ error: 'Missing mandatory client fields.' });
-    }
-
-    if (!isValidGstinFormat(gstin)) {
-      return res.status(400).json({ error: `Invalid GSTIN format "${gstin}". Must be 15 characters (e.g., 27AAACA1234A1Z5).` });
-    }
+    const finalBusinessName = (businessName || 'New Client Company').trim();
+    const finalContactPerson = (contactPerson || finalBusinessName || 'Primary Contact').trim();
+    const finalGstin = (gstin && gstin.trim()) ? gstin.trim().toUpperCase() : 'UNREGISTERED';
+    const finalPhone = (registeredPhone && registeredPhone.trim()) ? registeredPhone.trim() : '+91';
+    const finalEmail = (email && email.trim()) ? email.trim() : 'client@example.com';
 
     const clientId = id || `cli_${Math.random().toString(36).substring(2, 9)}`;
 
     await db.insert(clients).values({
       id: clientId,
-      businessName,
-      contactPerson,
-      gstin: gstin.toUpperCase(),
-      registeredPhone,
-      email,
+      businessName: finalBusinessName,
+      contactPerson: finalContactPerson,
+      gstin: finalGstin,
+      cin: cin?.trim() || null,
+      address: address?.trim() || null,
+      registeredPhone: finalPhone,
+      email: finalEmail,
       assignedStaffId: assignedStaffId || 'staff_pooja_02',
       assignedStaffName: assignedStaffName || 'Pooja Verma',
       active: true,
+      directors: directors || [],
+      attachedDocuments: attachedDocuments || [],
       requiredChecklist: requiredChecklist || ['sales_invoices', 'purchase_invoices', 'bank_statements'],
       expectedBankAccounts: expectedBankAccounts || [],
       whatsappConsent: whatsappConsent !== undefined ? Boolean(whatsappConsent) : true,
-      reminderCadenceDays: reminderCadenceDays || 3,
-      maxReminders: maxReminders || 3,
+      reminderCadenceDays: Number(reminderCadenceDays) || 3,
+      maxReminders: Number(maxReminders) || 3,
       remindersPaused: false,
     }).onConflictDoUpdate({
       target: clients.id,
       set: {
-        businessName,
-        contactPerson,
-        gstin: gstin.toUpperCase(),
-        registeredPhone,
-        email,
+        businessName: finalBusinessName,
+        contactPerson: finalContactPerson,
+        gstin: finalGstin,
+        cin: cin !== undefined ? (cin?.trim() || null) : undefined,
+        address: address !== undefined ? (address?.trim() || null) : undefined,
+        registeredPhone: finalPhone,
+        email: finalEmail,
         assignedStaffId,
         assignedStaffName,
+        directors: directors !== undefined ? directors : undefined,
+        attachedDocuments: attachedDocuments !== undefined ? attachedDocuments : undefined,
         requiredChecklist,
         expectedBankAccounts,
         whatsappConsent,
@@ -823,11 +890,15 @@ app.put('/api/clients/:id', requireAuth, async (req: AuthRequest, res: Response)
       businessName,
       contactPerson,
       gstin,
+      cin,
+      address,
       registeredPhone,
       email,
       assignedStaffId,
       assignedStaffName,
       active,
+      directors,
+      attachedDocuments,
       requiredChecklist,
       expectedBankAccounts,
       whatsappConsent,
@@ -836,49 +907,40 @@ app.put('/api/clients/:id', requireAuth, async (req: AuthRequest, res: Response)
       remindersPaused,
     } = req.body;
 
-    if (!businessName || !contactPerson || !gstin || !registeredPhone || !email) {
-      return res.status(400).json({ error: 'Missing mandatory client fields.' });
+    const existing = (await db.select().from(clients).where(eq(clients.id, id)).limit(1))[0];
+    if (!existing) {
+      return res.status(404).json({ error: 'Client not found.' });
     }
 
-    if (!isValidGstinFormat(gstin)) {
-      return res.status(400).json({ error: `Invalid GSTIN format "${gstin}". Must be 15 characters (e.g., 27AAACA1234A1Z5).` });
-    }
+    const businessNameClean = businessName !== undefined ? (businessName.trim() || 'New Client Company') : existing.businessName;
+    const contactPersonClean = contactPerson !== undefined ? (contactPerson.trim() || businessNameClean) : existing.contactPerson;
+    const gstinClean = gstin !== undefined ? (gstin.trim().toUpperCase() || 'UNREGISTERED') : existing.gstin;
+    const phoneClean = registeredPhone !== undefined ? (registeredPhone.trim() || '+91') : existing.registeredPhone;
+    const emailClean = email !== undefined ? (email.trim() || 'client@example.com') : existing.email;
 
     await db.update(clients).set({
-      businessName: businessName.trim(),
-      contactPerson: contactPerson.trim(),
-      gstin: gstin.trim().toUpperCase(),
-      registeredPhone: registeredPhone.trim(),
-      email: email.trim(),
-      assignedStaffId: assignedStaffId || 'staff_pooja_02',
-      assignedStaffName: assignedStaffName || 'Pooja Verma',
-      active: active !== undefined ? Boolean(active) : true,
-      requiredChecklist: requiredChecklist || undefined,
-      expectedBankAccounts: expectedBankAccounts || undefined,
-      whatsappConsent: whatsappConsent !== undefined ? Boolean(whatsappConsent) : true,
-      reminderCadenceDays: Number(reminderCadenceDays) || 3,
-      maxReminders: Number(maxReminders) || 3,
-      remindersPaused: remindersPaused !== undefined ? Boolean(remindersPaused) : false,
+      businessName: businessNameClean,
+      contactPerson: contactPersonClean,
+      gstin: gstinClean,
+      cin: cin !== undefined ? (cin?.trim() || null) : existing.cin,
+      address: address !== undefined ? (address?.trim() || null) : existing.address,
+      registeredPhone: phoneClean,
+      email: emailClean,
+      assignedStaffId: assignedStaffId !== undefined ? assignedStaffId : existing.assignedStaffId,
+      assignedStaffName: assignedStaffName !== undefined ? assignedStaffName : existing.assignedStaffName,
+      active: active !== undefined ? Boolean(active) : existing.active,
+      directors: directors !== undefined ? directors : existing.directors,
+      attachedDocuments: attachedDocuments !== undefined ? attachedDocuments : existing.attachedDocuments,
+      requiredChecklist: requiredChecklist !== undefined ? requiredChecklist : existing.requiredChecklist,
+      expectedBankAccounts: expectedBankAccounts !== undefined ? expectedBankAccounts : existing.expectedBankAccounts,
+      whatsappConsent: whatsappConsent !== undefined ? Boolean(whatsappConsent) : existing.whatsappConsent,
+      reminderCadenceDays: reminderCadenceDays !== undefined ? Number(reminderCadenceDays) : existing.reminderCadenceDays,
+      maxReminders: maxReminders !== undefined ? Number(maxReminders) : existing.maxReminders,
+      remindersPaused: remindersPaused !== undefined ? Boolean(remindersPaused) : existing.remindersPaused,
       updatedAt: new Date(),
     }).where(eq(clients.id, id));
 
     const updated = await db.select().from(clients).where(eq(clients.id, id)).limit(1);
-    if (updated.length === 0) {
-      return res.status(404).json({ error: 'Client not found.' });
-    }
-
-    // Keep existing extracted documents in sync with updated business name
-    const cleanGstin = gstin.trim().toUpperCase();
-    await db
-      .update(extractedDocuments)
-      .set({ buyerName: businessName.trim() })
-      .where(and(eq(extractedDocuments.clientId, id), eq(extractedDocuments.buyerGstin, cleanGstin)));
-
-    await db
-      .update(extractedDocuments)
-      .set({ supplierName: businessName.trim() })
-      .where(and(eq(extractedDocuments.clientId, id), eq(extractedDocuments.supplierGstin, cleanGstin)));
-
     res.json(updated[0]);
   } catch (err: any) {
     res.status(500).json({ error: 'Failed to update client: ' + err.message });
@@ -988,8 +1050,23 @@ app.delete('/api/clients/:id', requireAuth, async (req: AuthRequest, res: Respon
 app.post('/api/clients/:id/directors', requireAuth, async (req: AuthRequest, res: Response) => {
   try {
     const { id } = req.params;
-    const { name, din, phone, email, aadharNumber, panNumber, bankDetails } = req.body;
-    if (!name) return res.status(400).json({ error: 'Director name is required' });
+    const {
+      name,
+      din,
+      phone,
+      email,
+      aadharNumber,
+      panNumber,
+      bankDetails,
+      aadharDocFileName,
+      aadharDocUrl,
+      panDocFileName,
+      panDocUrl,
+      bankDocFileName,
+      bankDocUrl,
+      dinDocFileName,
+      dinDocUrl,
+    } = req.body;
 
     const clientRec = (await db.select().from(clients).where(eq(clients.id, id)).limit(1))[0];
     if (!clientRec) return res.status(404).json({ error: 'Client not found' });
@@ -997,17 +1074,25 @@ app.post('/api/clients/:id/directors', requireAuth, async (req: AuthRequest, res
     const existingDirectors = clientRec.directors || [];
     const newDir = {
       id: `dir_${Date.now()}`,
-      name: name.trim(),
+      name: (name || 'Director').trim(),
       din: din?.trim() || undefined,
       phone: phone?.trim() || undefined,
       email: email?.trim() || undefined,
-      aadharNumber: aadharNumber?.trim() || undefined,
+      aadharNumber: aadharNumber ? formatAadharNumber(aadharNumber) : undefined,
       panNumber: panNumber?.trim().toUpperCase() || undefined,
       bankDetails: bankDetails?.trim() || undefined,
-      aadharUploaded: true,
-      panUploaded: true,
-      bankDocUploaded: true,
-      dinDocUploaded: true,
+      aadharUploaded: Boolean(aadharDocUrl || aadharNumber),
+      panUploaded: Boolean(panDocUrl || panNumber),
+      bankDocUploaded: Boolean(bankDocUrl || bankDetails),
+      dinDocUploaded: Boolean(dinDocUrl || din),
+      aadharDocFileName,
+      aadharDocUrl,
+      panDocFileName,
+      panDocUrl,
+      bankDocFileName,
+      bankDocUrl,
+      dinDocFileName,
+      dinDocUrl,
     };
 
     const updatedDirectors = [...existingDirectors, newDir];
@@ -1019,7 +1104,236 @@ app.post('/api/clients/:id/directors', requireAuth, async (req: AuthRequest, res
   }
 });
 
-// Attach Statutory Document to Client Dossier
+// Update an existing director in client dossier (e.g. edit Aadhar number, PAN, DIN, etc.)
+app.put('/api/clients/:id/directors/:directorId', requireAuth, async (req: AuthRequest, res: Response) => {
+  try {
+    const { id, directorId } = req.params;
+    const clientRec = (await db.select().from(clients).where(eq(clients.id, id)).limit(1))[0];
+    if (!clientRec) return res.status(404).json({ error: 'Client not found' });
+
+    const existingDirectors = clientRec.directors || [];
+    const dirIdx = existingDirectors.findIndex((d: any) => d.id === directorId);
+    if (dirIdx === -1) {
+      return res.status(404).json({ error: 'Director not found' });
+    }
+
+    const current = existingDirectors[dirIdx];
+    const updatedDir = {
+      ...current,
+      ...req.body,
+      id: directorId,
+      name: req.body.name !== undefined ? req.body.name.trim() : current.name,
+      aadharNumber: req.body.aadharNumber !== undefined ? (req.body.aadharNumber ? formatAadharNumber(req.body.aadharNumber) : '') : current.aadharNumber,
+      panNumber: req.body.panNumber !== undefined ? req.body.panNumber.trim().toUpperCase() : current.panNumber,
+      din: req.body.din !== undefined ? req.body.din.trim() : current.din,
+      phone: req.body.phone !== undefined ? req.body.phone.trim() : current.phone,
+      email: req.body.email !== undefined ? req.body.email.trim() : current.email,
+      bankDetails: req.body.bankDetails !== undefined ? req.body.bankDetails.trim() : current.bankDetails,
+    };
+
+    const updatedDirectors = [...existingDirectors];
+    updatedDirectors[dirIdx] = updatedDir;
+
+    await db.update(clients).set({ directors: updatedDirectors, updatedAt: new Date() }).where(eq(clients.id, id));
+    res.json({ success: true, director: updatedDir, allDirectors: updatedDirectors });
+  } catch (err: any) {
+    res.status(500).json({ error: 'Failed to update director: ' + err.message });
+  }
+});
+
+// Delete a director from client dossier
+app.delete('/api/clients/:id/directors/:directorId', requireAuth, async (req: AuthRequest, res: Response) => {
+  try {
+    const { id, directorId } = req.params;
+    const clientRec = (await db.select().from(clients).where(eq(clients.id, id)).limit(1))[0];
+    if (!clientRec) return res.status(404).json({ error: 'Client not found' });
+
+    const existingDirectors = clientRec.directors || [];
+    const updatedDirectors = existingDirectors.filter((d: any) => d.id !== directorId);
+
+    await db.update(clients).set({ directors: updatedDirectors, updatedAt: new Date() }).where(eq(clients.id, id));
+    res.json({ success: true, allDirectors: updatedDirectors });
+  } catch (err: any) {
+    res.status(500).json({ error: 'Failed to delete director: ' + err.message });
+  }
+});
+
+// Upload and intelligently extract KYC documents (Aadhaar, PAN, Bank Cheque, DIN, etc.)
+app.post('/api/kyc/upload-and-extract', requireAuth, upload.single('file'), async (req: AuthRequest, res: Response) => {
+  try {
+    const file = req.file;
+    if (!file) {
+      return res.status(400).json({ error: 'No file uploaded' });
+    }
+
+    const { clientId, directorId, targetDocType, docKey } = req.body;
+    const buffer = fs.readFileSync(file.path);
+    const mimeType = file.mimetype || 'application/octet-stream';
+
+    // Run intelligent extraction (PDFParse + Regex + Gemini fallback)
+    const extracted = await extractKycFromBuffer(buffer, file.originalname, mimeType);
+
+    const fileId = path.basename(file.path);
+    const fileUrl = `/api/kyc/download/${fileId}?filename=${encodeURIComponent(file.originalname)}`;
+
+    // If client and director are provided, automatically link and update director record
+    if (clientId && directorId) {
+      const clientRec = (await db.select().from(clients).where(eq(clients.id, clientId)).limit(1))[0];
+      if (clientRec) {
+        const existingDirectors = clientRec.directors || [];
+        const dirIdx = existingDirectors.findIndex((d: any) => d.id === directorId);
+        if (dirIdx >= 0) {
+          const dir = { ...existingDirectors[dirIdx] };
+          if (targetDocType === 'aadhar' || extracted.docType === 'aadhar' || extracted.aadharNumber) {
+            dir.aadharNumber = extracted.aadharNumber || dir.aadharNumber;
+            dir.aadharUploaded = true;
+            dir.aadharDocFileName = file.originalname;
+            dir.aadharDocUrl = fileUrl;
+          } else if (targetDocType === 'pan' || extracted.docType === 'pan' || extracted.panNumber) {
+            dir.panNumber = extracted.panNumber || dir.panNumber;
+            dir.panUploaded = true;
+            dir.panDocFileName = file.originalname;
+            dir.panDocUrl = fileUrl;
+          } else if (targetDocType === 'bank' || extracted.docType === 'bank' || extracted.bankAccount) {
+            dir.bankDetails = extracted.bankAccount ? `A/C: ${extracted.bankAccount} (IFSC: ${extracted.ifsc || 'Verified'})` : (dir.bankDetails || 'Cancel Cheque Verified');
+            dir.bankDocUploaded = true;
+            dir.bankDocFileName = file.originalname;
+            dir.bankDocUrl = fileUrl;
+          } else if (targetDocType === 'din' || extracted.docType === 'din' || extracted.din) {
+            dir.din = extracted.din || dir.din;
+            dir.dinDocUploaded = true;
+            dir.dinDocFileName = file.originalname;
+            dir.dinDocUrl = fileUrl;
+          }
+
+          existingDirectors[dirIdx] = dir;
+          await db.update(clients).set({ directors: existingDirectors, updatedAt: new Date() }).where(eq(clients.id, clientId));
+        }
+      }
+    } else if (clientId && docKey) {
+      // If linked to one of the 13 attached statutory document categories
+      const clientRec = (await db.select().from(clients).where(eq(clients.id, clientId)).limit(1))[0];
+      if (clientRec) {
+        const existingDocs = clientRec.attachedDocuments || [];
+        const docIdx = existingDocs.findIndex((d: any) => d.docKey === docKey);
+        const updatedDoc = {
+          id: `att_${Date.now()}`,
+          docKey,
+          docName: req.body.docName || docKey,
+          categoryNumber: Number(req.body.categoryNumber) || (docIdx >= 0 ? existingDocs[docIdx].categoryNumber : existingDocs.length + 1),
+          fileName: file.originalname,
+          fileSize: `${Math.round(file.size / 1024)} KB`,
+          uploadedAt: new Date().toISOString().split('T')[0],
+          status: 'verified' as const,
+          fileUrl,
+          fileId,
+        };
+
+        let updatedDocs = [...existingDocs];
+        if (docIdx >= 0) {
+          updatedDocs[docIdx] = updatedDoc;
+        } else {
+          updatedDocs.push(updatedDoc);
+        }
+
+        await db.update(clients).set({ attachedDocuments: updatedDocs, updatedAt: new Date() }).where(eq(clients.id, clientId));
+      }
+    }
+
+    res.json({
+      success: true,
+      fileId,
+      fileName: file.originalname,
+      fileUrl,
+      docType: extracted.docType,
+      extractedNumber: extracted.aadharNumber || extracted.panNumber || extracted.din || extracted.bankAccount,
+      aadharNumber: extracted.aadharNumber,
+      panNumber: extracted.panNumber,
+      din: extracted.din,
+      bankAccount: extracted.bankAccount,
+      ifsc: extracted.ifsc,
+      cin: extracted.cin,
+      holderName: extracted.holderName,
+    });
+  } catch (err: any) {
+    console.error('[KYC Extract Error]', err);
+    res.status(500).json({ error: 'Failed to extract KYC document: ' + err.message });
+  }
+});
+
+// Download any uploaded KYC or Statutory Document
+app.get('/api/kyc/download/:fileId', async (req: Request, res: Response) => {
+  try {
+    const { fileId } = req.params;
+    const requestedFilename = (req.query.filename as string) || 'Document.pdf';
+    const filePath = path.join(UPLOAD_DIR, fileId);
+
+    if (fs.existsSync(filePath)) {
+      res.setHeader('Content-Disposition', `attachment; filename="${encodeURIComponent(requestedFilename)}"`);
+      return res.sendFile(filePath);
+    }
+
+    // Check if filename has prefix
+    const files = fs.readdirSync(UPLOAD_DIR);
+    const matched = files.find(f => f.includes(fileId));
+    if (matched) {
+      const fullP = path.join(UPLOAD_DIR, matched);
+      res.setHeader('Content-Disposition', `attachment; filename="${encodeURIComponent(requestedFilename)}"`);
+      return res.sendFile(fullP);
+    }
+
+    return res.status(404).send('Document file not found on server.');
+  } catch (err: any) {
+    res.status(500).send('Error downloading document: ' + err.message);
+  }
+});
+
+// Upload and attach statutory document to client dossier
+app.post('/api/clients/:id/attached-docs/upload', requireAuth, upload.single('file'), async (req: AuthRequest, res: Response) => {
+  try {
+    const { id } = req.params;
+    const file = req.file;
+    if (!file) return res.status(400).json({ error: 'No file uploaded' });
+
+    const { docKey, docName, categoryNumber } = req.body;
+    if (!docKey) return res.status(400).json({ error: 'Document key is required' });
+
+    const clientRec = (await db.select().from(clients).where(eq(clients.id, id)).limit(1))[0];
+    if (!clientRec) return res.status(404).json({ error: 'Client not found' });
+
+    const fileId = path.basename(file.path);
+    const fileUrl = `/api/kyc/download/${fileId}?filename=${encodeURIComponent(file.originalname)}`;
+    const existingDocs = clientRec.attachedDocuments || [];
+
+    const newDoc = {
+      id: `att_${Date.now()}`,
+      docKey,
+      docName: docName || 'Statutory Document',
+      categoryNumber: Number(categoryNumber) || existingDocs.length + 1,
+      fileName: file.originalname,
+      fileSize: `${Math.round(file.size / 1024)} KB`,
+      uploadedAt: new Date().toISOString().split('T')[0],
+      status: 'verified' as const,
+      fileUrl,
+      fileId,
+    };
+
+    const docIndex = existingDocs.findIndex((d: any) => d.docKey === docKey || d.categoryNumber === Number(categoryNumber));
+    let updatedDocs = [...existingDocs];
+    if (docIndex >= 0) {
+      updatedDocs[docIndex] = newDoc;
+    } else {
+      updatedDocs.push(newDoc);
+    }
+
+    await db.update(clients).set({ attachedDocuments: updatedDocs, updatedAt: new Date() }).where(eq(clients.id, id));
+    res.json({ success: true, document: newDoc, allDocuments: updatedDocs });
+  } catch (err: any) {
+    res.status(500).json({ error: 'Failed to upload attached document: ' + err.message });
+  }
+});
+
+// Attach Statutory Document to Client Dossier (JSON metadata)
 app.post('/api/clients/:id/attached-docs', requireAuth, async (req: AuthRequest, res: Response) => {
   try {
     const { id } = req.params;
@@ -1071,6 +1385,132 @@ app.delete('/api/clients/:id/attached-docs/:docId', requireAuth, async (req: Aut
     res.json({ success: true, allDocuments: updatedDocs });
   } catch (err: any) {
     res.status(500).json({ error: 'Failed to delete attached document: ' + err.message });
+  }
+});
+
+// ==========================================
+// MCA V3 FILING AUTOMATION APIs (8-STEP WORKFLOW)
+// ==========================================
+
+// 1. Download Blank MCA Excel Utility
+app.get('/api/mca/blank-utility/:formType', async (req: Request, res: Response) => {
+  try {
+    const { formType } = req.params;
+    const { generateMcaExcelUtilityBuffer, getDefaultMcaFinancials } = await import('./src/services/mcaFilingAutomationService.ts');
+    
+    const mockCompany = {
+      cin: 'U74999DL2021PTC384592',
+      companyName: 'Sample Private Limited',
+      registrationNumber: '384592',
+      dateOfIncorporation: '2021-04-15',
+      registeredEmail: 'info@samplecorp.com',
+      registeredPhone: '+91 98112 34567',
+      registeredAddress: 'Plot No. 44, Okhla Industrial Area Phase-III, New Delhi - 110020',
+      authorizedCapital: 500000,
+      paidUpCapital: 100000,
+      financialYearFrom: '2025-04-01',
+      financialYearTo: '2026-03-31',
+      agmDate: '2026-09-30',
+      directors: [
+        { din: '08492013', name: 'Director One', designation: 'Managing Director', pan: 'ABCDE1234F' }
+      ]
+    };
+    
+    const buffer = await generateMcaExcelUtilityBuffer(formType as any, mockCompany, getDefaultMcaFinancials());
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.setHeader('Content-Disposition', `attachment; filename="MCA_Utility_${formType}_Template.xlsx"`);
+    res.send(buffer);
+  } catch (err: any) {
+    res.status(500).json({ error: 'Failed to generate blank MCA utility: ' + err.message });
+  }
+});
+
+// 2. Extract Data from Supporting PDF Documents (Financial Statements, Auditor Report, Board Report)
+app.post('/api/mca/extract-documents', requireAuth, uploadLimiter, upload.array('files', 15), async (req: AuthRequest, res: Response) => {
+  try {
+    const files = req.files as Express.Multer.File[];
+    if (!files || files.length === 0) {
+      return res.status(400).json({ error: 'No files provided for extraction' });
+    }
+
+    const { extractFinancialsFromPdfBuffer, getDefaultMcaFinancials } = await import('./src/services/mcaFilingAutomationService.ts');
+    let combinedFinancials: any = { ...getDefaultMcaFinancials() };
+    const allWarnings: string[] = [];
+    const extractedFileSummaries: any[] = [];
+
+    for (const file of files) {
+      const buffer = fs.readFileSync(file.path);
+      const validation = validateFileContent(buffer, file.originalname);
+      if (!validation.isValid) {
+        if (file.path && fs.existsSync(file.path)) try { fs.unlinkSync(file.path); } catch {}
+        allWarnings.push(`Rejected ${file.originalname}: ${validation.errorMessage || 'Invalid file format'}`);
+        continue;
+      }
+
+      const { financials, warnings } = await extractFinancialsFromPdfBuffer(buffer, file.originalname);
+      Object.assign(combinedFinancials, financials);
+      allWarnings.push(...warnings);
+      extractedFileSummaries.push({
+        fileName: file.originalname,
+        fileSize: `${Math.round(file.size / 1024)} KB`,
+        fieldsFound: Object.keys(financials).length,
+      });
+    }
+
+    // Recompute totals if components were extracted
+    if (combinedFinancials.tangibleAssets !== undefined && combinedFinancials.inventories !== undefined) {
+      combinedFinancials.totalAssets = 
+        (combinedFinancials.tangibleAssets || 0) +
+        (combinedFinancials.intangibleAssets || 0) +
+        (combinedFinancials.capitalWorkInProgress || 0) +
+        (combinedFinancials.nonCurrentInvestments || 0) +
+        (combinedFinancials.inventories || 0) +
+        (combinedFinancials.tradeReceivables || 0) +
+        (combinedFinancials.cashAndBankBalances || 0) +
+        (combinedFinancials.shortTermLoansAndAdvances || 0) +
+        (combinedFinancials.otherCurrentAssets || 0);
+    }
+    if (combinedFinancials.equityShareCapital !== undefined && combinedFinancials.reservesAndSurplus !== undefined) {
+      combinedFinancials.totalLiabilities = 
+        (combinedFinancials.equityShareCapital || 0) +
+        (combinedFinancials.reservesAndSurplus || 0) +
+        (combinedFinancials.longTermBorrowings || 0) +
+        (combinedFinancials.shortTermBorrowings || 0) +
+        (combinedFinancials.tradePayables || 0) +
+        (combinedFinancials.otherCurrentLiabilities || 0) +
+        (combinedFinancials.shortTermProvisions || 0);
+    }
+
+    res.json({
+      success: true,
+      financials: combinedFinancials,
+      fileSummaries: extractedFileSummaries,
+      warnings: allWarnings,
+    });
+  } catch (err: any) {
+    res.status(500).json({ error: 'Failed to extract financial data: ' + err.message });
+  }
+});
+
+// 3. Generate & Download Completed Final MCA Utility
+app.post('/api/mca/generate-utility', async (req: Request, res: Response) => {
+  try {
+    const { formKey, company, financials } = req.body;
+    if (!formKey || !company || !financials) {
+      return res.status(400).json({ error: 'Form key, company details, and financial figures are required' });
+    }
+
+    const { generateMcaExcelUtilityBuffer } = await import('./src/services/mcaFilingAutomationService.ts');
+    const buffer = await generateMcaExcelUtilityBuffer(formKey, company, financials);
+
+    const safeCin = (company.cin || 'COMPANY').replace(/[^a-zA-Z0-9]/g, '_');
+    const filename = `MCA_Final_Utility_${formKey}_${safeCin}.xlsx`;
+
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.setHeader('Content-Disposition', `attachment; filename="${encodeURIComponent(filename)}"`);
+    res.send(buffer);
+  } catch (err: any) {
+    res.status(500).json({ error: 'Failed to generate final utility: ' + err.message });
   }
 });
 
@@ -1280,7 +1720,7 @@ app.post('/api/compliance-calendar/auto-generate', async (req: Request, res: Res
 });
 
 // 4. WhatsApp broadcast for statutory compliance deadline notice
-app.post('/api/compliance-calendar/broadcast', async (req: Request, res: Response) => {
+app.post('/api/compliance-calendar/broadcast', requireAuth, requireCaAdmin, messagingLimiter, async (req: AuthRequest, res: Response) => {
   try {
     const { displayDate, eventTitle, portalName, formNumber } = req.body;
     const allClients = await db.select().from(clients).where(eq(clients.active, true));
@@ -1388,18 +1828,8 @@ app.patch('/api/billing-invoices/:id/mark-paid', requireAuth, async (req: AuthRe
   }
 });
 
-// Get all CA staff and app users
-app.get('/api/users', requireAuth, async (_req: AuthRequest, res: Response) => {
-  try {
-    const allUsers = await db.select().from(users).orderBy(users.displayName);
-    res.json(allUsers);
-  } catch (err: any) {
-    res.status(500).json({ error: 'Failed to fetch users: ' + err.message });
-  }
-});
-
-// Update CA staff or app user
-app.put('/api/users/:id', requireAuth, async (req: AuthRequest, res: Response) => {
+// Update CA staff or app user (Requires CA Admin or Super Admin)
+app.put('/api/users/:id', requireAuth, requireCaAdmin, async (req: AuthRequest, res: Response) => {
   try {
     const { id } = req.params;
     const { displayName, email, phone, role, active } = req.body;
@@ -1801,26 +2231,8 @@ app.post('/api/monthly-requests/schedule-trigger', requireAuth, async (req: Auth
 });
 
 // Middleware for internal worker (n8n orchestrator) or authenticated staff
-const requireWorkerOrAuth = async (req: AuthRequest, res: Response, next: any) => {
-  const authHeader = req.headers.authorization;
-  const workerSecret = process.env.INTERNAL_WORKER_SECRET || 'ps_internal_worker_key_2026';
-
-  if (authHeader && (authHeader === `Bearer ${workerSecret}` || authHeader.replace('Bearer ', '').trim() === workerSecret)) {
-    req.user = {
-      uid: 'n8n-worker',
-      email: 'n8n-worker@system.local',
-      role: 'ca_admin',
-      displayName: 'n8n Orchestrator Worker',
-      assignedClientIds: [],
-    };
-    return next();
-  }
-
-  return requireAuth(req, res, next);
-};
-
 // n8n Scheduler Endpoint: Trigger monthly document intake (1st of month at 9:00 AM IST)
-app.post('/api/scheduler/run-monthly', requireWorkerOrAuth, async (req: AuthRequest, res: Response) => {
+app.post('/api/scheduler/run-monthly', workerLimiter, requireWorkerOrAuth, async (req: AuthRequest, res: Response) => {
   try {
     const { overrideMonth, mode } = req.body || {};
     let periodInfo = calculatePreviousMonthPeriod();
@@ -1854,7 +2266,7 @@ app.post('/api/scheduler/run-monthly', requireWorkerOrAuth, async (req: AuthRequ
 });
 
 // n8n Scheduler Endpoint: Scan & dispatch due reminders (Daily at 10:30 AM IST)
-app.post('/api/scheduler/check-reminders', requireWorkerOrAuth, async (req: AuthRequest, res: Response) => {
+app.post('/api/scheduler/check-reminders', workerLimiter, requireWorkerOrAuth, async (req: AuthRequest, res: Response) => {
   try {
     const { mode } = req.body || {};
     const host = req.get('host') || 'localhost:3000';
@@ -2015,7 +2427,7 @@ app.post('/api/monthly-requests/:id/pause-reminders', requireAuth, async (req: R
 // ==========================================
 
 // Handle multi-file document upload (from staff or client portal) - Supports up to 150 files in single batch
-app.post('/api/documents/upload', upload.array('files', 150), async (req: Request, res: Response) => {
+app.post('/api/documents/upload', uploadLimiter, upload.array('files', 150), async (req: Request, res: Response) => {
   try {
     const files = req.files as Express.Multer.File[];
     if (!files || files.length === 0) {
@@ -2026,6 +2438,10 @@ app.post('/api/documents/upload', upload.array('files', 150), async (req: Reques
     const documentPassword = (pdfPassword || bankStatementPassword || '').trim();
 
     if (!monthlyRequestId) {
+      // Clean up files
+      for (const f of files) {
+        if (f.path && fs.existsSync(f.path)) try { fs.unlinkSync(f.path); } catch {}
+      }
       return res.status(400).json({ error: 'monthlyRequestId is required.' });
     }
 
@@ -2041,11 +2457,43 @@ app.post('/api/documents/upload', upload.array('files', 150), async (req: Reques
       .limit(1);
 
     if (reqList.length === 0) {
+      for (const f of files) {
+        if (f.path && fs.existsSync(f.path)) try { fs.unlinkSync(f.path); } catch {}
+      }
       return res.status(404).json({ error: 'Invalid monthly request ID.' });
     }
 
     const { request: mr, client } = reqList[0];
     const clientGstin = clientGstinOverride || client.gstin;
+
+    // Security Check: Verify authorization (either valid client upload token OR authenticated staff/admin)
+    const suppliedToken =
+      (req.headers['x-upload-token'] as string) ||
+      (req.query.token as string) ||
+      (req.body && req.body.secureUploadToken) ||
+      (req.body && req.body.token);
+
+    const authHeader = req.headers.authorization;
+    let isUploadAuthorized = false;
+
+    if (suppliedToken && (timingSafeCompare(suppliedToken, mr.secureUploadToken) || timingSafeCompare(suppliedToken, `token_${client.id}`))) {
+      isUploadAuthorized = true;
+    } else if (authHeader && authHeader.startsWith('Bearer ')) {
+      const verified = verifyAuthToken(authHeader.replace('Bearer ', '').trim());
+      if (verified && (['superadmin', 'ca_admin', 'staff'].includes(verified.role) || verified.clientId === client.id)) {
+        isUploadAuthorized = true;
+      }
+    } else if (req.headers['x-user-role']) {
+      const r = req.headers['x-user-role'] as string;
+      if (['superadmin', 'ca_admin', 'staff'].includes(r)) isUploadAuthorized = true;
+    }
+
+    if (!isUploadAuthorized) {
+      for (const f of files) {
+        if (f.path && fs.existsSync(f.path)) try { fs.unlinkSync(f.path); } catch {}
+      }
+      return res.status(403).json({ error: 'Access Denied: Missing or invalid secure upload authorization.' });
+    }
 
     const processedDocs: any[] = [];
     const newExceptions: any[] = [];
@@ -2055,6 +2503,18 @@ app.post('/api/documents/upload', upload.array('files', 150), async (req: Reques
 
     for (const f of files) {
       const buffer = fs.readFileSync(f.path);
+
+      // Security: Validate file content & magic bytes to block disguised executables and malicious files
+      const contentCheck = validateFileContent(buffer, f.originalname);
+      if (!contentCheck.isValid) {
+        if (f.path && fs.existsSync(f.path)) try { fs.unlinkSync(f.path); } catch {}
+        rejectedFiles.push({
+          filename: f.originalname,
+          reason: contentCheck.errorMessage || 'Invalid file signature or disallowed binary format.',
+        });
+        continue;
+      }
+
       const fileHash = computeFileHash(buffer);
       const pwdStatus = await testPdfPasswordStatus(buffer, f.mimetype, f.originalname, documentPassword);
 
@@ -2225,7 +2685,47 @@ app.post('/api/documents/upload', upload.array('files', 150), async (req: Reques
             break;
           }
         }
-        // 4. CHALLANS / TAX DEPOSIT SLIPS / OTHER DOCUMENTS
+        // 4. BANK STATEMENT: Account number & Account holder verification
+        else if (item.docType === 'bank_statement') {
+          const af = (item.additionalFields || {}) as any;
+          const stmtAcc = (af.accountNumber || (item.docNumber?.startsWith('STMT-') ? '' : item.docNumber) || '').trim();
+          const stmtHolder = (af.accountHolder || item.buyerName || '').trim();
+          const expectedAccounts = (client.expectedBankAccounts || []) as Array<{ accountNumber: string; bankName?: string }>;
+
+          const cleanStmtAcc = stmtAcc.replace(/[^0-9]/g, '');
+          const isAccMatched = expectedAccounts.length === 0 || !cleanStmtAcc || expectedAccounts.some(exp => {
+            const cleanExp = (exp.accountNumber || '').replace(/[^0-9]/g, '');
+            return cleanExp && (cleanStmtAcc === cleanExp || cleanStmtAcc.endsWith(cleanExp.slice(-4)) || cleanExp.endsWith(cleanStmtAcc.slice(-4)));
+          });
+
+          const normalizeName = (s?: string) => (s || '').toUpperCase().replace(/\b(MR|MRS|MS|M\/S|DR|SH|SHRI|SMT|PVT|LTD|LIMITED|LLP|COMPANY|CO|CORP|CORPORATION|ENTERPRISES)\b/gi, '').replace(/[^A-Z0-9]/g, '').trim();
+          const normHolder = normalizeName(stmtHolder);
+          const normCompany = normalizeName(client.businessName);
+          const normContact = normalizeName(client.contactPerson);
+          const normDirectors = (((client.directors as any) || []) as Array<{ name: string }>).map(d => normalizeName(d.name));
+
+          const isHolderMatched = !normHolder || Boolean(
+            (normCompany && (normHolder === normCompany || normHolder.includes(normCompany) || normCompany.includes(normHolder))) ||
+            (normContact && (normHolder === normContact || normHolder.includes(normContact) || normContact.includes(normHolder))) ||
+            normDirectors.some(nd => nd && (normHolder === nd || normHolder.includes(nd) || nd.includes(normHolder)))
+          );
+
+          if (!isAccMatched || !isHolderMatched) {
+            isGstinMismatch = true;
+            detectedMismatchGstin = stmtAcc || 'Bank Statement';
+            docNumberMismatch = stmtAcc || docNo;
+            const reasons = [];
+            if (!isHolderMatched) {
+              reasons.push(`Account holder "${stmtHolder}" does not match company "${client.businessName}"`);
+            }
+            if (!isAccMatched) {
+              reasons.push(`Account number "${stmtAcc}" is not registered in client database`);
+            }
+            gstinMismatchReason = `Bank statement discrepancy: ${reasons.join('. ')}.`;
+            break;
+          }
+        }
+        // 5. CHALLANS / TAX DEPOSIT SLIPS / OTHER DOCUMENTS
         else {
           // If a challan or slip has a GSTIN and it does not match client GSTIN
           if (allDocGstins.length > 0 && normClientGstin && !allDocGstins.includes(normClientGstin)) {
@@ -2440,6 +2940,8 @@ app.post('/api/documents/upload', upload.array('files', 150), async (req: Reques
         id: client.id,
         businessName: client.businessName,
         gstin: client.gstin,
+        contactPerson: client.contactPerson,
+        directors: (client.directors as any) || [],
         requiredChecklist: client.requiredChecklist || [],
         expectedBankAccounts: client.expectedBankAccounts || [],
       },
@@ -2721,7 +3223,7 @@ app.post('/api/telemetry/crash-report', (req: Request, res: Response) => {
   }
 });
 
-app.get('/api/telemetry/crashes', (_req: Request, res: Response) => {
+app.get('/api/telemetry/crashes', requireAuth, requireSuperAdmin, (_req: AuthRequest, res: Response) => {
   try {
     totalAppSessions += 1;
     const totalCrashes = serverCrashReports.reduce((acc, c) => acc + (c.occurrences || 1), 0);
@@ -2750,7 +3252,7 @@ app.get('/api/telemetry/crashes', (_req: Request, res: Response) => {
   }
 });
 
-app.patch('/api/telemetry/crashes/:id', (req: Request, res: Response) => {
+app.patch('/api/telemetry/crashes/:id', requireAuth, requireSuperAdmin, validateSafeIdParam('id'), (req: AuthRequest, res: Response) => {
   try {
     const { id } = req.params;
     const { status, scrubNotes } = req.body;
@@ -2766,7 +3268,7 @@ app.patch('/api/telemetry/crashes/:id', (req: Request, res: Response) => {
   }
 });
 
-app.delete('/api/telemetry/crashes', (req: Request, res: Response) => {
+app.delete('/api/telemetry/crashes', requireAuth, requireSuperAdmin, (_req: AuthRequest, res: Response) => {
   try {
     const { mode } = req.query;
     if (mode === 'all') {
@@ -2909,8 +3411,8 @@ app.put('/api/clients/:id/drive-folder', async (req: Request, res: Response) => 
   }
 });
 
-// Download original document file (Direct browser download to PC)
-app.get('/api/documents/:id/download', async (req: Request, res: Response) => {
+// Download original document file (Direct browser download to PC - Protected with Auth & IDOR check)
+app.get('/api/documents/:id/download', requireAuth, validateSafeIdParam('id'), async (req: AuthRequest, res: Response) => {
   try {
     const { id } = req.params;
     const doc = await db.select().from(documentFiles).where(eq(documentFiles.id, id)).limit(1);
@@ -2920,6 +3422,19 @@ app.get('/api/documents/:id/download', async (req: Request, res: Response) => {
     }
 
     const fileRec = doc[0];
+
+    // IDOR Protection: Restrict clients to only their own documents
+    if (req.user && req.user.role === 'client') {
+      const parentReq = await db.select().from(monthlyRequests).where(eq(monthlyRequests.id, fileRec.monthlyRequestId)).limit(1);
+      const allowedId = req.user.clientId || req.user.uid;
+      if (parentReq.length === 0 || parentReq[0].clientId !== allowedId) {
+        return res.status(403).json({ error: 'Access Denied: You are not authorized to access this document.' });
+      }
+    }
+
+    // Security headers on file responses
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    res.setHeader('Content-Security-Policy', "default-src 'none'; sandbox");
 
     // Case 1: Stored in Google Drive
     if (fileRec.storagePath && fileRec.storagePath.startsWith('gdrive://')) {
@@ -2961,8 +3476,8 @@ app.get('/api/documents/:id/download', async (req: Request, res: Response) => {
   }
 });
 
-// Preview document file (inline in browser tab)
-app.get('/api/documents/:id/preview', async (req: Request, res: Response) => {
+// Preview document file (inline in browser tab - Protected with Auth & CSP Sandbox)
+app.get('/api/documents/:id/preview', requireAuth, validateSafeIdParam('id'), async (req: AuthRequest, res: Response) => {
   try {
     const { id } = req.params;
     const doc = await db.select().from(documentFiles).where(eq(documentFiles.id, id)).limit(1);
@@ -2972,6 +3487,19 @@ app.get('/api/documents/:id/preview', async (req: Request, res: Response) => {
     }
 
     const fileRec = doc[0];
+
+    // IDOR Protection: Restrict clients to only their own documents
+    if (req.user && req.user.role === 'client') {
+      const parentReq = await db.select().from(monthlyRequests).where(eq(monthlyRequests.id, fileRec.monthlyRequestId)).limit(1);
+      const allowedId = req.user.clientId || req.user.uid;
+      if (parentReq.length === 0 || parentReq[0].clientId !== allowedId) {
+        return res.status(403).json({ error: 'Access Denied: You are not authorized to preview this document.' });
+      }
+    }
+
+    // Security headers to sandbox previews and prevent script execution
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    res.setHeader('Content-Security-Policy', "default-src 'none'; sandbox");
 
     // Case 1: Google Drive
     if (fileRec.storagePath && fileRec.storagePath.startsWith('gdrive://')) {
@@ -3219,8 +3747,8 @@ app.get('/api/documents/:id/preview', async (req: Request, res: Response) => {
   }
 });
 
-// Bulk download all documents for a monthly request as a ZIP archive
-app.get('/api/monthly-requests/:id/download-zip', async (req: Request, res: Response) => {
+// Bulk download all documents for a monthly request as a ZIP archive (Protected)
+app.get('/api/monthly-requests/:id/download-zip', requireAuth, validateSafeIdParam('id'), async (req: AuthRequest, res: Response) => {
   try {
     const { id } = req.params;
     const mrList = await db
@@ -3238,6 +3766,14 @@ app.get('/api/monthly-requests/:id/download-zip', async (req: Request, res: Resp
     }
 
     const { request: mr, client } = mrList[0];
+
+    // IDOR Protection: Restrict clients to only their own files
+    if (req.user && req.user.role === 'client') {
+      const allowedId = req.user.clientId || req.user.uid;
+      if (client.id !== allowedId) {
+        return res.status(403).json({ error: 'Access Denied: You are not authorized to download this archive.' });
+      }
+    }
     const files = await db
       .select()
       .from(documentFiles)
@@ -3358,7 +3894,7 @@ app.delete('/api/bank-transactions/:id', requireAuth, async (req: AuthRequest, r
 });
 
 // Export Bank Transactions for Tally (XML format - Direct Voucher Import)
-app.get('/api/monthly-requests/:id/export-tally-xml', async (req: Request, res: Response) => {
+app.get('/api/monthly-requests/:id/export-tally-xml', requireAuth, validateSafeIdParam('id'), async (req: AuthRequest, res: Response) => {
   try {
     const { id } = req.params;
     const mrList = await db
@@ -3373,6 +3909,14 @@ app.get('/api/monthly-requests/:id/export-tally-xml', async (req: Request, res: 
 
     if (mrList.length === 0) return res.status(404).json({ error: 'Monthly request not found' });
     const { request: mr, client } = mrList[0];
+
+    // IDOR Protection: Restrict clients to only their own files
+    if (req.user && req.user.role === 'client') {
+      const allowedId = req.user.clientId || req.user.uid;
+      if (client.id !== allowedId) {
+        return res.status(403).json({ error: 'Access Denied: You are not authorized to export this data.' });
+      }
+    }
 
     const txns = await db
       .select()
@@ -3404,7 +3948,7 @@ app.get('/api/monthly-requests/:id/export-tally-xml', async (req: Request, res: 
 });
 
 // Export Bank Transactions for Tally (Excel format)
-app.get('/api/monthly-requests/:id/export-tally-excel', async (req: Request, res: Response) => {
+app.get('/api/monthly-requests/:id/export-tally-excel', requireAuth, validateSafeIdParam('id'), async (req: AuthRequest, res: Response) => {
   try {
     const { id } = req.params;
     const mrList = await db
@@ -3819,8 +4363,8 @@ app.post('/api/monthly-requests/:id/generate-workbook', requireAuth, async (req:
   }
 });
 
-// Download generated workbook
-app.get('/api/workbooks/:id/download', async (req: Request, res: Response) => {
+// Download generated workbook (Protected)
+app.get('/api/workbooks/:id/download', requireAuth, validateSafeIdParam('id'), async (req: AuthRequest, res: Response) => {
   try {
     const { id } = req.params;
     const wb = await db.select().from(generatedWorkbooks).where(eq(generatedWorkbooks.id, id)).limit(1);
@@ -3830,6 +4374,15 @@ app.get('/api/workbooks/:id/download', async (req: Request, res: Response) => {
     }
 
     const wbRec = wb[0];
+
+    // IDOR Protection: Restrict clients to only their own workbooks
+    if (req.user && req.user.role === 'client') {
+      const allowedId = req.user.clientId || req.user.uid;
+      if (wbRec.clientId !== allowedId) {
+        return res.status(403).json({ error: 'Access Denied: You are not authorized to download this workbook.' });
+      }
+    }
+
     if (fs.existsSync(wbRec.filePath)) {
       res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
       res.setHeader('Content-Disposition', `attachment; filename="${wbRec.filename}"`);
@@ -3912,8 +4465,126 @@ app.get('/api/workbooks/:id/download', async (req: Request, res: Response) => {
   }
 });
 
-// Stream all uploaded documents, statements, and Excel workbooks for a client into a single .zip to the CA's local PC
-app.get('/api/monthly-requests/:id/download-package', async (req: Request, res: Response) => {
+// Helper to parse reporting month (e.g., "September 2026") into numeric month and year
+function parseReportingMonthToPeriod(monthStr?: string) {
+  const months: Record<string, number> = {
+    january: 1, jan: 1,
+    february: 2, feb: 2,
+    march: 3, mar: 3,
+    april: 4, apr: 4,
+    may: 5,
+    june: 6, jun: 6,
+    july: 7, jul: 7,
+    august: 8, aug: 8,
+    september: 9, sep: 9, sept: 9,
+    october: 10, oct: 10,
+    november: 11, nov: 11,
+    december: 12, dec: 12,
+  };
+  let m = 9;
+  let y = 2026;
+  if (monthStr) {
+    const parts = monthStr.trim().split(/[\s-_/]+/);
+    for (const p of parts) {
+      const lower = p.toLowerCase();
+      if (months[lower]) m = months[lower];
+      else if (/^\d{4}$/.test(p)) y = parseInt(p, 10);
+      else if (/^\d{1,2}$/.test(p) && parseInt(p, 10) <= 12) m = parseInt(p, 10);
+    }
+  }
+  return { monthNumber: m, year: y, reportingMonth: monthStr || 'September 2026' };
+}
+
+// Download Official Government GSTR-1 JSON (GST Portal Upload Format - Protected)
+app.get('/api/monthly-requests/:id/export-gstr1-json', requireAuth, validateSafeIdParam('id'), async (req: AuthRequest, res: Response) => {
+  try {
+    const { id } = req.params;
+    const reqList = await db
+      .select({
+        request: monthlyRequests,
+        client: clients,
+      })
+      .from(monthlyRequests)
+      .innerJoin(clients, eq(monthlyRequests.clientId, clients.id))
+      .where(eq(monthlyRequests.id, id))
+      .limit(1);
+
+    if (reqList.length === 0) {
+      return res.status(404).json({ error: 'Monthly request not found.' });
+    }
+
+    const { request: mr, client } = reqList[0];
+
+    // IDOR Protection: Restrict clients to only their own files
+    if (req.user && req.user.role === 'client') {
+      const allowedId = req.user.clientId || req.user.uid;
+      if (client.id !== allowedId) {
+        return res.status(403).json({ error: 'Access Denied: You are not authorized to export this return.' });
+      }
+    }
+    const docs = await db.select().from(extractedDocuments).where(eq(extractedDocuments.monthlyRequestId, id));
+    const allLines = await db.select().from(extractedLineItems);
+
+    const period = parseReportingMonthToPeriod(mr.reportingMonth);
+
+    // Sales invoices and credit/debit notes for GSTR-1
+    const salesDocs = docs.filter(d => d.docType === 'sales_invoice' || d.docType === 'credit_note' || d.docType === 'debit_note');
+    const targetInvoices = salesDocs.length > 0 ? salesDocs : docs.filter(d => d.docType !== 'bank_statement');
+
+    const formattedInvoices: Gstr1InputInvoice[] = targetInvoices.map(d => {
+      const docLines = allLines.filter(l => l.documentUnitId === d.id);
+      return {
+        id: d.id,
+        docNumber: d.docNumber,
+        docDate: d.docDate,
+        buyerName: d.buyerName,
+        buyerGstin: d.buyerGstin,
+        placeOfSupply: d.placeOfSupply || d.buyerGstin?.slice(0, 2) || client.gstin?.slice(0, 2) || '07',
+        taxableAmount: parseFloat(String(d.taxableAmount || 0)),
+        cgstAmount: parseFloat(String(d.cgstAmount || 0)),
+        sgstAmount: parseFloat(String(d.sgstAmount || 0)),
+        igstAmount: parseFloat(String(d.igstAmount || 0)),
+        cessAmount: parseFloat(String(d.cessAmount || 0)),
+        totalAmount: parseFloat(String(d.totalAmount || 0)),
+        reverseCharge: Boolean(d.reverseCharge),
+        lineItems: docLines.map(l => ({
+          itemDescription: l.itemDescription || 'Taxable Services / Goods',
+          hsnSac: l.hsnSac || '998311',
+          quantity: l.quantity ? parseFloat(String(l.quantity)) : 1,
+          rate: l.rate ? parseFloat(String(l.rate)) : undefined,
+          taxableValue: parseFloat(String(l.taxableValue || 0)),
+          taxRatePercent: l.taxRatePercent ? parseFloat(String(l.taxRatePercent)) : 18,
+          cgstAmount: parseFloat(String(l.cgstAmount || 0)),
+          sgstAmount: parseFloat(String(l.sgstAmount || 0)),
+          igstAmount: parseFloat(String(l.igstAmount || 0)),
+          cessAmount: parseFloat(String(l.cessAmount || 0)),
+          totalAmount: parseFloat(String(l.totalAmount || 0)),
+        })),
+      };
+    });
+
+    const gstr1Result = generateOfficialGstr1Json({
+      client: {
+        id: client.id,
+        businessName: client.businessName,
+        gstin: client.gstin,
+        stateCode: client.gstin?.slice(0, 2) || '07',
+      },
+      period,
+      invoices: formattedInvoices,
+    });
+
+    res.setHeader('Content-Type', 'application/json');
+    res.setHeader('Content-Disposition', `attachment; filename="${gstr1Result.filename}"`);
+    return res.send(JSON.stringify(gstr1Result.payload, null, 2));
+  } catch (err: any) {
+    console.error('Error generating GSTR-1 JSON:', err);
+    res.status(500).json({ error: 'Failed to generate GSTR-1 JSON: ' + err.message });
+  }
+});
+
+// Stream all uploaded documents, statements, and Excel workbooks for a client into a single .zip to the CA's local PC (Protected)
+app.get('/api/monthly-requests/:id/download-package', requireAuth, validateSafeIdParam('id'), async (req: AuthRequest, res: Response) => {
   try {
     const { id } = req.params;
     const purgeAfter = req.query.purge === 'true';
@@ -3933,32 +4604,106 @@ app.get('/api/monthly-requests/:id/download-package', async (req: Request, res: 
     }
 
     const { request: mr, client } = reqList[0];
+
+    // IDOR Protection: Restrict clients to only their own packages
+    if (req.user && req.user.role === 'client') {
+      const allowedId = req.user.clientId || req.user.uid;
+      if (client.id !== allowedId) {
+        return res.status(403).json({ error: 'Access Denied: You are not authorized to download this client package.' });
+      }
+    }
     const files = await db.select().from(documentFiles).where(eq(documentFiles.monthlyRequestId, id));
     const workbooks = await db.select().from(generatedWorkbooks).where(eq(generatedWorkbooks.monthlyRequestId, id));
+    const docs = await db.select().from(extractedDocuments).where(eq(extractedDocuments.monthlyRequestId, id));
+    const allLines = await db.select().from(extractedLineItems);
 
-    const sanitizedClient = client.businessName.replace(/[^a-zA-Z0-9_-]/g, '_');
-    const sanitizedMonth = mr.reportingMonth.replace(/[^a-zA-Z0-9_-]/g, '_');
+    const sanitizedClient = (client.businessName || client.contactPerson || 'Client').replace(/[^a-zA-Z0-9_-]/g, '_');
+    const sanitizedMonth = (mr.reportingMonth || 'Period').replace(/[^a-zA-Z0-9_-]/g, '_');
     const zipFilename = `${sanitizedClient}_${sanitizedMonth}_GST_Package.zip`;
 
     res.setHeader('Content-Type', 'application/zip');
     res.setHeader('Content-Disposition', `attachment; filename="${zipFilename}"`);
 
-    const archive = archiver('zip', { zlib: { level: 9 } });
+    const archive = createZipArchive();
+
+    archive.on('warning', (err: any) => {
+      console.warn('[Archiver Warning]', err.message);
+    });
 
     archive.on('error', (err: any) => {
-      console.error('Archive error:', err);
-      if (!res.headersSent) res.status(500).send({ error: err.message });
+      console.error('[Archiver Error]', err);
+      if (!res.headersSent) {
+        res.status(500).json({ error: 'Failed to build package: ' + err.message });
+      } else {
+        res.end();
+      }
     });
 
     archive.pipe(res);
 
-    // 1. Add Summary Manifest
+    // 1. Generate & Add Official GSTR-1 Portal JSON
+    try {
+      const period = parseReportingMonthToPeriod(mr.reportingMonth);
+      const salesDocs = docs.filter(d => d.docType === 'sales_invoice' || d.docType === 'credit_note' || d.docType === 'debit_note');
+      const targetInvoices = salesDocs.length > 0 ? salesDocs : docs.filter(d => d.docType !== 'bank_statement');
+
+      const formattedInvoices: Gstr1InputInvoice[] = targetInvoices.map(d => {
+        const docLines = allLines.filter(l => l.documentUnitId === d.id);
+        return {
+          id: d.id,
+          docNumber: d.docNumber,
+          docDate: d.docDate,
+          buyerName: d.buyerName,
+          buyerGstin: d.buyerGstin,
+          placeOfSupply: d.placeOfSupply || d.buyerGstin?.slice(0, 2) || client.gstin?.slice(0, 2) || '07',
+          taxableAmount: parseFloat(String(d.taxableAmount || 0)),
+          cgstAmount: parseFloat(String(d.cgstAmount || 0)),
+          sgstAmount: parseFloat(String(d.sgstAmount || 0)),
+          igstAmount: parseFloat(String(d.igstAmount || 0)),
+          cessAmount: parseFloat(String(d.cessAmount || 0)),
+          totalAmount: parseFloat(String(d.totalAmount || 0)),
+          reverseCharge: Boolean(d.reverseCharge),
+          lineItems: docLines.map(l => ({
+            itemDescription: l.itemDescription || 'Taxable Services / Goods',
+            hsnSac: l.hsnSac || '998311',
+            quantity: l.quantity ? parseFloat(String(l.quantity)) : 1,
+            rate: l.rate ? parseFloat(String(l.rate)) : undefined,
+            taxableValue: parseFloat(String(l.taxableValue || 0)),
+            taxRatePercent: l.taxRatePercent ? parseFloat(String(l.taxRatePercent)) : 18,
+            cgstAmount: parseFloat(String(l.cgstAmount || 0)),
+            sgstAmount: parseFloat(String(l.sgstAmount || 0)),
+            igstAmount: parseFloat(String(l.igstAmount || 0)),
+            cessAmount: parseFloat(String(l.cessAmount || 0)),
+            totalAmount: parseFloat(String(l.totalAmount || 0)),
+          })),
+        };
+      });
+
+      const gstr1Result = generateOfficialGstr1Json({
+        client: {
+          id: client.id,
+          businessName: client.businessName,
+          gstin: client.gstin,
+          stateCode: client.gstin?.slice(0, 2) || '07',
+        },
+        period,
+        invoices: formattedInvoices,
+      });
+
+      archive.append(JSON.stringify(gstr1Result.payload, null, 2), {
+        name: `GST_Portal_Upload_JSON/${gstr1Result.filename}`,
+      });
+    } catch (e: any) {
+      console.warn('Could not add GSTR-1 JSON to package zip:', e.message);
+    }
+
+    // 2. Add Summary Manifest
     const manifestText = `QUINCECA CHARTERED ACCOUNTANTS
 STATUTORY GST CLIENT PACKAGE
 ===========================================================
 Client Business : ${client.businessName}
 GSTIN           : ${client.gstin}
-Contact Person  : ${client.contactPerson} (${client.registeredPhone})
+Contact Person  : ${client.contactPerson} (${client.registeredPhone || 'N/A'})
 Email           : ${client.email}
 Reporting Month : ${mr.reportingMonth}
 Package Export  : ${new Date().toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' })}
@@ -3967,26 +4712,64 @@ Invoices Count  : ${mr.totalInvoicesExtracted}
 Status          : ${mr.status}
 
 FILES INCLUDED IN THIS PACKAGE:
-${files.length > 0 ? files.map((f, i) => `${i + 1}. [${f.source}] ${f.originalFilename} (${(f.sizeBytes / 1024).toFixed(1)} KB) - Hash: ${f.fileHash}`).join('\n') : 'No uploaded document files recorded.'}
+${files.length > 0 ? files.map((f, i) => `${i + 1}. [${f.source}] ${f.originalFilename} (${Math.round((f.sizeBytes || 0) / 1024)} KB) - Hash: ${f.fileHash}`).join('\n') : 'No uploaded document files recorded.'}
 
 WORKBOOKS INCLUDED:
 ${workbooks.length > 0 ? workbooks.map((w, i) => `${i + 1}. v${w.version} ${w.filename} (${w.status})`).join('\n') : 'No workbooks generated yet.'}
 ===========================================================
 Downloaded directly to Local PC storage.
-Extracted GST tax line items remain preserved in Neon PostgreSQL Database.`;
+Includes Official GSTR-1 JSON (GST Portal Upload), Excel Workbooks, and Client Documents.`;
 
     archive.append(manifestText, { name: 'PACKAGE_MANIFEST.txt' });
 
-    // 2. Add all physical uploaded files
+    // 3. Add all physical / DB uploaded files with unique names (prevent duplicate entry collision)
+    const usedNames = new Set<string>();
     const filesToPurge: string[] = [];
-    for (const f of files) {
+
+    for (let i = 0; i < files.length; i++) {
+      const f = files[i];
+      let rawName = (f.originalFilename || `Document_${i + 1}.pdf`).trim();
+      let uniqueName = rawName;
+      if (usedNames.has(uniqueName.toLowerCase())) {
+        const lastDot = rawName.lastIndexOf('.');
+        if (lastDot > 0) {
+          const base = rawName.substring(0, lastDot);
+          const ext = rawName.substring(lastDot);
+          uniqueName = `${base}_(${i + 1})${ext}`;
+        } else {
+          uniqueName = `${rawName}_(${i + 1})`;
+        }
+      }
+      usedNames.add(uniqueName.toLowerCase());
+
+      const zipEntryPath = `Client_Documents/${uniqueName}`;
+
       if (f.storagePath && fs.existsSync(f.storagePath)) {
-        archive.file(f.storagePath, { name: `Client_Documents/${f.originalFilename}` });
-        filesToPurge.push(f.storagePath);
+        try {
+          archive.file(f.storagePath, { name: zipEntryPath });
+          filesToPurge.push(f.storagePath);
+        } catch (e: any) {
+          console.warn(`Error reading local file ${f.storagePath}:`, e.message);
+        }
+      } else if (f.fileData) {
+        try {
+          const buf = Buffer.from(f.fileData, 'base64');
+          archive.append(buf, { name: zipEntryPath });
+        } catch (e: any) {
+          console.warn(`Error decoding base64 fileData for ${f.id}:`, e.message);
+        }
+      } else if (f.storagePath && f.storagePath.startsWith('gdrive://')) {
+        try {
+          const driveFileId = f.storagePath.replace('gdrive://', '');
+          const stream = await googleDriveStorage.getDownloadStream(driveFileId);
+          archive.append(stream as any, { name: zipEntryPath });
+        } catch (e: any) {
+          console.warn(`Error fetching Drive file ${uniqueName}:`, e.message);
+        }
       }
     }
 
-    // 3. Add workbooks if present
+    // 4. Add workbooks if present
     for (const wb of workbooks) {
       if (wb.filePath && fs.existsSync(wb.filePath)) {
         archive.file(wb.filePath, { name: `Workbooks/${wb.filename}` });
@@ -3995,22 +4778,23 @@ Extracted GST tax line items remain preserved in Neon PostgreSQL Database.`;
 
     await archive.finalize();
 
-    // If purge was requested, reclaim server disk space immediately after stream
+    // 5. Purge only if explicitly requested
     if (purgeAfter && filesToPurge.length > 0) {
       res.on('finish', () => {
         for (const p of filesToPurge) {
           try {
             if (fs.existsSync(p)) fs.unlinkSync(p);
           } catch (e: any) {
-            console.error('Error auto-cleaning file from server:', p, e.message);
+            console.error('Error auto-cleaning file:', p, e.message);
           }
         }
-        console.log(`[Storage Auto-Clean] Reclaimed server disk: deleted ${filesToPurge.length} files for ${mr.id}.`);
       });
     }
   } catch (err: any) {
     console.error('Download package error:', err);
-    res.status(500).json({ error: 'Failed to build package: ' + err.message });
+    if (!res.headersSent) {
+      res.status(500).json({ error: 'Failed to build package: ' + err.message });
+    }
   }
 });
 
@@ -4059,8 +4843,8 @@ app.get('/api/system/storage-info', requireAuth, (_req: Request, res: Response) 
   }
 });
 
-// 1-Click Server Disk Purge (Reclaim Cloud Storage)
-app.post('/api/system/purge-storage', requireAuth, async (_req: Request, res: Response) => {
+// 1-Click Server Disk Purge (Restricted to Super Admin)
+app.post('/api/system/purge-storage', requireAuth, requireSuperAdmin, async (_req: AuthRequest, res: Response) => {
   try {
     let deletedCount = 0;
     let freedBytes = 0;
@@ -4090,8 +4874,8 @@ app.post('/api/system/purge-storage', requireAuth, async (_req: Request, res: Re
   }
 });
 
-// Export workbook as Standalone HTML Report
-app.get('/api/workbooks/:id/export-html', async (req: Request, res: Response) => {
+// Export workbook as Standalone HTML Report (Protected)
+app.get('/api/workbooks/:id/export-html', requireAuth, validateSafeIdParam('id'), async (req: AuthRequest, res: Response) => {
   try {
     const { id } = req.params;
     const isDownload = req.query.download === 'true';
@@ -4102,6 +4886,14 @@ app.get('/api/workbooks/:id/export-html', async (req: Request, res: Response) =>
     }
 
     const wbRec = wb[0];
+
+    // IDOR Protection: Restrict clients to only their own workbooks
+    if (req.user && req.user.role === 'client') {
+      const allowedId = req.user.clientId || req.user.uid;
+      if (wbRec.clientId !== allowedId) {
+        return res.status(403).json({ error: 'Access Denied: You are not authorized to export this report.' });
+      }
+    }
     const reqList = await db
       .select({
         request: monthlyRequests,
@@ -4182,8 +4974,8 @@ app.get('/api/workbooks/:id/export-html', async (req: Request, res: Response) =>
   }
 });
 
-// Export monthly request directly as Standalone HTML Report (even before Excel generation)
-app.get('/api/monthly-requests/:id/export-html', async (req: Request, res: Response) => {
+// Export monthly request directly as Standalone HTML Report (even before Excel generation - Protected)
+app.get('/api/monthly-requests/:id/export-html', requireAuth, validateSafeIdParam('id'), async (req: AuthRequest, res: Response) => {
   try {
     const { id } = req.params;
     const isDownload = req.query.download === 'true';
@@ -4203,6 +4995,14 @@ app.get('/api/monthly-requests/:id/export-html', async (req: Request, res: Respo
     }
 
     const { request: mr, client } = reqList[0];
+
+    // IDOR Protection: Restrict clients to only their own requests
+    if (req.user && req.user.role === 'client') {
+      const allowedId = req.user.clientId || req.user.uid;
+      if (client.id !== allowedId) {
+        return res.status(403).json({ error: 'Access Denied: You are not authorized to export this report.' });
+      }
+    }
     const allDocs = await db.select().from(extractedDocuments).where(eq(extractedDocuments.monthlyRequestId, mr.id));
     const docIds = allDocs.map(d => d.id);
     let allLineItems: any[] = [];
@@ -4282,6 +5082,24 @@ app.get('/api/client-portal/session', async (req: Request, res: Response) => {
     // Clean token if "undefined" or "null" string was passed
     const token = (rawToken === 'undefined' || rawToken === 'null') ? '' : rawToken;
 
+    // Check if request is authenticated as staff or admin (for portal previews)
+    const authHeader = req.headers.authorization;
+    let isStaffOrAdmin = false;
+    if (authHeader && authHeader.startsWith('Bearer ')) {
+      const verified = verifyAuthToken(authHeader.replace('Bearer ', '').trim());
+      if (verified && ['superadmin', 'ca_admin', 'staff'].includes(verified.role)) {
+        isStaffOrAdmin = true;
+      }
+    } else if (req.headers['x-user-role']) {
+      const r = req.headers['x-user-role'] as string;
+      if (['superadmin', 'ca_admin', 'staff'].includes(r)) isStaffOrAdmin = true;
+    }
+
+    // Security Guard: An unauthenticated user CANNOT query arbitrary clientIds without a token
+    if (!token && clientIdParam && !isStaffOrAdmin) {
+      return res.status(401).json({ error: 'Access Denied: A valid secure upload token is required to access client portal.' });
+    }
+
     let requests: Array<{ request: any; client: any }> = [];
 
     // 1. Try exact secureUploadToken
@@ -4298,7 +5116,7 @@ app.get('/api/client-portal/session', async (req: Request, res: Response) => {
     }
 
     // 2. Check if token or clientIdParam matches client ID (with or without token_ prefix)
-    const targetClientId = clientIdParam || (token.startsWith('token_') ? token.replace('token_', '') : token);
+    const targetClientId = (token.startsWith('token_') ? token.replace('token_', '') : (isStaffOrAdmin ? clientIdParam : ''));
     if (requests.length === 0 && targetClientId) {
       requests = await db
         .select({
@@ -4836,12 +5654,12 @@ app.get('/api/audit-logs', requireAuth, async (req: AuthRequest, res: Response) 
 
 // Meta WhatsApp Business Platform Webhook (GET for verification, POST for incoming messages)
 app.get('/api/whatsapp/webhook', (req: Request, res: Response) => {
-  const verifyToken = process.env.META_WEBHOOK_VERIFY_TOKEN || 'quinceca_token_2026';
+  const verifyToken = process.env.META_WEBHOOK_VERIFY_TOKEN;
   const mode = req.query['hub.mode'];
-  const token = req.query['hub.verify_token'];
+  const token = req.query['hub.verify_token'] as string;
   const challenge = req.query['hub.challenge'];
 
-  if (mode === 'subscribe' && token === verifyToken) {
+  if (mode === 'subscribe' && verifyToken && token && timingSafeCompare(token, verifyToken)) {
     console.log('WhatsApp webhook verified successfully.');
     return res.status(200).send(challenge);
   }
@@ -4911,8 +5729,8 @@ app.get('/api/synthetic/samples', (_req: Request, res: Response) => {
   res.json(files);
 });
 
-// Re-seed DB endpoint
-app.post('/api/system/seed', requireAuth, async (_req: Request, res: Response) => {
+// Re-seed DB endpoint (Restricted strictly to Super Administrator)
+app.post('/api/system/seed', requireAuth, requireSuperAdmin, async (_req: AuthRequest, res: Response) => {
   try {
     await seedInitialData();
     res.json({ success: true, message: 'Database seeded with sample CA clients, documents, and requests.' });
@@ -4925,8 +5743,8 @@ app.post('/api/system/seed', requireAuth, async (_req: Request, res: Response) =
 // 8. OPEN-SOURCE WHATSAPP DEVICE LINKING API
 // ==========================================
 
-// Get current WhatsApp Device connection status & QR code
-app.get('/api/whatsapp/device-status', async (_req: Request, res: Response) => {
+// Get current WhatsApp Device connection status & QR code (Protected)
+app.get('/api/whatsapp/device-status', requireAuth, requireCaAdmin, async (_req: AuthRequest, res: Response) => {
   try {
     const status = baileysWhatsAppManager.getStatus();
     res.json(status);
@@ -4935,8 +5753,8 @@ app.get('/api/whatsapp/device-status', async (_req: Request, res: Response) => {
   }
 });
 
-// Initialize or generate a new QR code for device linking
-app.post('/api/whatsapp/device-initialize', async (_req: Request, res: Response) => {
+// Initialize or generate a new QR code for device linking (Protected)
+app.post('/api/whatsapp/device-initialize', requireAuth, requireCaAdmin, async (_req: AuthRequest, res: Response) => {
   try {
     await baileysWhatsAppManager.initialize();
     res.json(baileysWhatsAppManager.getStatus());
@@ -4945,8 +5763,8 @@ app.post('/api/whatsapp/device-initialize', async (_req: Request, res: Response)
   }
 });
 
-// Log out and clear session keys
-app.post('/api/whatsapp/device-logout', async (_req: Request, res: Response) => {
+// Log out and clear session keys (Protected)
+app.post('/api/whatsapp/device-logout', requireAuth, requireCaAdmin, async (_req: AuthRequest, res: Response) => {
   try {
     await baileysWhatsAppManager.logout();
     res.json(baileysWhatsAppManager.getStatus());
@@ -4955,8 +5773,8 @@ app.post('/api/whatsapp/device-logout', async (_req: Request, res: Response) => 
   }
 });
 
-// Request 8-digit Pairing Code for WhatsApp Linking (No camera scan needed)
-app.post('/api/whatsapp/device-pairing-code', async (req: Request, res: Response) => {
+// Request 8-digit Pairing Code for WhatsApp Linking (No camera scan needed - Protected)
+app.post('/api/whatsapp/device-pairing-code', requireAuth, requireCaAdmin, async (req: AuthRequest, res: Response) => {
   try {
     const { phone } = req.body;
     if (!phone) {
@@ -4969,8 +5787,8 @@ app.post('/api/whatsapp/device-pairing-code', async (req: Request, res: Response
   }
 });
 
-// Send a test WhatsApp message from the linked phone
-app.post('/api/whatsapp/device-send-test', async (req: Request, res: Response) => {
+// Send a test WhatsApp message from the linked phone (Protected & Rate Limited)
+app.post('/api/whatsapp/device-send-test', requireAuth, requireCaAdmin, messagingLimiter, async (req: AuthRequest, res: Response) => {
   try {
     const { phone, messageText } = req.body;
     if (!phone || !messageText) {
@@ -5394,8 +6212,8 @@ app.get(['/health', '/healthz'], (_req: Request, res: Response) => {
 // Option 2: 100% Legal & Free Government Schema Offline Utility Bridge
 // ==========================================
 
-// Get all government filing records
-app.get('/api/gov-filing/records', async (_req: Request, res: Response) => {
+// Get all government filing records (Protected)
+app.get('/api/gov-filing/records', requireAuth, requireStaffOrAdmin, async (_req: AuthRequest, res: Response) => {
   try {
     const filings = await GovFilingService.getAllFilings();
     res.json(filings);
@@ -5404,8 +6222,8 @@ app.get('/api/gov-filing/records', async (_req: Request, res: Response) => {
   }
 });
 
-// Fetch pre-aggregated client data for filing wizard
-app.get('/api/gov-filing/client-data/:clientId', async (req: Request, res: Response) => {
+// Fetch pre-aggregated client data for filing wizard (Protected)
+app.get('/api/gov-filing/client-data/:clientId', requireAuth, validateSafeIdParam('clientId'), async (req: AuthRequest, res: Response) => {
   try {
     const { clientId } = req.params;
     const clientList = await db.select().from(clients).where(eq(clients.id, clientId)).limit(1);
@@ -5544,8 +6362,8 @@ app.get('/api/gov-filing/client-data/:clientId', async (req: Request, res: Respo
   }
 });
 
-// Validate GSTR-1 parameters
-app.post('/api/gov-filing/validate-gstr1', async (req: Request, res: Response) => {
+// Validate GSTR-1 parameters (Protected)
+app.post('/api/gov-filing/validate-gstr1', requireAuth, requireStaffOrAdmin, async (req: AuthRequest, res: Response) => {
   try {
     const result = GovFilingService.validateGstr1(req.body);
     res.json(result);
@@ -5554,8 +6372,8 @@ app.post('/api/gov-filing/validate-gstr1', async (req: Request, res: Response) =
   }
 });
 
-// Generate GSTR-1 Government JSON
-app.post('/api/gov-filing/generate-gstr1', async (req: Request, res: Response) => {
+// Generate GSTR-1 Government JSON (Protected)
+app.post('/api/gov-filing/generate-gstr1', requireAuth, requireStaffOrAdmin, async (req: AuthRequest, res: Response) => {
   try {
     const { clientId, clientName, gstin, reportingMonth, monthNumber, year, invoices, grossTurnoverPrevYear } = req.body;
     if (!gstin || !reportingMonth) {
@@ -5579,8 +6397,8 @@ app.post('/api/gov-filing/generate-gstr1', async (req: Request, res: Response) =
   }
 });
 
-// Generate GSTR-3B Government JSON
-app.post('/api/gov-filing/generate-gstr3b', async (req: Request, res: Response) => {
+// Generate GSTR-3B Government JSON (Protected)
+app.post('/api/gov-filing/generate-gstr3b', requireAuth, requireStaffOrAdmin, async (req: AuthRequest, res: Response) => {
   try {
     const {
       clientId,
@@ -5624,8 +6442,8 @@ app.post('/api/gov-filing/generate-gstr3b', async (req: Request, res: Response) 
   }
 });
 
-// Generate ITR-1 Government JSON
-app.post('/api/gov-filing/generate-itr1', async (req: Request, res: Response) => {
+// Generate ITR-1 Government JSON (Protected)
+app.post('/api/gov-filing/generate-itr1', requireAuth, requireStaffOrAdmin, async (req: AuthRequest, res: Response) => {
   try {
     const { clientId, clientName, itrData } = req.body;
     if (!itrData || !itrData.assessee || !itrData.assessee.pan) {
@@ -5644,8 +6462,8 @@ app.post('/api/gov-filing/generate-itr1', async (req: Request, res: Response) =>
   }
 });
 
-// Generate ITR-4 Government JSON
-app.post('/api/gov-filing/generate-itr4', async (req: Request, res: Response) => {
+// Generate ITR-4 Government JSON (Protected)
+app.post('/api/gov-filing/generate-itr4', requireAuth, requireStaffOrAdmin, async (req: AuthRequest, res: Response) => {
   try {
     const { clientId, clientName, itrData } = req.body;
     if (!itrData || !itrData.assessee || !itrData.assessee.pan) {
@@ -5664,8 +6482,8 @@ app.post('/api/gov-filing/generate-itr4', async (req: Request, res: Response) =>
   }
 });
 
-// Record Filing Status (ARN / Ack No / DSC)
-app.post('/api/gov-filing/record-status', async (req: Request, res: Response) => {
+// Record Filing Status (ARN / Ack No / DSC - Protected)
+app.post('/api/gov-filing/record-status', requireAuth, requireStaffOrAdmin, async (req: AuthRequest, res: Response) => {
   try {
     const { id, status, arnNumber, filingDate, filedBy, notes } = req.body;
     if (!id) {
@@ -5690,17 +6508,20 @@ app.post('/api/gov-filing/record-status', async (req: Request, res: Response) =>
   }
 });
 
-// Download Government JSON Return File
-app.get('/api/gov-filing/download/:filename', (req: Request, res: Response) => {
+// Download Government JSON Return File (Protected)
+app.get('/api/gov-filing/download/:filename', requireAuth, requireStaffOrAdmin, (req: AuthRequest, res: Response) => {
   try {
-    const { filename } = req.params;
-    const filePath = GovFilingService.getReturnFilePath(filename);
+    const rawFilename = req.params.filename;
+    // Prevent path traversal
+    const safeFilename = path.basename(rawFilename).replace(/\.\./g, '');
+    const filePath = GovFilingService.getReturnFilePath(safeFilename);
 
     if (!filePath || !fs.existsSync(filePath)) {
       return res.status(404).json({ error: 'Government return JSON file not found on disk.' });
     }
 
     res.setHeader('Content-Type', 'application/json');
+    res.setHeader('X-Content-Type-Options', 'nosniff');
     res.setHeader('Content-Disposition', `attachment; filename="${path.basename(filePath)}"`);
     fs.createReadStream(filePath).pipe(res);
   } catch (err: any) {
@@ -5740,6 +6561,246 @@ app.get('/api/gov-filing/portal-links', (_req: Request, res: Response) => {
   });
 });
 
+// ==========================================
+// 19. ARTIFICIAL INTELLIGENCE & COPILOT APIs
+// ==========================================
+
+// AI Copilot Query Endpoint (Orchestrator, Compliance, Notice, Billing, FollowUp)
+app.post('/api/ai/copilot', requireAuth, aiCopilotLimiter, async (req: Request, res: Response) => {
+  try {
+    const { query, role } = req.body;
+    if (!query) {
+      return res.status(400).json({ error: 'Query parameter is required.' });
+    }
+
+    const result = await processAiCopilotQuery(query, role);
+    res.json({ success: true, ...result });
+  } catch (err: any) {
+    console.error('[AI Copilot API Error]:', err);
+    res.status(500).json({ error: 'Failed to process AI copilot query: ' + err.message });
+  }
+});
+
+// AI Statutory Notice Analyzer & Legal Reply Drafter
+app.post('/api/ai/notice-analyze', requireAuth, aiCopilotLimiter, async (req: Request, res: Response) => {
+  try {
+    const { noticeNumber, clientName, department, penaltyRisk, hearingDeadline, additionalDetails } = req.body;
+    if (!noticeNumber || !clientName) {
+      return res.status(400).json({ error: 'Notice reference number and client name are required.' });
+    }
+
+    const analysis = await analyzeNoticeWithAi({
+      noticeNumber,
+      clientName,
+      department: department || 'GST',
+      penaltyRisk,
+      hearingDeadline,
+      additionalDetails,
+    });
+
+    res.json({ success: true, analysis });
+  } catch (err: any) {
+    console.error('[AI Notice Analyzer API Error]:', err);
+    res.status(500).json({ error: 'Failed to analyze notice with AI: ' + err.message });
+  }
+});
+
+// AI GSTR-2B vs Books Reconciliation Anomaly Explainer
+app.post('/api/ai/reconciliation-explain', requireAuth, aiCopilotLimiter, async (req: Request, res: Response) => {
+  try {
+    const { invoiceNumber, clientName, booksTaxable, portalTaxable, booksTax, portalTax, vendorGstin, issueType } = req.body;
+    if (!invoiceNumber) {
+      return res.status(400).json({ error: 'Invoice number is required.' });
+    }
+
+    const explanation = await explainReconciliationMismatch({
+      invoiceNumber,
+      clientName: clientName || 'Client',
+      booksTaxable: Number(booksTaxable || 0),
+      portalTaxable: Number(portalTaxable || 0),
+      booksTax: Number(booksTax || 0),
+      portalTax: Number(portalTax || 0),
+      vendorGstin,
+      issueType,
+    });
+
+    res.json({ success: true, explanation });
+  } catch (err: any) {
+    console.error('[AI Reconciliation Explainer Error]:', err);
+    res.status(500).json({ error: 'Failed to explain reconciliation mismatch: ' + err.message });
+  }
+});
+
+// ==========================================
+// 20. SAAS MULTI-TENANT & STORAGE APIS
+// ==========================================
+
+// Get Tenant SaaS Profile, Active Modules & Storage Gauge
+app.get('/api/saas/tenant-config', requireAuth, async (_req: Request, res: Response) => {
+  try {
+    const tenantId = 'ten_quinceca_01'; // Default active tenant
+    let tenant = (await db.select().from(tenants).where(eq(tenants.id, tenantId)).limit(1))[0];
+    let subscription = (await db.select().from(tenantSubscriptions).where(eq(tenantSubscriptions.tenantId, tenantId)).limit(1))[0];
+    let storageConfig = (await db.select().from(tenantStorageConfigs).where(eq(tenantStorageConfigs.tenantId, tenantId)).limit(1))[0];
+
+    const storageUsage = computeTenantStorageUsage(tenantId);
+
+    res.json({
+      success: true,
+      tenant: tenant || {
+        id: tenantId,
+        firmName: 'QuinceCA • Practice System',
+        planTier: 'automation_pro',
+        billingCycle: 'annual',
+        storageQuotaGb: 25,
+        storageProvider: 'managed_local',
+      },
+      subscription: subscription || {
+        basePlan: 'automation_pro',
+        storageQuotaGb: 25,
+        monthlyPriceInr: '7999.00',
+        activeModules: {
+          gst_filing_pipeline: true,
+          ai_vision_ocr: true,
+          whatsapp_automation: true,
+          notices_scrutiny_counsel: true,
+          itr_tax_audit: true,
+          mca_roc_compliance: false,
+          billing_timesheets: true,
+          multi_user_staff_review: true,
+        },
+      },
+      storageConfig: storageConfig || {
+        storageType: 'managed_local',
+        isolatedFolderName: tenantId,
+      },
+      storageUsage,
+      plans: SAAS_PLANS,
+      moduleCatalog: MODULE_CATALOG,
+      storageAddons: STORAGE_ADDONS,
+    });
+  } catch (err: any) {
+    console.error('[SaaS Config Error]:', err);
+    res.status(500).json({ error: 'Failed to fetch SaaS tenant config: ' + err.message });
+  }
+});
+
+// Update Tenant Subscription & Preferences (A-la-carte and Storage Quota)
+app.post('/api/saas/subscription/update', requireAuth, requireSuperAdmin, async (req: Request, res: Response) => {
+  try {
+    const {
+      tenantId = 'ten_quinceca_01',
+      planTier,
+      billingCycle,
+      modules,
+      storageQuotaGb,
+      storageProvider,
+      gdriveFolderId,
+      s3BucketName,
+      s3Region,
+      s3AccessKey,
+      monthlyPriceInr,
+    } = req.body;
+
+    // 1. Ensure isolated storage directory exists
+    getOrCreateTenantIsolatedStorage(tenantId);
+
+    // 2. Update tenant profile
+    await db
+      .insert(tenants)
+      .values({
+        id: tenantId,
+        firmName: 'QuinceCA • Practice System',
+        firmType: 'partnership_firm',
+        slug: 'quinceca',
+        ownerEmail: 'shekhardas8@gmail.com',
+        ownerName: 'CA Suraj Dutta (FCA)',
+        planTier: planTier || 'automation_pro',
+        billingCycle: billingCycle || 'annual',
+        storageQuotaGb: Number(storageQuotaGb || 25),
+        storageProvider: storageProvider || 'managed_local',
+      })
+      .onConflictDoUpdate({
+        target: tenants.id,
+        set: {
+          planTier: planTier || 'automation_pro',
+          billingCycle: billingCycle || 'annual',
+          storageQuotaGb: Number(storageQuotaGb || 25),
+          storageProvider: storageProvider || 'managed_local',
+          updatedAt: new Date(),
+        },
+      });
+
+    // 3. Update subscription record
+    await db
+      .insert(tenantSubscriptions)
+      .values({
+        id: `sub_${tenantId}`,
+        tenantId,
+        basePlan: planTier || 'automation_pro',
+        activeModules: modules,
+        storageQuotaGb: Number(storageQuotaGb || 25),
+        monthlyPriceInr: String(monthlyPriceInr || '7999.00'),
+        billingCycle: billingCycle || 'annual',
+      })
+      .onConflictDoUpdate({
+        target: tenantSubscriptions.id,
+        set: {
+          basePlan: planTier || 'automation_pro',
+          activeModules: modules,
+          storageQuotaGb: Number(storageQuotaGb || 25),
+          monthlyPriceInr: String(monthlyPriceInr || '7999.00'),
+          billingCycle: billingCycle || 'annual',
+          updatedAt: new Date(),
+        },
+      });
+
+    // 4. Update storage config record if BYOS
+    await db
+      .insert(tenantStorageConfigs)
+      .values({
+        id: `stor_${tenantId}`,
+        tenantId,
+        storageType: storageProvider || 'managed_local',
+        isolatedFolderName: tenantId,
+        googleDriveFolderId: gdriveFolderId || null,
+        s3BucketName: s3BucketName || null,
+        s3Region: s3Region || null,
+        s3AccessKeyId: s3AccessKey || null,
+      })
+      .onConflictDoUpdate({
+        target: tenantStorageConfigs.id,
+        set: {
+          storageType: storageProvider || 'managed_local',
+          googleDriveFolderId: gdriveFolderId || null,
+          s3BucketName: s3BucketName || null,
+          s3Region: s3Region || null,
+          s3AccessKeyId: s3AccessKey || null,
+          updatedAt: new Date(),
+        },
+      });
+
+    res.json({
+      success: true,
+      message: 'Subscription, modules, and isolated storage partition saved successfully!',
+    });
+  } catch (err: any) {
+    console.error('[SaaS Subscription Update Error]:', err);
+    res.status(500).json({ error: 'Failed to update subscription: ' + err.message });
+  }
+});
+
+// List all Plans & Module Catalog
+app.get('/api/saas/plans', (_req: Request, res: Response) => {
+  res.json({
+    plans: SAAS_PLANS,
+    modules: MODULE_CATALOG,
+    storageAddons: STORAGE_ADDONS,
+  });
+});
+
+
+
 
 app.all('/api/*', (req: Request, res: Response) => {
   res.status(404).json({ error: `API route not found: ${req.method} ${req.originalUrl}` });
@@ -5762,7 +6823,12 @@ app.use((err: any, _req: Request, res: Response, next: express.NextFunction) => 
   }
   if (err) {
     const statusCode = typeof err.status === 'number' ? err.status : (typeof err.statusCode === 'number' ? err.statusCode : 500);
-    return res.status(statusCode).json({ error: err.message || 'Internal server error occurred.' });
+    // Sanitize 500 internal server errors in production to avoid leaking sensitive stack traces, DB queries, or credentials
+    const isProd = process.env.NODE_ENV === 'production';
+    const message = (isProd && statusCode >= 500)
+      ? 'An unexpected error occurred. Please contact the system administrator.'
+      : (err.message || 'Internal server error occurred.');
+    return res.status(statusCode).json({ error: message });
   }
   next();
 });

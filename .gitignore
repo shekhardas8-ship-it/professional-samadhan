@@ -7,6 +7,8 @@ coverage/
 .env*
 !.env.example
 env.yaml
+firebase-applet-config.json
+!firebase-applet-config.example.json
 local_storage/uploads/*
 local_storage/workbooks/*
 local_storage/gov_returns/*
@@ -16,4 +18,10 @@ local_storage/
 *.tar.gz
 wa_auth_session/
 veers-gym*
+backups/
+scratch/
+*.pem
+*.key
+credentials*.json
+*-service-account*.json
 

@@ -13,10 +13,9 @@ export const createPool = () => {
     const rawUrl = (process.env.DATABASE_URL || '').trim();
     let connStr = rawUrl;
 
-    // Fallback if DATABASE_URL was cut off or missing in Render environment
+    // Validate DATABASE_URL from environment variables
     if (!connStr || !connStr.includes('@')) {
-      console.warn('[PostgreSQL] Incomplete or missing DATABASE_URL. Applying default Neon Cloud connection string.');
-      connStr = 'postgresql://neondb_owner:npg_Y3LESyxthM4J@ep-super-cloud-b33brsmd-pooler.c-4.ap-southeast-1.aws.neon.tech/neondb?sslmode=require&channel_binding=require';
+      throw new Error('[PostgreSQL Error] DATABASE_URL is missing or invalid. Set DATABASE_URL in your .env or cloud environment.');
     } else if (!connStr.startsWith('postgresql://') && !connStr.startsWith('postgres://')) {
       connStr = `postgresql://${connStr}`;
     }

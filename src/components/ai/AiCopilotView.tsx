@@ -37,7 +37,7 @@ export const AiCopilotView: React.FC = () => {
     "Summarize today's critical work.",
   ];
 
-  const handleSendMessage = (queryText?: string) => {
+  const handleSendMessage = async (queryText?: string) => {
     const textToSend = queryText || inputQuery;
     if (!textToSend.trim()) return;
 
@@ -51,8 +51,29 @@ export const AiCopilotView: React.FC = () => {
     setInputQuery('');
     setIsTyping(true);
 
-    // Simulate intelligent multi-agent routing
-    setTimeout(() => {
+    try {
+      const res = await fetch('/api/ai/copilot', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ query: textToSend.trim() }),
+      });
+
+      if (res.ok) {
+        const data = await res.json();
+        setMessages(prev => [
+          ...prev,
+          {
+            role: 'assistant',
+            text: data.reply || 'Request processed by QuinceCA Practice Copilot.',
+            agent: data.agent ? `${data.agent}` : 'Orchestrator Agent',
+            timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+          },
+        ]);
+      } else {
+        throw new Error('Server returned ' + res.status);
+      }
+    } catch (err: any) {
+      console.warn('Falling back to local practice engine:', err);
       let botResponse = '';
       let agent = 'Orchestrator Agent';
 
@@ -82,8 +103,9 @@ export const AiCopilotView: React.FC = () => {
           timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
         },
       ]);
+    } finally {
       setIsTyping(false);
-    }, 700);
+    }
   };
 
   const handleApproveAction = (actionId: string) => {

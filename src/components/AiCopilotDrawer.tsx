@@ -62,7 +62,7 @@ export const AiCopilotDrawer: React.FC<AiCopilotDrawerProps> = ({
     'Prepare reminders for clients with missing documents.',
   ];
 
-  const handleSendMessage = (textToSend?: string) => {
+  const handleSendMessage = async (textToSend?: string) => {
     const query = textToSend || inputText;
     if (!query.trim()) return;
 
@@ -77,9 +77,32 @@ export const AiCopilotDrawer: React.FC<AiCopilotDrawerProps> = ({
     setInputText('');
     setIsProcessing(true);
 
-    setTimeout(() => {
-      let reply: ChatMessage;
+    try {
+      const res = await fetch('/api/ai/copilot', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ query }),
+      });
+
+      if (res.ok) {
+        const data = await res.json();
+        const reply: ChatMessage = {
+          id: `ai_${Date.now()}`,
+          sender: 'assistant',
+          agent: data.agent || 'Orchestrator',
+          text: data.reply || 'I have processed your request across the QuinceCA Practice Engine.',
+          timestamp: 'Just now',
+          actionRequired: data.actionRequired,
+        };
+        setMessages(prev => [...prev, reply]);
+      } else {
+        throw new Error('Server returned ' + res.status);
+      }
+    } catch (err: any) {
+      console.warn('Falling back to local practice engine:', err);
+      // Resilient fallback if server is offline
       const lower = query.toLowerCase();
+      let reply: ChatMessage;
 
       if (lower.includes('september') || lower.includes('missing') || lower.includes('document')) {
         reply = {
@@ -124,14 +147,14 @@ export const AiCopilotDrawer: React.FC<AiCopilotDrawerProps> = ({
           id: `ai_${Date.now()}`,
           sender: 'assistant',
           agent: 'Orchestrator',
-          text: `Analyzed query across QuinceCA AI practice database for active tenant. All 25 client accounts verified against RBAC scope. Let me know if you would like me to trigger document intake or compile working papers.`,
+          text: `Analyzed query across QuinceCA AI practice database for active tenant. All client accounts verified against RBAC scope. Let me know if you would like me to trigger document intake or compile working papers.`,
           timestamp: 'Just now',
         };
       }
-
       setMessages(prev => [...prev, reply]);
+    } finally {
       setIsProcessing(false);
-    }, 700);
+    }
   };
 
   const handleApproveAction = (msgId: string) => {

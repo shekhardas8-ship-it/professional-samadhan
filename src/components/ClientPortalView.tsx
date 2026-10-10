@@ -1148,7 +1148,7 @@ export const ClientPortalView: React.FC<ClientPortalProps> = ({ initialToken, is
                   <span className="text-xs bg-amber-200 text-amber-800 px-2 py-0.5 rounded font-semibold">Missing Documents</span>
                 </div>
                 <p className="text-xs text-amber-800">
-                  Please upload the following required documents or confirm Nil below to complete your return:
+                  Please upload the following required documents or provide your note / reason / declaration for your CA:
                 </p>
                 <ul className="list-disc list-inside text-xs font-semibold text-amber-900 space-y-0.5 pt-1">
                   {session.missingItems.map((item: string, i: number) => (
@@ -1209,11 +1209,11 @@ export const ClientPortalView: React.FC<ClientPortalProps> = ({ initialToken, is
 
                 <button
                   onClick={() => setShowAdditionalDocModal(true)}
-                  className="px-3 py-1.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 text-xs font-semibold rounded-lg border border-indigo-200 hover:border-indigo-300 transition flex items-center space-x-1.5 cursor-pointer shadow-2xs"
+                  className="px-3 py-1.5 bg-white hover:bg-slate-50 text-slate-700 hover:text-slate-900 text-xs font-semibold rounded-lg border border-slate-300 hover:border-slate-400 shadow-2xs transition flex items-center space-x-1.5 cursor-pointer"
                   title="Upload additional documents or submit client note / reason / declaration to CA"
                 >
                   <FileText className="w-3.5 h-3.5 text-indigo-600" />
-                  <span>Note / Reason / Declaration</span>
+                  <span>Upload Additional Docs & Note / Reason</span>
                 </button>
               </div>
             </div>

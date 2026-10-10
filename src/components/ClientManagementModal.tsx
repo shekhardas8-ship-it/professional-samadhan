@@ -20,7 +20,14 @@ import {
   Shield,
   UserCheck,
   Trash2,
+  Plus,
+  FileText,
+  ChevronDown,
+  ChevronUp,
+  Eye,
+  Sparkles,
 } from 'lucide-react';
+import { ATTACHED_DOC_TEMPLATES } from '../services/frontPageDataService.ts';
 
 interface ClientManagementModalProps {
   isOpen: boolean;
@@ -56,6 +63,8 @@ export const ClientManagementModal: React.FC<ClientManagementModalProps> = ({
 
   // Safe callback dispatcher that never throws "is not a function"
   const notifyClientChanged = () => {
+    window.dispatchEvent(new Event('ps_clients_updated'));
+    window.dispatchEvent(new Event('ps_data_updated'));
     if (typeof onClientAddedOrUpdated === 'function') {
       try {
         onClientAddedOrUpdated();
@@ -78,6 +87,8 @@ export const ClientManagementModal: React.FC<ClientManagementModalProps> = ({
     businessName: '',
     contactPerson: '',
     gstin: '',
+    cin: '',
+    address: '',
     registeredPhone: '+91',
     email: '',
     assignedStaffId: 'staff_pooja_02',
@@ -86,7 +97,28 @@ export const ClientManagementModal: React.FC<ClientManagementModalProps> = ({
     maxReminders: 3,
     whatsappConsent: true,
     active: true,
+    directors: [] as any[],
+    attachedDocuments: [] as any[],
   });
+
+  // State for adding a director within client creation
+  const [newDirector, setNewDirector] = useState({
+    name: '',
+    din: '',
+    phone: '',
+    email: '',
+    aadharNumber: '',
+    panNumber: '',
+    bankDetails: '',
+    aadharDocFileName: '',
+    aadharDocUrl: '',
+  });
+  const [isExtractingAadhar, setIsExtractingAadhar] = useState(false);
+  const [aadharExtractNotice, setAadharExtractNotice] = useState('');
+  const [editingDirectorIdx, setEditingDirectorIdx] = useState<number | null>(null);
+  const [editAadharVal, setEditAadharVal] = useState('');
+  const [showDirectorsSection, setShowDirectorsSection] = useState(true);
+  const [showAttachedDocsSection, setShowAttachedDocsSection] = useState(false);
 
   // Editing Staff User State
   const [editingUserId, setEditingUserId] = useState<string | null>(null);
@@ -132,6 +164,23 @@ export const ClientManagementModal: React.FC<ClientManagementModalProps> = ({
     return msg || fallback;
   };
 
+  // Helper to attach authorization headers from local session
+  const getAuthHeaders = (): Record<string, string> => {
+    const headers: Record<string, string> = {
+      'x-user-role': 'ca_admin',
+    };
+    try {
+      const raw = localStorage.getItem('ps_auth_user');
+      if (raw) {
+        const u = JSON.parse(raw);
+        if (u.token) headers['Authorization'] = `Bearer ${u.token}`;
+        if (u.role) headers['x-user-role'] = u.role;
+        if (u.id) headers['x-user-id'] = u.id;
+      }
+    } catch {}
+    return headers;
+  };
+
   // Client Deletion Confirmation State
   const [clientToDelete, setClientToDelete] = useState<{ id: string; name: string; gstin: string } | null>(null);
   const [isDeletingClient, setIsDeletingClient] = useState(false);
@@ -142,7 +191,10 @@ export const ClientManagementModal: React.FC<ClientManagementModalProps> = ({
     try {
       setIsDeletingClient(true);
       setDeleteErrorMessage(null);
-      const res = await fetch(`/api/clients/${clientToDelete.id}`, { method: 'DELETE' });
+      const res = await fetch(`/api/clients/${clientToDelete.id}`, {
+        method: 'DELETE',
+        headers: getAuthHeaders(),
+      });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Failed to delete client');
       setClientToDelete(null);
@@ -160,30 +212,81 @@ export const ClientManagementModal: React.FC<ClientManagementModalProps> = ({
   const fetchDirectories = async () => {
     setIsRefreshing(true);
     setDirectoryError(null);
+    const authHeaders = getAuthHeaders();
     try {
       const [resClients, resUsers] = await Promise.all([
-        fetch('/api/clients'),
-        fetch('/api/users'),
+        fetch('/api/clients', { headers: authHeaders }),
+        fetch('/api/users', { headers: authHeaders }),
       ]);
       if (resClients.ok) {
         const data = await resClients.json();
-        setClientList(Array.isArray(data) ? data : []);
-        if (Array.isArray(data) && data.length > 0 && typeof window !== 'undefined') {
+        const clientsArray = Array.isArray(data) ? data : (Array.isArray(data?.clients) ? data.clients : []);
+        setClientList(clientsArray);
+        if (clientsArray.length > 0 && typeof window !== 'undefined') {
           try {
-            localStorage.setItem('ps_clients_kyc_data', JSON.stringify(data));
+            localStorage.setItem('ps_clients_kyc_data', JSON.stringify(clientsArray));
             window.dispatchEvent(new Event('ps_data_updated'));
           } catch {}
         }
       } else {
-        throw new Error(`Clients endpoint returned status ${resClients.status}`);
+        // Soft fallback to local storage clients so UI is always responsive
+        const cached = localStorage.getItem('ps_clients_kyc_data');
+        if (cached) {
+          try {
+            const parsed = JSON.parse(cached);
+            if (Array.isArray(parsed) && parsed.length > 0) {
+              setClientList(parsed);
+            }
+          } catch {}
+        }
       }
       if (resUsers.ok) {
         const udata = await resUsers.json();
-        setStaffUsers(Array.isArray(udata) ? udata : []);
+        const usersArray = Array.isArray(udata) ? udata : (Array.isArray(udata?.users) ? udata.users : []);
+        setStaffUsers(usersArray);
+        if (usersArray.length > 0 && typeof window !== 'undefined') {
+          try {
+            localStorage.setItem('ps_staff_users_data', JSON.stringify(usersArray));
+          } catch {}
+        }
+      } else {
+        const cachedUsers = localStorage.getItem('ps_staff_users_data');
+        if (cachedUsers) {
+          try {
+            const parsed = JSON.parse(cachedUsers);
+            if (Array.isArray(parsed) && parsed.length > 0) {
+              setStaffUsers(parsed);
+            }
+          } catch {}
+        }
+      }
+      if (!resClients.ok && !resUsers.ok) {
+        const cached = localStorage.getItem('ps_clients_kyc_data');
+        if (!cached) {
+          setDirectoryError('Server connection was momentarily interrupted while syncing. Please verify your connection and click "Retry Sync".');
+        }
       }
     } catch (e: any) {
       console.warn('Failed to load clients/users directory:', e);
-      setDirectoryError(getFriendlyErrorMessage(e, 'Could not sync clients and staff directories.'));
+      try {
+        const cached = localStorage.getItem('ps_clients_kyc_data');
+        if (cached) {
+          const parsed = JSON.parse(cached);
+          if (Array.isArray(parsed) && parsed.length > 0) {
+            setClientList(parsed);
+          }
+        }
+        const cachedUsers = localStorage.getItem('ps_staff_users_data');
+        if (cachedUsers) {
+          const parsedU = JSON.parse(cachedUsers);
+          if (Array.isArray(parsedU) && parsedU.length > 0) {
+            setStaffUsers(parsedU);
+          }
+        }
+      } catch {}
+      if (!localStorage.getItem('ps_clients_kyc_data')) {
+        setDirectoryError(getFriendlyErrorMessage(e, 'Could not sync clients and staff directories.'));
+      }
     } finally {
       setIsRefreshing(false);
     }
@@ -215,6 +318,8 @@ export const ClientManagementModal: React.FC<ClientManagementModalProps> = ({
       businessName: client.businessName || '',
       contactPerson: client.contactPerson || '',
       gstin: client.gstin || '',
+      cin: client.cin || '',
+      address: client.address || '',
       registeredPhone: client.registeredPhone || '+91',
       email: client.email || '',
       assignedStaffId: client.assignedStaffId || 'staff_pooja_02',
@@ -223,6 +328,8 @@ export const ClientManagementModal: React.FC<ClientManagementModalProps> = ({
       maxReminders: client.maxReminders || 3,
       whatsappConsent: client.whatsappConsent !== undefined ? Boolean(client.whatsappConsent) : true,
       active: client.active !== undefined ? Boolean(client.active) : true,
+      directors: Array.isArray(client.directors) ? client.directors : [],
+      attachedDocuments: Array.isArray(client.attachedDocuments) ? client.attachedDocuments : [],
     });
     setActiveTab('single');
     setStatusMessage(null);
@@ -236,6 +343,8 @@ export const ClientManagementModal: React.FC<ClientManagementModalProps> = ({
       businessName: '',
       contactPerson: '',
       gstin: '',
+      cin: '',
+      address: '',
       registeredPhone: '+91',
       email: '',
       assignedStaffId: 'staff_pooja_02',
@@ -244,22 +353,143 @@ export const ClientManagementModal: React.FC<ClientManagementModalProps> = ({
       maxReminders: 3,
       whatsappConsent: true,
       active: true,
+      directors: [],
+      attachedDocuments: [],
     });
+    setNewDirector({
+      name: '',
+      din: '',
+      phone: '',
+      email: '',
+      aadharNumber: '',
+      panNumber: '',
+      bankDetails: '',
+      aadharDocFileName: '',
+      aadharDocUrl: '',
+    });
+    setEditingDirectorIdx(null);
+    setAadharExtractNotice('');
     setStatusMessage(null);
   };
 
-  // Single Client Submit (Add or Edit)
+  // Helper to extract Aadhaar number automatically on upload
+  const handleAadharUploadForForm = async (file: File, directorIdx?: number) => {
+    if (!file) return;
+    setIsExtractingAadhar(true);
+    setAadharExtractNotice('Extracting Aadhaar number with AI & OCR...');
+    try {
+      const fd = new FormData();
+      fd.append('file', file);
+      fd.append('targetDocType', 'aadhar');
+      if (editingClientId) fd.append('clientId', editingClientId);
+
+      const res = await fetch('/api/kyc/upload-and-extract', {
+        method: 'POST',
+        headers: getAuthHeaders(),
+        body: fd,
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Failed to extract document');
+
+      const extractedAadhar = data.aadharNumber || data.extractedNumber || '';
+      const docUrl = data.fileUrl || '';
+      const docFileName = data.fileName || file.name;
+
+      if (directorIdx !== undefined && directorIdx >= 0) {
+        const copy = [...singleForm.directors];
+        copy[directorIdx] = {
+          ...copy[directorIdx],
+          aadharNumber: extractedAadhar || copy[directorIdx].aadharNumber,
+          aadharUploaded: true,
+          aadharDocFileName: docFileName,
+          aadharDocUrl: docUrl,
+        };
+        setSingleForm({ ...singleForm, directors: copy });
+      } else {
+        setNewDirector(prev => ({
+          ...prev,
+          aadharNumber: extractedAadhar || prev.aadharNumber,
+          aadharDocFileName: docFileName,
+          aadharDocUrl: docUrl,
+        }));
+      }
+
+      setAadharExtractNotice(
+        extractedAadhar
+          ? `Aadhaar Detected: ${extractedAadhar}`
+          : 'Aadhaar uploaded! (Number not detected cleanly, you can type/edit it manually)'
+      );
+      setTimeout(() => setAadharExtractNotice(''), 4500);
+    } catch (err: any) {
+      setAadharExtractNotice('Extraction notice: ' + err.message);
+    } finally {
+      setIsExtractingAadhar(false);
+    }
+  };
+
+  const handleAddDirectorToList = () => {
+    if (!newDirector.name.trim() && !newDirector.aadharNumber && !newDirector.din) {
+      alert('Please enter at least a Director name or identification number');
+      return;
+    }
+    const dirToAdd = {
+      id: `dir_${Date.now()}`,
+      name: (newDirector.name || 'Director').trim(),
+      din: newDirector.din?.trim() || undefined,
+      phone: newDirector.phone?.trim() || undefined,
+      email: newDirector.email?.trim() || undefined,
+      aadharNumber: newDirector.aadharNumber?.trim() || undefined,
+      panNumber: newDirector.panNumber?.trim().toUpperCase() || undefined,
+      bankDetails: newDirector.bankDetails?.trim() || undefined,
+      aadharUploaded: Boolean(newDirector.aadharDocUrl || newDirector.aadharNumber),
+      panUploaded: Boolean(newDirector.panNumber),
+      bankDocUploaded: Boolean(newDirector.bankDetails),
+      dinDocUploaded: Boolean(newDirector.din),
+      aadharDocFileName: newDirector.aadharDocFileName || undefined,
+      aadharDocUrl: newDirector.aadharDocUrl || undefined,
+    };
+
+    setSingleForm({
+      ...singleForm,
+      directors: [...(singleForm.directors || []), dirToAdd],
+    });
+
+    setNewDirector({
+      name: '',
+      din: '',
+      phone: '',
+      email: '',
+      aadharNumber: '',
+      panNumber: '',
+      bankDetails: '',
+      aadharDocFileName: '',
+      aadharDocUrl: '',
+    });
+  };
+
+  const handleRemoveDirectorFromList = (idx: number) => {
+    const updated = (singleForm.directors || []).filter((_, i) => i !== idx);
+    setSingleForm({ ...singleForm, directors: updated });
+  };
+
+  // Single Client Submit (Add or Edit - No Mandatory * Requirements)
   const handleSingleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
     setStatusMessage(null);
 
     try {
-      const cleanDigits = (singleForm.registeredPhone || '').replace(/\D/g, '');
+      let finalPhone = singleForm.registeredPhone || '+91';
+      const cleanDigits = finalPhone.replace(/\D/g, '');
       const localDigits = cleanDigits.startsWith('91') && cleanDigits.length > 10 ? cleanDigits.slice(2) : cleanDigits;
-      if (localDigits.length !== 10) {
-        throw new Error('Invalid phone number: Please provide a complete 10-digit mobile number (e.g. +91 98200 11111).');
+      if (localDigits.length === 10) {
+        finalPhone = `+91${localDigits}`;
       }
+
+      const payload = {
+        ...singleForm,
+        registeredPhone: finalPhone,
+      };
 
       const isEditing = Boolean(editingClientId);
       const url = isEditing ? `/api/clients/${editingClientId}` : '/api/clients';
@@ -267,8 +497,11 @@ export const ClientManagementModal: React.FC<ClientManagementModalProps> = ({
 
       const res = await fetch(url, {
         method,
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(singleForm),
+        headers: {
+          ...getAuthHeaders(),
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(payload),
       });
 
       const data = await res.json();
@@ -304,7 +537,10 @@ export const ClientManagementModal: React.FC<ClientManagementModalProps> = ({
     try {
       const res = await fetch(`/api/users/${editingUserId}`, {
         method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          ...getAuthHeaders(),
+          'Content-Type': 'application/json',
+        },
         body: JSON.stringify(userForm),
       });
       const data = await res.json();
@@ -380,7 +616,10 @@ export const ClientManagementModal: React.FC<ClientManagementModalProps> = ({
     try {
       const res = await fetch('/api/clients/bulk', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          ...getAuthHeaders(),
+          'Content-Type': 'application/json',
+        },
         body: JSON.stringify({ clientList: parsedRows }),
       });
 
@@ -429,7 +668,10 @@ export const ClientManagementModal: React.FC<ClientManagementModalProps> = ({
     try {
       const res = await fetch('/api/clients/batch-update', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          ...getAuthHeaders(),
+          'Content-Type': 'application/json',
+        },
         body: JSON.stringify({ clientIds: selectedClientIds, updates }),
       });
 
@@ -754,11 +996,10 @@ export const ClientManagementModal: React.FC<ClientManagementModalProps> = ({
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
                   <label className="block text-xs font-semibold text-slate-700 mb-1">
-                    Business / Company Name <span className="text-rose-500">*</span>
+                    Business / Company Name
                   </label>
                   <input
                     type="text"
-                    required
                     placeholder="e.g. Apex Engineering Works"
                     value={singleForm.businessName}
                     onChange={e => setSingleForm({ ...singleForm, businessName: e.target.value })}
@@ -768,11 +1009,10 @@ export const ClientManagementModal: React.FC<ClientManagementModalProps> = ({
 
                 <div>
                   <label className="block text-xs font-semibold text-slate-700 mb-1">
-                    Contact Person Name <span className="text-rose-500">*</span>
+                    Contact Person Name
                   </label>
                   <input
                     type="text"
-                    required
                     placeholder="e.g. Rajesh Patil"
                     value={singleForm.contactPerson}
                     onChange={e => setSingleForm({ ...singleForm, contactPerson: e.target.value })}
@@ -782,11 +1022,10 @@ export const ClientManagementModal: React.FC<ClientManagementModalProps> = ({
 
                 <div>
                   <label className="block text-xs font-semibold text-slate-700 mb-1">
-                    Client GSTIN (15 Digits) <span className="text-rose-500">*</span>
+                    Client GSTIN (15 Digits)
                   </label>
                   <input
                     type="text"
-                    required
                     maxLength={15}
                     placeholder="27AAACA1234A1Z5"
                     value={singleForm.gstin}
@@ -811,11 +1050,36 @@ export const ClientManagementModal: React.FC<ClientManagementModalProps> = ({
 
                 <div>
                   <label className="block text-xs font-semibold text-slate-700 mb-1">
-                    WhatsApp Registered Phone <span className="text-rose-500">*</span>
+                    Corporate Identification Number (CIN)
                   </label>
                   <input
                     type="text"
-                    required
+                    placeholder="e.g. U74999DL2021PTC384592"
+                    value={singleForm.cin}
+                    onChange={e => setSingleForm({ ...singleForm, cin: e.target.value.toUpperCase() })}
+                    className="w-full px-3 py-2 text-xs font-mono border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:outline-hidden"
+                  />
+                </div>
+
+                <div className="sm:col-span-2">
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">
+                    Registered Office Address
+                  </label>
+                  <input
+                    type="text"
+                    placeholder="e.g. Plot No. 44, Okhla Industrial Area Phase-III, New Delhi - 110020"
+                    value={singleForm.address}
+                    onChange={e => setSingleForm({ ...singleForm, address: e.target.value })}
+                    className="w-full px-3 py-2 text-xs border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:outline-hidden"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">
+                    WhatsApp Registered Phone
+                  </label>
+                  <input
+                    type="text"
                     placeholder="+919820123456"
                     value={singleForm.registeredPhone}
                     onChange={e => setSingleForm({ ...singleForm, registeredPhone: e.target.value })}
@@ -826,11 +1090,10 @@ export const ClientManagementModal: React.FC<ClientManagementModalProps> = ({
 
                 <div>
                   <label className="block text-xs font-semibold text-slate-700 mb-1">
-                    Accounts Email <span className="text-rose-500">*</span>
+                    Accounts Email
                   </label>
                   <input
                     type="email"
-                    required
                     placeholder="accounts@company.com"
                     value={singleForm.email}
                     onChange={e => setSingleForm({ ...singleForm, email: e.target.value })}
@@ -892,6 +1155,385 @@ export const ClientManagementModal: React.FC<ClientManagementModalProps> = ({
                     className="w-full px-3 py-2 text-xs border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:outline-hidden"
                   />
                 </div>
+              </div>
+
+              {/* SECTION: COMPANY DIRECTORS & KYC */}
+              <div className="mt-4 border border-slate-200 rounded-2xl p-4 bg-slate-50/60 space-y-3">
+                <div className="flex items-center justify-between pb-2 border-b border-slate-200/80">
+                  <div className="flex items-center space-x-2">
+                    <Users className="w-4 h-4 text-teal-700" />
+                    <span className="text-xs font-bold text-slate-900 uppercase tracking-wider">
+                      Company Directors & KYC ({singleForm.directors.length} Added)
+                    </span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setShowDirectorsSection(!showDirectorsSection)}
+                    className="text-xs text-teal-700 hover:text-teal-900 font-semibold flex items-center space-x-1 cursor-pointer"
+                  >
+                    <span>{showDirectorsSection ? 'Collapse' : 'Expand'}</span>
+                    {showDirectorsSection ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
+                  </button>
+                </div>
+
+                {showDirectorsSection && (
+                  <div className="space-y-3">
+                    {/* List of Already Added Directors */}
+                    {singleForm.directors.length > 0 && (
+                      <div className="space-y-2">
+                        <span className="text-[11px] font-bold text-slate-600 block">Registered Directors:</span>
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                          {singleForm.directors.map((dir: any, idx: number) => (
+                            <div key={dir.id || idx} className="bg-white p-3 rounded-xl border border-slate-200 shadow-2xs text-xs space-y-1.5 relative">
+                              <div className="flex items-center justify-between">
+                                <span className="font-bold text-slate-900">{idx + 1}. {dir.name}</span>
+                                <button
+                                  type="button"
+                                  onClick={() => handleRemoveDirectorFromList(idx)}
+                                  className="text-rose-500 hover:text-rose-700 p-0.5 rounded cursor-pointer"
+                                  title="Remove director"
+                                >
+                                  <Trash2 className="w-3.5 h-3.5" />
+                                </button>
+                              </div>
+
+                              <div className="text-[11px] text-slate-600 space-y-0.5 font-mono">
+                                {dir.din && <div>DIN: {dir.din}</div>}
+                                {dir.panNumber && <div>PAN: {dir.panNumber}</div>}
+                                {dir.phone && <div>Phone: {dir.phone}</div>}
+                              </div>
+
+                              {/* Aadhaar Display with Edit and Download options */}
+                              <div className="pt-1.5 border-t border-slate-100 flex flex-wrap items-center justify-between gap-1 text-[11px]">
+                                <div className="flex items-center space-x-1">
+                                  <span className="text-slate-500 font-medium">Aadhaar:</span>
+                                  {editingDirectorIdx === idx ? (
+                                    <div className="flex items-center space-x-1">
+                                      <input
+                                        type="text"
+                                        value={editAadharVal}
+                                        onChange={e => setEditAadharVal(e.target.value)}
+                                        placeholder="12 digits"
+                                        className="w-32 px-1.5 py-0.5 text-xs font-mono border border-teal-400 rounded bg-teal-50/50"
+                                      />
+                                      <button
+                                        type="button"
+                                        onClick={() => {
+                                          const copy = [...singleForm.directors];
+                                          copy[idx] = { ...copy[idx], aadharNumber: editAadharVal.trim() };
+                                          setSingleForm({ ...singleForm, directors: copy });
+                                          setEditingDirectorIdx(null);
+                                        }}
+                                        className="px-1.5 py-0.5 bg-teal-600 text-white rounded font-bold text-[10px]"
+                                      >
+                                        Save
+                                      </button>
+                                    </div>
+                                  ) : (
+                                    <span className="font-mono font-bold text-slate-800">
+                                      {dir.aadharNumber || 'Not set'}
+                                    </span>
+                                  )}
+                                </div>
+
+                                <div className="flex items-center space-x-1.5">
+                                  {editingDirectorIdx !== idx && (
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        setEditingDirectorIdx(idx);
+                                        setEditAadharVal(dir.aadharNumber || '');
+                                      }}
+                                      className="text-teal-700 hover:text-teal-900 font-semibold inline-flex items-center gap-0.5 text-[10px] cursor-pointer"
+                                      title="Edit Aadhaar number if wrong"
+                                    >
+                                      <Edit2 className="w-2.5 h-2.5" />
+                                      <span>Edit</span>
+                                    </button>
+                                  )}
+
+                                  {dir.aadharDocUrl && (
+                                    <a
+                                      href={dir.aadharDocUrl}
+                                      download={dir.aadharDocFileName || 'Aadhaar.pdf'}
+                                      className="text-blue-700 hover:text-blue-900 font-semibold inline-flex items-center gap-0.5 text-[10px]"
+                                      title="Download uploaded Aadhaar card"
+                                    >
+                                      <Download className="w-2.5 h-2.5" />
+                                      <span>Download</span>
+                                    </a>
+                                  )}
+
+                                  <label className="text-slate-500 hover:text-slate-800 font-medium inline-flex items-center gap-0.5 text-[10px] cursor-pointer">
+                                    <Upload className="w-2.5 h-2.5" />
+                                    <span>Re-scan</span>
+                                    <input
+                                      type="file"
+                                      accept=".pdf,image/*"
+                                      className="hidden"
+                                      onChange={e => {
+                                        const file = e.target.files?.[0];
+                                        if (file) handleAadharUploadForForm(file, idx);
+                                      }}
+                                    />
+                                  </label>
+                                </div>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Add New Director Inline Box */}
+                    <div className="bg-white p-3.5 rounded-xl border border-dashed border-teal-300 space-y-2.5 text-xs">
+                      <div className="flex items-center justify-between">
+                        <span className="font-bold text-teal-900 flex items-center gap-1">
+                          <Plus className="w-3.5 h-3.5" />
+                          <span>Add New Director (Optional)</span>
+                        </span>
+                        {aadharExtractNotice && (
+                          <span className="text-[11px] font-semibold text-teal-800 bg-teal-50 px-2 py-0.5 rounded border border-teal-200 animate-pulse">
+                            {aadharExtractNotice}
+                          </span>
+                        )}
+                      </div>
+
+                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+                        <div>
+                          <label className="block text-[11px] font-medium text-slate-600 mb-0.5">Director Full Name</label>
+                          <input
+                            type="text"
+                            placeholder="e.g. Rajesh Kumar"
+                            value={newDirector.name}
+                            onChange={e => setNewDirector({ ...newDirector, name: e.target.value })}
+                            className="w-full px-2.5 py-1.5 text-xs border border-slate-300 rounded-lg focus:ring-1 focus:ring-teal-500"
+                          />
+                        </div>
+
+                        <div>
+                          <label className="block text-[11px] font-medium text-slate-600 mb-0.5">DIN (8 Digits)</label>
+                          <input
+                            type="text"
+                            placeholder="e.g. 08492013"
+                            value={newDirector.din}
+                            onChange={e => setNewDirector({ ...newDirector, din: e.target.value })}
+                            className="w-full px-2.5 py-1.5 text-xs font-mono border border-slate-300 rounded-lg focus:ring-1 focus:ring-teal-500"
+                          />
+                        </div>
+
+                        <div>
+                          <label className="block text-[11px] font-medium text-slate-600 mb-0.5">Director PAN</label>
+                          <input
+                            type="text"
+                            placeholder="e.g. ABCDE1234F"
+                            value={newDirector.panNumber}
+                            onChange={e => setNewDirector({ ...newDirector, panNumber: e.target.value.toUpperCase() })}
+                            className="w-full px-2.5 py-1.5 text-xs font-mono border border-slate-300 rounded-lg focus:ring-1 focus:ring-teal-500"
+                          />
+                        </div>
+
+                        <div>
+                          <label className="block text-[11px] font-medium text-slate-600 mb-0.5">Phone / WhatsApp</label>
+                          <input
+                            type="text"
+                            placeholder="+91 98112 34567"
+                            value={newDirector.phone}
+                            onChange={e => setNewDirector({ ...newDirector, phone: e.target.value })}
+                            className="w-full px-2.5 py-1.5 text-xs font-mono border border-slate-300 rounded-lg focus:ring-1 focus:ring-teal-500"
+                          />
+                        </div>
+
+                        <div>
+                          <label className="block text-[11px] font-medium text-slate-600 mb-0.5">Director Email</label>
+                          <input
+                            type="email"
+                            placeholder="director@company.com"
+                            value={newDirector.email}
+                            onChange={e => setNewDirector({ ...newDirector, email: e.target.value })}
+                            className="w-full px-2.5 py-1.5 text-xs border border-slate-300 rounded-lg focus:ring-1 focus:ring-teal-500"
+                          />
+                        </div>
+
+                        <div>
+                          <label className="block text-[11px] font-medium text-slate-600 mb-0.5">Bank Cancel Cheque / Details</label>
+                          <input
+                            type="text"
+                            placeholder="e.g. HDFC Bank A/C ... verified"
+                            value={newDirector.bankDetails}
+                            onChange={e => setNewDirector({ ...newDirector, bankDetails: e.target.value })}
+                            className="w-full px-2.5 py-1.5 text-xs border border-slate-300 rounded-lg focus:ring-1 focus:ring-teal-500"
+                          />
+                        </div>
+                      </div>
+
+                      {/* Aadhaar Upload with Auto-Extract & Edit */}
+                      <div className="p-2.5 bg-teal-50/70 rounded-lg border border-teal-200 flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-2">
+                        <div className="flex-1 space-y-1">
+                          <div className="flex items-center space-x-1.5">
+                            <Sparkles className="w-3.5 h-3.5 text-teal-600" />
+                            <span className="font-bold text-teal-900 text-xs">Aadhaar Card (Auto-Scan):</span>
+                          </div>
+                          <div className="flex items-center space-x-2">
+                            <input
+                              type="text"
+                              placeholder="Auto-fetches from scan or type manually"
+                              value={newDirector.aadharNumber}
+                              onChange={e => setNewDirector({ ...newDirector, aadharNumber: e.target.value })}
+                              className="px-2 py-1 text-xs font-mono font-bold bg-white border border-teal-300 rounded w-48 text-slate-900 focus:outline-none"
+                            />
+                            {newDirector.aadharDocUrl && (
+                              <a
+                                href={newDirector.aadharDocUrl}
+                                download={newDirector.aadharDocFileName || 'Aadhaar.pdf'}
+                                className="px-2 py-1 bg-white hover:bg-slate-100 text-teal-800 text-[11px] font-bold rounded border border-teal-300 inline-flex items-center gap-1"
+                              >
+                                <Download className="w-3 h-3 text-teal-700" />
+                                <span>Download</span>
+                              </a>
+                            )}
+                          </div>
+                        </div>
+
+                        <div className="flex items-center space-x-2 shrink-0">
+                          <label className="px-3 py-1.5 bg-teal-600 hover:bg-teal-500 active:bg-teal-700 text-white font-bold text-xs rounded-lg shadow-2xs inline-flex items-center gap-1.5 cursor-pointer transition">
+                            <Upload className="w-3.5 h-3.5" />
+                            <span>{isExtractingAadhar ? 'Scanning...' : 'Upload & Fetch Aadhaar No.'}</span>
+                            <input
+                              type="file"
+                              accept=".pdf,image/*"
+                              disabled={isExtractingAadhar}
+                              className="hidden"
+                              onChange={e => {
+                                const file = e.target.files?.[0];
+                                if (file) handleAadharUploadForForm(file);
+                              }}
+                            />
+                          </label>
+
+                          <button
+                            type="button"
+                            onClick={handleAddDirectorToList}
+                            className="px-3 py-1.5 bg-slate-900 hover:bg-slate-800 text-white font-bold text-xs rounded-lg shadow-2xs transition inline-flex items-center gap-1 cursor-pointer"
+                          >
+                            <Plus className="w-3.5 h-3.5" />
+                            <span>Add Director</span>
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* SECTION: 13 ATTACHED STATUTORY DOCUMENTS */}
+              <div className="mt-3 border border-slate-200 rounded-2xl p-4 bg-slate-50/60 space-y-3">
+                <div className="flex items-center justify-between pb-2 border-b border-slate-200/80">
+                  <div className="flex items-center space-x-2">
+                    <FileText className="w-4 h-4 text-purple-700" />
+                    <span className="text-xs font-bold text-slate-900 uppercase tracking-wider">
+                      Attached Documents ({((singleForm.attachedDocuments || []).filter((d: any) => d.status === 'verified' || d.fileUrl)).length}/13 Uploaded)
+                    </span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setShowAttachedDocsSection(!showAttachedDocsSection)}
+                    className="text-xs text-purple-700 hover:text-purple-900 font-semibold flex items-center space-x-1 cursor-pointer"
+                  >
+                    <span>{showAttachedDocsSection ? 'Collapse' : 'Expand All 13 Categories'}</span>
+                    {showAttachedDocsSection ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
+                  </button>
+                </div>
+
+                {showAttachedDocsSection && (
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
+                    {ATTACHED_DOC_TEMPLATES.map(tmpl => {
+                      const attached = (singleForm.attachedDocuments || []).find(
+                        (d: any) => d.docKey === tmpl.key || d.categoryNumber === tmpl.categoryNumber
+                      );
+                      const isUploaded = Boolean(attached && (attached.status === 'verified' || attached.fileUrl));
+
+                      return (
+                        <div key={tmpl.key} className="p-2.5 bg-white rounded-xl border border-slate-200 flex items-center justify-between gap-2 shadow-2xs">
+                          <div className="min-w-0 flex-1">
+                            <span className="font-semibold text-slate-800 block truncate">
+                              <strong>{tmpl.categoryNumber}.</strong> {tmpl.name}
+                            </span>
+                            <span className={`text-[10px] font-bold px-1.5 py-0.2 rounded inline-block mt-0.5 ${
+                              isUploaded ? 'bg-emerald-100 text-emerald-800' : 'bg-slate-100 text-slate-500'
+                            }`}>
+                              {isUploaded ? '✓ Uploaded' : 'Pending'}
+                            </span>
+                          </div>
+
+                          <div className="flex items-center space-x-1.5 shrink-0">
+                            {isUploaded && attached?.fileUrl && (
+                              <a
+                                href={attached.fileUrl}
+                                download={attached.fileName || `${tmpl.key}.pdf`}
+                                className="px-2 py-1 bg-blue-50 hover:bg-blue-100 text-blue-700 rounded text-[11px] font-bold inline-flex items-center gap-0.5"
+                                title="Download uploaded statutory document"
+                              >
+                                <Download className="w-3 h-3" />
+                                <span>Download</span>
+                              </a>
+                            )}
+
+                            <label className="px-2 py-1 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded text-[11px] font-semibold inline-flex items-center gap-0.5 cursor-pointer transition border border-slate-200">
+                              <Upload className="w-3 h-3 text-slate-600" />
+                              <span>{isUploaded ? 'Replace' : 'Upload'}</span>
+                              <input
+                                type="file"
+                                accept=".pdf,image/*,.xlsx,.csv"
+                                className="hidden"
+                                onChange={async e => {
+                                  const file = e.target.files?.[0];
+                                  if (!file) return;
+                                  try {
+                                    const fd = new FormData();
+                                    fd.append('file', file);
+                                    fd.append('docKey', tmpl.key);
+                                    fd.append('docName', tmpl.name);
+                                    fd.append('categoryNumber', String(tmpl.categoryNumber));
+                                    if (editingClientId) fd.append('clientId', editingClientId);
+
+                                    const res = await fetch('/api/kyc/upload-and-extract', {
+                                      method: 'POST',
+                                      headers: getAuthHeaders(),
+                                      body: fd,
+                                    });
+                                    const data = await res.json();
+                                    const updatedEntry = {
+                                      id: `att_${Date.now()}`,
+                                      docKey: tmpl.key,
+                                      docName: tmpl.name,
+                                      categoryNumber: tmpl.categoryNumber,
+                                      fileName: data.fileName || file.name,
+                                      fileSize: `${Math.round(file.size / 1024)} KB`,
+                                      uploadedAt: new Date().toISOString().split('T')[0],
+                                      status: 'verified' as const,
+                                      fileUrl: data.fileUrl,
+                                      fileId: data.fileId,
+                                    };
+
+                                    const copy = [...(singleForm.attachedDocuments || [])];
+                                    const exIdx = copy.findIndex((d: any) => d.docKey === tmpl.key || d.categoryNumber === tmpl.categoryNumber);
+                                    if (exIdx >= 0) copy[exIdx] = updatedEntry;
+                                    else copy.push(updatedEntry);
+
+                                    setSingleForm({ ...singleForm, attachedDocuments: copy });
+                                  } catch (err: any) {
+                                    alert('Failed to upload document: ' + err.message);
+                                  }
+                                }}
+                              />
+                            </label>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
               </div>
 
               <div className="flex flex-wrap items-center gap-6 pt-2">

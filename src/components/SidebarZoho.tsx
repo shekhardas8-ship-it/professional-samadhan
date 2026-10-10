@@ -28,6 +28,7 @@ import {
   Bot,
   Landmark,
   FileCode2,
+  Building2,
 } from 'lucide-react';
 import { AuthUser } from '../types/index.ts';
 
@@ -114,6 +115,13 @@ export const SidebarZoho: React.FC<SidebarZohoProps> = ({
       icon: Landmark,
       badge: '₹0 Free',
       badgeColor: 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30',
+    },
+    {
+      id: 'mca-filing',
+      label: 'MCA Filing Automation',
+      icon: Building2,
+      badge: 'Auto V3',
+      badgeColor: 'bg-teal-500/20 text-teal-300 border-teal-500/30',
     },
     {
       id: 'notices-dsc',

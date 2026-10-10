@@ -13,6 +13,9 @@ import {
   Users,
   FileSpreadsheet,
   MessageSquare,
+  Sparkles,
+  HardDrive,
+  ChevronRight,
 } from 'lucide-react';
 import { PaletteSwitcher } from './PaletteSwitcher.tsx';
 
@@ -25,6 +28,7 @@ interface HeaderProps {
   onRefresh: () => void;
   onLogout?: () => void;
   onOpenWhatsAppDevice?: () => void;
+  onOpenSaasModal?: () => void;
   isLoading: boolean;
   isClientOnlyMode?: boolean;
 }
@@ -38,6 +42,7 @@ export const Header: React.FC<HeaderProps> = ({
   onRefresh,
   onLogout,
   onOpenWhatsAppDevice,
+  onOpenSaasModal,
   isLoading,
   isClientOnlyMode = false,
 }) => {
@@ -256,6 +261,18 @@ export const Header: React.FC<HeaderProps> = ({
               </button>
             </div>
 
+            {/* SaaS Plan & Isolated Storage Selector Button */}
+            {onOpenSaasModal && (
+              <button
+                onClick={onOpenSaasModal}
+                className="px-2.5 py-1.5 bg-gradient-to-r from-emerald-600/30 to-indigo-600/30 hover:from-emerald-600/50 hover:to-indigo-600/50 text-emerald-300 border border-emerald-400/40 rounded-lg text-xs font-bold flex items-center gap-1.5 transition shadow-2xs cursor-pointer"
+                title="Manage Multi-Tenant SaaS Plan, A-la-carte Services & Isolated Storage"
+              >
+                <Sparkles className="w-3.5 h-3.5 text-yellow-300" />
+                <span className="hidden md:inline">SaaS Plan & Storage</span>
+              </button>
+            )}
+
             {/* WhatsApp Device Link Button */}
             {onOpenWhatsAppDevice && (
               <button
@@ -308,9 +325,19 @@ export const Header: React.FC<HeaderProps> = ({
             )}
           </span>
         </div>
-        <div className="hidden sm:flex items-center gap-4 text-[11px] text-slate-400">
-          <span>Database: <strong className="text-slate-200">PostgreSQL (Drizzle ORM)</strong></span>
-          <span>Messaging: <strong className="text-slate-200">WhatsApp Mode A & B Active</strong></span>
+        <div className="hidden sm:flex items-center gap-3 text-[11px] text-slate-400">
+          {onOpenSaasModal && (
+            <button
+              onClick={onOpenSaasModal}
+              className="flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 border border-emerald-500/30 text-[10px] font-bold transition cursor-pointer"
+              title="Click to customize firm subscription & separate storage"
+            >
+              <HardDrive className="w-3 h-3 text-emerald-400" />
+              <span>SaaS Partition: Automation Pro (25 GB Dedicated)</span>
+              <ChevronRight className="w-2.5 h-2.5 text-emerald-400" />
+            </button>
+          )}
+          <span>Database: <strong className="text-slate-200">PostgreSQL</strong></span>
         </div>
       </div>
     </header>

@@ -351,6 +351,100 @@ export async function ensureTablesExist() {
       WHERE original_filename !~* '(bank|statement|passbook|hdfc|sbi|icici|axis|kotak|canara|pnb|acct)'
         AND status != 'password_protected'
         AND document_password IS NOT NULL;
+
+      -- SaaS Multi-Tenant Tables
+      CREATE TABLE IF NOT EXISTS tenants (
+        id TEXT PRIMARY KEY,
+        firm_name TEXT NOT NULL,
+        firm_type TEXT NOT NULL DEFAULT 'partnership_firm',
+        slug TEXT NOT NULL UNIQUE,
+        owner_email TEXT NOT NULL,
+        owner_name TEXT NOT NULL,
+        contact_phone TEXT,
+        status TEXT NOT NULL DEFAULT 'active',
+        plan_tier TEXT NOT NULL DEFAULT 'growth',
+        billing_cycle TEXT NOT NULL DEFAULT 'monthly',
+        storage_quota_gb INTEGER NOT NULL DEFAULT 25,
+        storage_used_bytes NUMERIC DEFAULT 0,
+        storage_provider TEXT NOT NULL DEFAULT 'managed_local',
+        custom_domain TEXT,
+        logo_url TEXT,
+        theme_color TEXT DEFAULT '#00c073',
+        created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+        updated_at TIMESTAMP NOT NULL DEFAULT NOW()
+      );
+
+      CREATE TABLE IF NOT EXISTS tenant_subscriptions (
+        id TEXT PRIMARY KEY,
+        tenant_id TEXT NOT NULL REFERENCES tenants(id),
+        base_plan TEXT NOT NULL DEFAULT 'growth',
+        active_modules JSONB DEFAULT '{"gst_filing_pipeline":true,"ai_vision_ocr":true,"whatsapp_automation":true,"notices_scrutiny_counsel":true,"itr_tax_audit":true,"mca_roc_compliance":false,"billing_timesheets":true,"multi_user_staff_review":true}'::jsonb,
+        storage_quota_gb INTEGER NOT NULL DEFAULT 25,
+        monthly_price_inr NUMERIC DEFAULT 3999.00,
+        ai_credits_monthly_limit INTEGER DEFAULT 2000,
+        ai_credits_used INTEGER DEFAULT 0,
+        whatsapp_monthly_limit INTEGER DEFAULT 1000,
+        whatsapp_messages_used INTEGER DEFAULT 0,
+        billing_cycle TEXT DEFAULT 'monthly',
+        renews_at TIMESTAMP,
+        status TEXT DEFAULT 'active',
+        created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+        updated_at TIMESTAMP NOT NULL DEFAULT NOW()
+      );
+
+      CREATE TABLE IF NOT EXISTS tenant_storage_configs (
+        id TEXT PRIMARY KEY,
+        tenant_id TEXT NOT NULL REFERENCES tenants(id),
+        storage_type TEXT NOT NULL DEFAULT 'managed_local',
+        isolated_folder_name TEXT,
+        google_drive_folder_id TEXT,
+        google_drive_client_email TEXT,
+        google_drive_refresh_token TEXT,
+        s3_bucket_name TEXT,
+        s3_region TEXT,
+        s3_endpoint TEXT,
+        s3_access_key_id TEXT,
+        s3_secret_access_key_masked TEXT,
+        quota_alert_threshold_percent INTEGER DEFAULT 80,
+        auto_purge_old_cache BOOLEAN DEFAULT true,
+        last_health_check TIMESTAMP,
+        created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+        updated_at TIMESTAMP NOT NULL DEFAULT NOW()
+      );
+
+      -- Seed primary active firm tenant if not present
+      INSERT INTO tenants (id, firm_name, firm_type, slug, owner_email, owner_name, plan_tier, storage_quota_gb, storage_provider)
+      VALUES (
+        'ten_quinceca_01',
+        'QuinceCA • Practice System',
+        'partnership_firm',
+        'quinceca',
+        'shekhardas8@gmail.com',
+        'CA Suraj Dutta (FCA)',
+        'automation_pro',
+        25,
+        'managed_local'
+      )
+      ON CONFLICT (id) DO NOTHING;
+
+      INSERT INTO tenant_subscriptions (id, tenant_id, base_plan, storage_quota_gb, monthly_price_inr)
+      VALUES (
+        'sub_quinceca_01',
+        'ten_quinceca_01',
+        'automation_pro',
+        25,
+        7999.00
+      )
+      ON CONFLICT (id) DO NOTHING;
+
+      INSERT INTO tenant_storage_configs (id, tenant_id, storage_type, isolated_folder_name)
+      VALUES (
+        'stor_quinceca_01',
+        'ten_quinceca_01',
+        'managed_local',
+        'ten_quinceca_01'
+      )
+      ON CONFLICT (id) DO NOTHING;
     `);
     console.log('[AutoMigrate] PostgreSQL tables verified/created successfully.');
   } catch (err: any) {

@@ -3,7 +3,7 @@ import { isValidGstinFormat } from './extractor.ts';
 
 export interface ValidationItem {
   severity: 'critical' | 'warning' | 'info';
-  checkType: 'category_missing' | 'gstin_mismatch' | 'arithmetic_discrepancy' | 'sequence_gap' | 'duplicate_invoice' | 'bank_balance_mismatch' | 'period_coverage_gap' | 'unreadable_scan' | 'gstin_mismatch_rejected';
+  checkType: 'category_missing' | 'gstin_mismatch' | 'arithmetic_discrepancy' | 'sequence_gap' | 'duplicate_invoice' | 'bank_balance_mismatch' | 'period_coverage_gap' | 'unreadable_scan' | 'gstin_mismatch_rejected' | 'bank_account_mismatch' | 'bank_holder_mismatch';
   message: string;
   documentFileId?: string;
   documentUnitId?: string;
@@ -15,6 +15,8 @@ export function runValidationChecks(params: {
     id: string;
     businessName: string;
     gstin: string;
+    contactPerson?: string;
+    directors?: Array<{ name: string; panNumber?: string }>;
     requiredChecklist: string[];
     expectedBankAccounts: Array<{ bankName: string; accountNumber: string }>;
   };
@@ -264,6 +266,81 @@ export function runValidationChecks(params: {
             documentFileId: doc.documentFileId,
           });
         }
+      }
+    }
+  }
+
+  // 5b. Bank Statement Verification (Account Number and Account Holder Name Matching)
+  const bankDocs = extractedDocs.filter(d => d.docType === 'bank_statement');
+  for (const doc of bankDocs) {
+    const af = ((doc as any).additionalFields || {}) as any;
+    const stmtAccountNo = String(af.accountNumber || (doc.docNumber?.startsWith('STMT-') ? '' : doc.docNumber) || '').trim();
+    const cleanStmtAcc = stmtAccountNo.replace(/[^0-9]/g, '');
+    const stmtHolder = String(af.accountHolder || doc.buyerName || '').trim();
+
+    // Check A: Bank Account Number Match against registered accounts in database
+    const expectedAccounts = client.expectedBankAccounts || [];
+    if (expectedAccounts.length > 0 && cleanStmtAcc) {
+      const isAccountMatched = expectedAccounts.some(exp => {
+        const cleanExp = (exp.accountNumber || '').replace(/[^0-9]/g, '');
+        return cleanExp && (cleanStmtAcc === cleanExp || cleanStmtAcc.endsWith(cleanExp.slice(-4)) || cleanExp.endsWith(cleanStmtAcc.slice(-4)));
+      });
+
+      if (!isAccountMatched) {
+        const expectedStr = expectedAccounts.map(e => `${e.bankName || 'Bank'} (${e.accountNumber})`).join(', ');
+        exceptions.push({
+          severity: 'critical',
+          checkType: 'bank_account_mismatch',
+          message: `❌ Bank Account Mismatch: Statement Account Number "${stmtAccountNo}" does not match any registered bank account for ${client.businessName} in our database. Expected accounts: [${expectedStr}].`,
+          documentUnitId: doc.id,
+          documentFileId: doc.documentFileId,
+          details: {
+            isAccountMismatch: true,
+            statementAccountNo: stmtAccountNo,
+            expectedAccounts: expectedAccounts.map(e => e.accountNumber),
+          },
+        });
+      }
+    }
+
+    // Check B: Account Holder Name Match against company name, contact person or directors
+    if (stmtHolder) {
+      const normalizeName = (str: string) => {
+        return (str || '')
+          .toUpperCase()
+          .replace(/\b(MR|MRS|MS|M\/S|DR|SH|SHRI|SMT|PVT|LTD|LIMITED|LLP|COMPANY|CO|ENTERPRISES|TRADERS|CORP|CORPORATION)\b/gi, '')
+          .replace(/[^A-Z0-9]/g, '')
+          .trim();
+      };
+
+      const normHolder = normalizeName(stmtHolder);
+      const normCompany = normalizeName(client.businessName);
+      const normContact = normalizeName(client.contactPerson || '');
+      const normDirectors = (client.directors || []).map(d => normalizeName(d.name));
+
+      const isHolderMatched = Boolean(
+        normHolder && (
+          (normCompany && (normHolder === normCompany || normHolder.includes(normCompany) || normCompany.includes(normHolder))) ||
+          (normContact && (normHolder === normContact || normHolder.includes(normContact) || normContact.includes(normHolder))) ||
+          normDirectors.some(nd => nd && (normHolder === nd || normHolder.includes(nd) || nd.includes(normHolder)))
+        )
+      );
+
+      if (!isHolderMatched) {
+        exceptions.push({
+          severity: 'critical',
+          checkType: 'bank_holder_mismatch',
+          message: `❌ Account Holder Mismatch: Statement Account Holder "${stmtHolder}" does not match Company Name "${client.businessName}" or registered directors/proprietor in our database. Please verify whether this is an unauthorized personal account.`,
+          documentUnitId: doc.id,
+          documentFileId: doc.documentFileId,
+          details: {
+            isHolderMismatch: true,
+            statementHolder: stmtHolder,
+            companyName: client.businessName,
+            contactPerson: client.contactPerson,
+            directors: client.directors?.map(d => d.name),
+          },
+        });
       }
     }
   }

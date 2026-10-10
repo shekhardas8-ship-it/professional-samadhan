@@ -156,6 +156,12 @@ export function evaluateMonthlyChecklist(params: EvaluateChecklistParams): Check
   }
 
   if (hasBankData) {
+    const detectedPassword =
+      (files as any[]).find(f => f.documentPassword)?.documentPassword ||
+      (bankTransactions as any[]).find(t => t.documentPassword)?.documentPassword ||
+      (extractedDocs as any[]).find(d => d.additionalFields?.documentPassword)?.additionalFields?.documentPassword ||
+      (files as any[]).find(f => f.scanNotes?.includes('Password:'))?.scanNotes?.match(/Password:\s*([^|\n]+)/i)?.[1]?.trim();
+
     checklist.push({
       id: 'bank_statements',
       label: 'Bank Statements',
@@ -164,6 +170,7 @@ export function evaluateMonthlyChecklist(params: EvaluateChecklistParams): Check
       status: 'uploaded',
       uploadedCount: bankTransactions.length > 0 ? bankTransactions.length : bankDocs.length,
       uploadedFiles: files.map(f => f.originalFilename).slice(0, 3),
+      documentPassword: detectedPassword || undefined,
     });
     uploadedItemsSummary.push(`• Bank Statement: Received (${bankTransactions.length || bankDocs.length} transactions/pages)`);
   } else if (bankNil) {

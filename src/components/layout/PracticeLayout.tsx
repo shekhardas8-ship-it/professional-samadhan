@@ -51,6 +51,8 @@ import {
   resetStoredFirmBranding,
 } from '../../services/brandingService.ts';
 import { BrandingCustomizerModal } from '../common/BrandingCustomizerModal.tsx';
+import { SaasSubscriptionModal } from '../SaasSubscriptionModal.tsx';
+
 
 interface PracticeLayoutProps {
   currentRole: UserRole;
@@ -84,6 +86,8 @@ export const PracticeLayout: React.FC<PracticeLayoutProps> = ({
   const [internalBranding, setInternalBranding] = useState<FirmBrandingConfig>(getStoredFirmBranding);
   const activeBranding = externalBranding || internalBranding;
   const [isCustomizerOpen, setIsCustomizerOpen] = useState(false);
+  const [isSaasModalOpen, setIsSaasModalOpen] = useState(false);
+
 
   const handleSaveBranding = (updated: FirmBrandingConfig) => {
     setInternalBranding(updated);
@@ -453,16 +457,16 @@ export const PracticeLayout: React.FC<PracticeLayoutProps> = ({
 
             {/* Right: Actions, Subscription Alert, Quick Add, Notifications, Profile */}
             <div className="flex items-center gap-3 sm:gap-4 shrink-0">
-              {/* Trial Expiration Alert */}
-              <div className="hidden md:flex items-center gap-2 text-xs">
-                <span className="text-slate-500 font-medium">Trial expires in 14 days</span>
-                <button
-                  onClick={() => onTabChange(isSuperAdmin ? 'super-admin' : 'billing')}
-                  className="font-bold text-blue-600 hover:underline"
-                >
-                  Subscribe
-                </button>
-              </div>
+              {/* SaaS Plan & Isolated Storage Selector Button */}
+              <button
+                onClick={() => setIsSaasModalOpen(true)}
+                className="hidden md:flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-gradient-to-r from-emerald-500/10 to-indigo-500/10 hover:from-emerald-500/20 hover:to-indigo-500/20 text-emerald-800 border border-emerald-500/30 text-xs font-bold transition shadow-2xs cursor-pointer"
+                title="Customize Multi-Tenant SaaS Plan, A-la-carte Services & Isolated Storage"
+              >
+                <Sparkles className="w-3.5 h-3.5 text-emerald-600" />
+                <span>SaaS Plan & Storage</span>
+              </button>
+
 
               {/* User Dropdown */}
               <div className="relative">
@@ -643,6 +647,25 @@ export const PracticeLayout: React.FC<PracticeLayoutProps> = ({
                         Plan & Subscriptions
                       </div>
 
+                      {/* SaaS Plan & Services */}
+                      <button
+                        onClick={() => {
+                          setIsSaasModalOpen(true);
+                          setIsUserMenuOpen(false);
+                        }}
+                        className="w-full text-left px-2.5 py-1.5 hover:bg-slate-50 text-slate-700 hover:text-slate-900 rounded-lg flex items-center justify-between transition cursor-pointer group"
+                      >
+                        <span className="flex items-center gap-2 font-medium">
+                          <div className="w-6 h-6 rounded-md bg-emerald-50 text-emerald-600 flex items-center justify-center group-hover:scale-105 transition-transform">
+                            <Sparkles className="w-3.5 h-3.5" />
+                          </div>
+                          <span>SaaS Plan & Isolated Storage</span>
+                        </span>
+                        <span className="text-[10px] text-emerald-700 font-bold bg-emerald-50 px-1.5 py-0.2 rounded border border-emerald-200">
+                          Configure
+                        </span>
+                      </button>
+
                       {/* Plan & Subscriptions */}
                       <button
                         onClick={() => {
@@ -655,10 +678,10 @@ export const PracticeLayout: React.FC<PracticeLayoutProps> = ({
                           <div className="w-6 h-6 rounded-md bg-amber-50 text-amber-600 flex items-center justify-center group-hover:scale-105 transition-transform">
                             <CreditCard className="w-3.5 h-3.5" />
                           </div>
-                          <span>{isSuperAdmin ? 'Super Admin Console' : 'Plan & Subscriptions'}</span>
+                          <span>{isSuperAdmin ? 'Super Admin Console' : 'Billing & Retainers'}</span>
                         </span>
                         <span className="text-[10px] text-amber-700 font-bold bg-amber-50 px-1.5 py-0.2 rounded border border-amber-200">
-                          {isSuperAdmin ? 'SaaS Master' : '14 Days Left'}
+                          {isSuperAdmin ? 'SaaS Master' : 'Invoices'}
                         </span>
                       </button>
 
@@ -802,6 +825,12 @@ export const PracticeLayout: React.FC<PracticeLayoutProps> = ({
         currentBranding={activeBranding}
         onSaveBranding={handleSaveBranding}
         onResetBranding={handleResetBranding}
+      />
+
+      {/* SaaS Subscription, Preference & Isolated Storage Modal */}
+      <SaasSubscriptionModal
+        isOpen={isSaasModalOpen}
+        onClose={() => setIsSaasModalOpen(false)}
       />
     </div>
   );

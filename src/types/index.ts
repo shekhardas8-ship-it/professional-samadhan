@@ -26,6 +26,14 @@ export interface DirectorKYC {
   panUploaded?: boolean;
   bankDocUploaded?: boolean;
   dinDocUploaded?: boolean;
+  aadharDocFileName?: string;
+  aadharDocUrl?: string;
+  panDocFileName?: string;
+  panDocUrl?: string;
+  bankDocFileName?: string;
+  bankDocUrl?: string;
+  dinDocFileName?: string;
+  dinDocUrl?: string;
 }
 
 export interface ClientAttachedDoc {
@@ -39,6 +47,8 @@ export interface ClientAttachedDoc {
   status: 'uploaded' | 'pending' | 'verified';
   expiryDate?: string;
   notes?: string;
+  fileUrl?: string;
+  fileId?: string;
 }
 
 export interface ContactPerson {
@@ -317,6 +327,7 @@ export interface ChecklistCategoryItem {
   uploadedFiles: string[];
   missingReason?: string;
   nilNotes?: string;
+  documentPassword?: string;
 }
 
 export interface DocumentFile {

@@ -44,6 +44,14 @@ export const clients = pgTable('clients', {
     panUploaded?: boolean;
     bankDocUploaded?: boolean;
     dinDocUploaded?: boolean;
+    aadharDocFileName?: string;
+    aadharDocUrl?: string;
+    panDocFileName?: string;
+    panDocUrl?: string;
+    bankDocFileName?: string;
+    bankDocUrl?: string;
+    dinDocFileName?: string;
+    dinDocUrl?: string;
   }>>().default([]),
   // 13 Attached Documents
   attachedDocuments: jsonb('attached_documents').$type<Array<{
@@ -57,6 +65,8 @@ export const clients = pgTable('clients', {
     status: 'uploaded' | 'pending' | 'verified';
     expiryDate?: string;
     notes?: string;
+    fileUrl?: string;
+    fileId?: string;
   }>>().default([]),
   // Document checklist configuration
   requiredChecklist: jsonb('required_checklist').$type<string[]>().default([
@@ -377,6 +387,93 @@ export const govtFilings = pgTable('govt_filings', {
   driveFileId: text('drive_file_id'),
   driveWebViewLink: text('drive_web_view_link'),
   notes: text('notes'),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+  updatedAt: timestamp('updated_at').defaultNow().notNull(),
+});
+
+// ==========================================
+// 12. SAAS MULTI-TENANT ARCHITECTURE TABLES
+// ==========================================
+
+// 12a. Tenants (CA Firms & Individual Practitioners)
+export const tenants = pgTable('tenants', {
+  id: text('id').primaryKey(), // e.g. 'ten_quinceca_01', 'ten_mehta_02'
+  firmName: text('firm_name').notNull(),
+  firmType: text('firm_type').notNull().default('partnership_firm'), // 'sole_practitioner' | 'partnership_firm' | 'llp' | 'multi_branch'
+  slug: text('slug').notNull().unique(), // e.g. 'duttaca'
+  ownerEmail: text('owner_email').notNull(),
+  ownerName: text('owner_name').notNull(),
+  contactPhone: text('contact_phone'),
+  status: text('status').notNull().default('active'), // 'active' | 'trial' | 'suspended' | 'cancelled'
+  planTier: text('plan_tier').notNull().default('growth'), // 'starter' | 'growth' | 'automation_pro' | 'enterprise'
+  billingCycle: text('billing_cycle').notNull().default('monthly'), // 'monthly' | 'annual'
+  storageQuotaGb: integer('storage_quota_gb').notNull().default(25),
+  storageUsedBytes: numeric('storage_used_bytes', { precision: 20, scale: 0 }).default('0'),
+  storageProvider: text('storage_provider').notNull().default('managed_local'), // 'managed_local' | 'tenant_google_drive' | 'tenant_aws_s3' | 'tenant_r2'
+  customDomain: text('custom_domain'),
+  logoUrl: text('logo_url'),
+  themeColor: text('theme_color').default('#00c073'),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+  updatedAt: timestamp('updated_at').defaultNow().notNull(),
+});
+
+// 12b. Tenant Subscriptions & Preference Modules (A-la-carte Services)
+export const tenantSubscriptions = pgTable('tenant_subscriptions', {
+  id: text('id').primaryKey(),
+  tenantId: text('tenant_id').notNull().references(() => tenants.id),
+  basePlan: text('base_plan').notNull().default('growth'),
+  // Modular features selected by the CA firm
+  activeModules: jsonb('active_modules').$type<{
+    gst_filing_pipeline: boolean;
+    ai_vision_ocr: boolean;
+    whatsapp_automation: boolean;
+    notices_scrutiny_counsel: boolean;
+    itr_tax_audit: boolean;
+    mca_roc_compliance: boolean;
+    billing_timesheets: boolean;
+    multi_user_staff_review: boolean;
+  }>().default({
+    gst_filing_pipeline: true,
+    ai_vision_ocr: true,
+    whatsapp_automation: true,
+    notices_scrutiny_counsel: true,
+    itr_tax_audit: true,
+    mca_roc_compliance: false,
+    billing_timesheets: true,
+    multi_user_staff_review: true,
+  }),
+  storageQuotaGb: integer('storage_quota_gb').notNull().default(25),
+  monthlyPriceInr: numeric('monthly_price_inr', { precision: 10, scale: 2 }).default('3999.00'),
+  aiCreditsMonthlyLimit: integer('ai_credits_monthly_limit').default(2000),
+  aiCreditsUsed: integer('ai_credits_used').default(0),
+  whatsappMonthlyLimit: integer('whatsapp_monthly_limit').default(1000),
+  whatsappMessagesUsed: integer('whatsapp_messages_used').default(0),
+  billingCycle: text('billing_cycle').default('monthly'),
+  renewsAt: timestamp('renews_at'),
+  status: text('status').default('active'), // 'active' | 'past_due' | 'cancelled'
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+  updatedAt: timestamp('updated_at').defaultNow().notNull(),
+});
+
+// 12c. Isolated Storage Configurations (Separate Storage per Tenant / School / Entity)
+export const tenantStorageConfigs = pgTable('tenant_storage_configs', {
+  id: text('id').primaryKey(),
+  tenantId: text('tenant_id').notNull().references(() => tenants.id),
+  storageType: text('storage_type').notNull().default('managed_local'), // 'managed_local' | 'tenant_google_drive' | 'tenant_aws_s3' | 'tenant_r2'
+  isolatedFolderName: text('isolated_folder_name'), // e.g. 'ten_quinceca_01'
+  // Google Drive custom firm folder credentials
+  googleDriveFolderId: text('google_drive_folder_id'),
+  googleDriveClientEmail: text('google_drive_client_email'),
+  googleDriveRefreshToken: text('google_drive_refresh_token'),
+  // AWS S3 / Cloudflare R2 credentials
+  s3BucketName: text('s3_bucket_name'),
+  s3Region: text('s3_region'),
+  s3Endpoint: text('s3_endpoint'),
+  s3AccessKeyId: text('s3_access_key_id'),
+  s3SecretAccessKeyMasked: text('s3_secret_access_key_masked'),
+  quotaAlertThresholdPercent: integer('quota_alert_threshold_percent').default(80),
+  autoPurgeOldCache: boolean('auto_purge_old_cache').default(true),
+  lastHealthCheck: timestamp('last_health_check'),
   createdAt: timestamp('created_at').defaultNow().notNull(),
   updatedAt: timestamp('updated_at').defaultNow().notNull(),
 });

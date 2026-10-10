@@ -28,6 +28,7 @@ import { TasksView } from './components/tasks/TasksView.tsx';
 import { TimeTrackingView } from './components/timetracking/TimeTrackingView.tsx';
 import { WorkpaperView } from './components/workpaper/WorkpaperView.tsx';
 import { GstItrFilingHubView } from './components/filing/GstItrFilingHubView.tsx';
+import McaFilingAutomationView from './components/McaFilingAutomationView.tsx';
 import { DocumentsVaultView } from './components/documents/DocumentsVaultView.tsx';
 import { StatutoryNoticesView } from './components/notices/StatutoryNoticesView.tsx';
 import { DscLicenceTrackerView } from './components/dsc/DscLicenceTrackerView.tsx';
@@ -471,6 +472,11 @@ export default function App() {
       {/* 7b. Direct GST & ITR Government E-Filing Hub */}
       {(activeTab === 'gst-itr-filing' || activeTab === 'govt-efiling') && (
         <GstItrFilingHubView onBack={() => setActiveTab('home')} />
+      )}
+
+      {/* 7c. Direct MCA V3 Filing Automation Suite */}
+      {(activeTab === 'mca-filing' || activeTab === 'mca-automation') && (
+        <McaFilingAutomationView onBack={() => setActiveTab('home')} />
       )}
 
       {/* 8. Documents Vault & AI Intelligence */}
